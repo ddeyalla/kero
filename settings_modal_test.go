@@ -204,3 +204,30 @@ func TestSettingsModalMenuEscape(t *testing.T) {
 		t.Error("the next Escape left Settings open")
 	}
 }
+
+// The main window's closing ends Settings, letting go of the updater's
+// news and the shortcut being typed, so that the window, shown again,
+// starts without it.
+func TestSettingsEndsWithWindow(t *testing.T) {
+	a := settingsTestApp(t)
+	tt := ui.NewTester(a.view, 1100, 720)
+	tt.Frame()
+	a.openSettings("keyboard")
+	off := 0
+	a.ss.offUpdates = func() { off++ }
+	a.ss.recording, a.ss.query, a.ss.linearKey = "pane.split.right", "split", "lin_key"
+	tt.Frame()
+	a.endSettings() // as the window's OnClosed does
+	if a.ss.open || off != 1 || a.ss.offUpdates != nil || a.ss.recording != "" || a.ss.query != "" || a.ss.linearKey != "" {
+		t.Fatalf("open %v, updates let go %d times, recording %q, query %q, key %q", a.ss.open, off, a.ss.recording, a.ss.query, a.ss.linearKey)
+	}
+	again := ui.NewTester(a.view, 1100, 720)
+	again.Frame()
+	if _, ok := again.Find(a.tip(locales.SettingsClose(), "settings.open")); ok {
+		t.Error("the window shown again shows Settings")
+	}
+	a.endSettings() // twice is harmless
+	if off != 1 {
+		t.Errorf("the updater let go of %d times", off)
+	}
+}

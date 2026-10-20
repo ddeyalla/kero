@@ -117,7 +117,9 @@ on the backdrop, the header's close button and `Cmd+W` or Close Session,
 which close Settings rather than the pane under it. While it shows, Find
 goes to its search, and the palette, the New Pane chooser, the usage modal
 and Rename wait. A confirmation it asks for, as for restarting the service,
-shows over it and goes back to it.
+shows over it and goes back to it. Closing the main window ends Settings
+with it, letting go of what it holds, so a window shown again starts without
+it.
 
 The settings' state stays in `settingsState` (`a.ss`), with `open` for the
 modal. The system's, the updater's and kerod's answers are asked as it opens

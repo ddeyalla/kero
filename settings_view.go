@@ -120,6 +120,15 @@ func (a *App) toggleSettings() {
 
 // closeSettings closes Settings, giving the focus back to the terminal.
 func (a *App) closeSettings() {
+	a.endSettings()
+	a.focusTerminal()
+}
+
+// endSettings closes Settings and lets go of what it holds: the updater's
+// news, the menus' shortcuts while one is typed, the search and the key
+// typed. The main window's closing ends it too, so that a window shown
+// again starts without it.
+func (a *App) endSettings() {
 	a.ss.open = false
 	if a.ss.offUpdates != nil {
 		a.ss.offUpdates()
@@ -128,7 +137,6 @@ func (a *App) closeSettings() {
 	a.setRecording("") // the menus take their shortcuts back
 	a.ss.query = ""
 	a.ss.linearKey = ""
-	a.focusTerminal()
 }
 
 // invalidateMain draws the main window anew, which Settings is in.

@@ -124,6 +124,8 @@ func runApp() {
 		}))
 		a.win.OnFocus(func() { a.update(func() { a.focused = true; a.reportView() }) })
 		a.win.OnBlur(func() { a.update(func() { a.focused = false; a.reportView() }) })
+		// Settings, in the window, goes with it.
+		a.win.OnClosed(a.endSettings)
 		a.connect()
 		a.startUsage()
 		a.startResources()

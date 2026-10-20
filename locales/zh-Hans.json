@@ -107,6 +107,7 @@
   "sessionCopyDirectory": "拷贝目录",
   "sessionRevealIn": "在{app}中显示",
   "settingsTitle": "设置",
+  "settingsClose": "关闭设置",
   "footerNeedsYou": "{count} 个会话需要你",
   "footerWorking": "{count} 个会话正在运行",
   "footerDone": "{count} 个会话已完成，未查看",
