@@ -38,6 +38,7 @@ type chrome struct {
 	sideW     float32 // the sidebar's width as shown
 	mainPad   float32 // the left padding of the cards' column
 	headerPad float32 // the left padding of the header at the left edge
+	topPad    float32 // the top padding of the cards' column
 }
 
 // buttonsLeft places the sidebar's buttons that the header holds while
@@ -62,7 +63,7 @@ func lead(bar ui.TitleBar) float32 {
 // and centered on them as in the sidebar, as the card slides.
 func (a *App) headerButtons(c *ui.Context, bar ui.TitleBar, shown float32) ui.Element {
 	const h = 26 // iconButton's
-	return ui.Row(c).Absolute().Left(a.chrome.buttonsLeft(bar)).Top(barMid - cardGap - h/2).Height(h).AlignItems(ui.Center).Gap(2).Opacity(1 - 2*shown)
+	return ui.Row(c).Absolute().Left(a.chrome.buttonsLeft(bar)).Top(barMid - a.chrome.topPad - h/2).Height(h).AlignItems(ui.Center).Gap(2).Opacity(1 - 2*shown)
 }
 
 var sidebarMotion = ui.Animation{Duration: 260 * time.Millisecond, Ease: ui.CubicBezier(0.25, 1, 0.5, 1)}
@@ -77,7 +78,16 @@ func chromeFor(progress, width float32, bar ui.TitleBar) chrome {
 	// hidden, 16 into the card with it shown.
 	hidden, shown := lead(bar)+16+60, width+16
 	x := round(hidden + (shown-hidden)*s)
-	return chrome{shown: s, sideW: w, mainPad: pad, headerPad: x - w - pad}
+	// The cards start cardGap down with the sidebar shown, which has the
+	// title bar. With it hidden, the first header has it on macOS: it
+	// comes up to center on the traffic lights' line, and its title with
+	// them, rather than 6 below. Elsewhere the window controls are the
+	// header's own, and it stays.
+	top := float32(cardGap)
+	if !ownControls {
+		top = round(cardGap - (cardGap-(barMid-headerH/2))*(1-s))
+	}
+	return chrome{shown: s, sideW: w, mainPad: pad, headerPad: x - w - pad, topPad: top}
 }
 
 func b2f(b bool) float32 {
@@ -114,7 +124,7 @@ func (a *App) view(c *ui.Context) {
 				Opacity(0.4 + 0.6*shown).Children(func() { a.sidebar(c, pal, bar) })
 		})
 		// The gaps around the cards move the window too.
-		main := ui.Column(c).Grow(1).MinWidth(0).Padding(cardGap, cardGap, cardGap, a.chrome.mainPad).DragWindow()
+		main := ui.Column(c).Grow(1).MinWidth(0).Padding(a.chrome.topPad, cardGap, cardGap, a.chrome.mainPad).DragWindow()
 		main.Children(func() {
 			if shown > 0.01 {
 				a.resizeHandle(c, pal)
@@ -122,7 +132,6 @@ func (a *App) view(c *ui.Context) {
 			a.card(c, pal, bar, shown)
 		})
 	})
-	a.fullScreenLights(c, pal)
 	a.paletteView(c, pal)
 	a.chooserView(c, pal)
 	a.sweepViews()
@@ -248,7 +257,10 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 		iconButton(c, "hide-sidebar", sidebarIcon, a.tip(locales.SidebarHide(), "sidebar.toggle"), pal, a.toggleSidebar)
 		iconButton(c, "new-session", plusIcon, a.tip(locales.ActionNewSession(), "session.new"), pal, func() { a.newSession("") })
 	})
-	ui.Scroll(c.Key("sessions")).Grow(1).Padding(0, 10, 16, 10).Children(func() {
+	// The first row starts 30 below the lights' line, as it did under the
+	// taller bar, and the rows' left edge lines up with the close light's,
+	// 12 in, as the sidebar's footer does.
+	ui.Scroll(c.Key("sessions")).Grow(1).Padding(10, 12, 16, 12).Children(func() {
 		if !a.loaded {
 			return
 		}

@@ -130,7 +130,7 @@ func runApp() {
 			Content:   ui.View(a.view),
 		}))
 		setCompactTitleBar(a.win)
-		a.followFullScreen(a.win)
+		followFullScreen(a.win)
 		a.win.OnFocus(func() { a.update(func() { a.focused = true; a.reportView() }) })
 		a.win.OnBlur(func() { a.update(func() { a.focused = false; a.reportView() }) })
 		a.connect()
