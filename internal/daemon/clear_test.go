@@ -57,7 +57,7 @@ func (c *client) sync() {
 // client's terminal resized where the pane's was, frames of the new.
 func (c *client) resize(cols, rows int) {
 	c.sync()
-	c.s.resize(cols, rows)
+	c.s.resize(cols, rows, 0, 0)
 	c.term.Resize(cols, rows)
 	c.sync()
 }

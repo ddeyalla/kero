@@ -17,13 +17,15 @@ const (
 	FrameOutput byte = 'o'
 	// FrameInput carries what the user typed (client → daemon).
 	FrameInput byte = 'i'
-	// FrameResize carries the terminal's size: cols and rows as big-endian
-	// uint16s (client → daemon).
+	// FrameResize carries the terminal's size: cols, rows and a cell's
+	// width and height in pixels as big-endian uint16s (client → daemon),
+	// which programs asking the size in pixels, or taking the mouse in
+	// pixels (mode 1016), need.
 	FrameResize byte = 'r'
 	// FrameClosed tells the client the session is gone (daemon → client).
 	FrameClosed byte = 'c'
 	// FrameResized tells the client that the session's terminal took a
-	// size, as FrameResize carries it (daemon → client), between the frames
+	// size, cols and rows as big-endian uint16s (daemon → client), between the frames
 	// of the old size and those of the new: the client's terminal takes it
 	// there.
 	FrameResized byte = 'z'
@@ -32,15 +34,21 @@ const (
 	// ClearScrollback. The session's terminal clears, not the client's,
 	// which shows it with the next frame.
 	FrameClear byte = 'k'
+	// FrameTheme carries the colors the client's terminal shows (client →
+	// daemon), a Theme's Payload, which the daemon's terminals answer
+	// programs' questions about the colors with.
+	FrameTheme byte = 't'
 )
 
 // What a FrameClear clears.
 const (
 	// ClearScreen: the scrollback and the screen above the cursor's line,
-	// which moves to the top, as ⌘K does (terminal.ClearScreen).
+	// which moves to the top, as ⌘K and the context menu's Clear do
+	// (terminal.ClearScreen).
 	ClearScreen byte = 's'
-	// ClearScrollback: the scrollback, as the context menu's Clear
-	// Scrollback does (terminal.ClearScrollback).
+	// ClearScrollback: the scrollback (terminal.ClearScrollback), which
+	// older apps' context menu asked with Clear Scrollback; kerod still
+	// clears it for them.
 	ClearScrollback byte = 'b'
 )
 
@@ -55,6 +63,28 @@ func WriteFrame(w io.Writer, kind byte, payload []byte) error {
 	copy(buf[5:], payload)
 	_, err := w.Write(buf)
 	return err
+}
+
+// maxOutput bounds the payload of a FrameOutput, under maxFrame: output
+// past it goes in frames of its own, which the client reads as one stream.
+const maxOutput = 1 << 20
+
+// AppendFrames appends the frames that carry payload: output past
+// maxOutput, as a terminal's frame with the pixels of images, goes in
+// frames of its own.
+func AppendFrames(dst []byte, kind byte, payload []byte) []byte {
+	for {
+		n := len(payload)
+		if kind == FrameOutput {
+			n = min(n, maxOutput)
+		}
+		dst = append(dst, kind, byte(n>>24), byte(n>>16), byte(n>>8), byte(n))
+		dst = append(dst, payload[:n]...)
+		payload = payload[n:]
+		if len(payload) == 0 {
+			return dst
+		}
+	}
 }
 
 // ReadFrame reads one frame.
@@ -74,7 +104,7 @@ func ReadFrame(r io.Reader) (kind byte, payload []byte, err error) {
 	return hdr[0], payload, nil
 }
 
-// ResizePayload encodes a size for FrameResize.
+// ResizePayload encodes a size for FrameResized.
 func ResizePayload(cols, rows int) []byte {
 	var b [4]byte
 	binary.BigEndian.PutUint16(b[0:], uint16(max(1, min(cols, 0xFFFF))))
@@ -82,10 +112,63 @@ func ResizePayload(cols, rows int) []byte {
 	return b[:]
 }
 
-// ParseResize decodes a FrameResize payload.
+// ParseResize decodes a FrameResized payload.
 func ParseResize(p []byte) (cols, rows int, ok bool) {
 	if len(p) != 4 {
 		return 0, 0, false
 	}
 	return int(binary.BigEndian.Uint16(p[0:])), int(binary.BigEndian.Uint16(p[2:])), true
+}
+
+// Theme is the colors programs ask a terminal about (OSC 4, 10, 11, 12),
+// as RGBA: a Cursor with A 0 is the foreground.
+type Theme struct {
+	Foreground, Background, Cursor [4]byte
+	Palette                        [16][4]byte
+}
+
+// Payload encodes the theme for FrameTheme.
+func (t Theme) Payload() []byte {
+	b := make([]byte, 0, 4*19)
+	b = append(b, t.Foreground[:]...)
+	b = append(b, t.Background[:]...)
+	b = append(b, t.Cursor[:]...)
+	for _, c := range t.Palette {
+		b = append(b, c[:]...)
+	}
+	return b
+}
+
+// ParseTheme decodes a FrameTheme payload.
+func ParseTheme(p []byte) (t Theme, ok bool) {
+	if len(p) != 4*19 {
+		return t, false
+	}
+	colors := append([]*[4]byte{&t.Foreground, &t.Background, &t.Cursor}, make([]*[4]byte, 16)...)
+	for i := range t.Palette {
+		colors[3+i] = &t.Palette[i]
+	}
+	for i, c := range colors {
+		copy(c[:], p[4*i:])
+	}
+	return t, true
+}
+
+// ResizePixelsPayload encodes a size for FrameResize: a cell's size in
+// pixels is 0 when unknown.
+func ResizePixelsPayload(cols, rows, cellWidth, cellHeight int) []byte {
+	b := make([]byte, 8)
+	copy(b, ResizePayload(cols, rows))
+	binary.BigEndian.PutUint16(b[4:], uint16(max(0, min(cellWidth, 0xFFFF))))
+	binary.BigEndian.PutUint16(b[6:], uint16(max(0, min(cellHeight, 0xFFFF))))
+	return b
+}
+
+// ParseResizePixels decodes a FrameResize payload.
+func ParseResizePixels(p []byte) (cols, rows, cellWidth, cellHeight int, ok bool) {
+	if len(p) != 8 {
+		return 0, 0, 0, 0, false
+	}
+	cols, rows, _ = ParseResize(p[:4])
+	return cols, rows, int(binary.BigEndian.Uint16(p[4:])), int(binary.BigEndian.Uint16(p[6:])), true
 }

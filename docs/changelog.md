@@ -8,6 +8,14 @@ they do not imply published GitHub releases or existing release tags.
 
 ## Unreleased
 
+### Upstream
+
+- Merged Kero 2.0.6 and 2.0.7 by hand: program logos in pane titles, image
+  previews, pixel mouse reporting, theme colors for programs and agent-named
+  sessions, with Shibu's views, task runs and attachment drops kept. The
+  daemon protocol is now 3, so the app asks to restart the terminal service
+  once after updating; saved sessions keep their format.
+
 ### Documentation
 
 - Added the fork-only source-save guide, separating local commits, GitHub pushes,

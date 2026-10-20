@@ -46,6 +46,30 @@ func TestLead(t *testing.T) {
 	}
 }
 
+func TestDisplayNameFollowsFocus(t *testing.T) {
+	agent := Pane{ID: "a", Process: "claude", Agent: "claude", Title: "✳ Fix login", Status: Working}
+	shell := Pane{ID: "b", Shell: "fish", Dir: "/src/web", Status: Idle}
+	s := Session{Pane: agent, Panes: []Pane{agent, shell}, Lead: "a", Focus: "b"}
+	if n := s.DisplayName(NameFocused); n != "Fix login" {
+		t.Fatalf("name %q, want the agent's title over an idle shell", n)
+	}
+	s.Panes[1].Process, s.Panes[1].Title = "vim", "main.go"
+	if n := s.DisplayName(NameFocused); n != "main.go" {
+		t.Fatalf("name %q, want the focused program's title", n)
+	}
+	if n := s.DisplayName(NameLead); n != "Fix login" {
+		t.Fatalf("name %q, want the lead's title", n)
+	}
+	s.Panes[0].Dir = "/src/api"
+	if n := s.DisplayName(NameFolder); n != "api" {
+		t.Fatalf("name %q, want the first pane's folder", n)
+	}
+	s.Focus = "a"
+	if n := s.DisplayName(NameFocused); n != "Fix login" {
+		t.Fatalf("name %q, want the agent's title", n)
+	}
+}
+
 func TestLayoutMoveSwap(t *testing.T) {
 	var l *Layout
 	l = l.Split("a", "b", "right", 0).Split("b", "c", "down", 0) // a | (b / c)

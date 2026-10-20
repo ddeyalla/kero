@@ -1878,6 +1878,56 @@ func (msgs Messages) SetDirHome() string {
 	return Catalog.Format(msgs.locale, "setDirHome", nil)
 }
 
+// SetSessionName says "Name sessions after"
+// in the language the app shows.
+func SetSessionName() string { return In(i18n.Locale()).SetSessionName() }
+
+// SetSessionName says "Name sessions after"
+// in the language of msgs.
+func (msgs Messages) SetSessionName() string {
+	return Catalog.Format(msgs.locale, "setSessionName", nil)
+}
+
+// SetSessionNameDetail says "Until you or an agent name one. With Pane You’re In, a pane running only its shell defers to the pane that needs yo…"
+// in the language the app shows.
+func SetSessionNameDetail() string { return In(i18n.Locale()).SetSessionNameDetail() }
+
+// SetSessionNameDetail says "Until you or an agent name one. With Pane You’re In, a pane running only its shell defers to the pane that needs yo…"
+// in the language of msgs.
+func (msgs Messages) SetSessionNameDetail() string {
+	return Catalog.Format(msgs.locale, "setSessionNameDetail", nil)
+}
+
+// SetNameFocused says "Pane You’re In"
+// in the language the app shows.
+func SetNameFocused() string { return In(i18n.Locale()).SetNameFocused() }
+
+// SetNameFocused says "Pane You’re In"
+// in the language of msgs.
+func (msgs Messages) SetNameFocused() string {
+	return Catalog.Format(msgs.locale, "setNameFocused", nil)
+}
+
+// SetNameLead says "Pane That Needs You"
+// in the language the app shows.
+func SetNameLead() string { return In(i18n.Locale()).SetNameLead() }
+
+// SetNameLead says "Pane That Needs You"
+// in the language of msgs.
+func (msgs Messages) SetNameLead() string {
+	return Catalog.Format(msgs.locale, "setNameLead", nil)
+}
+
+// SetNameFolder says "Folder"
+// in the language the app shows.
+func SetNameFolder() string { return In(i18n.Locale()).SetNameFolder() }
+
+// SetNameFolder says "Folder"
+// in the language of msgs.
+func (msgs Messages) SetNameFolder() string {
+	return Catalog.Format(msgs.locale, "setNameFolder", nil)
+}
+
 // SetAskBeforeClosing says "Ask before closing a running program"
 // in the language the app shows.
 func SetAskBeforeClosing() string { return In(i18n.Locale()).SetAskBeforeClosing() }

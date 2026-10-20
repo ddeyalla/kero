@@ -31,6 +31,14 @@ The `new-session-directory` setting picks the folder:
 - `project`: the project's root folder
 - `home`: your home folder
 
+### How an unnamed session is named
+
+Until you or an agent name a session, the `session-name` setting (**Name sessions after** in Settings) picks what the sidebar shows:
+
+- `focused` (default): the title of the program in the pane you're in. A pane running only its shell defers to the pane that needs you most.
+- `lead`: the title of the program in the pane that needs you most, such as an agent that's working or waiting on you
+- `folder`: the first pane's folder, whatever runs in it
+
 ## Projects
 
 A **project** is a folder. Kero groups sessions under their project in the sidebar. Open one with <kbd>⌘</kbd> <kbd>O</kbd>, or let `kero new` pick it by the directory a session starts in.

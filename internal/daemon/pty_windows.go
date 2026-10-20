@@ -169,7 +169,8 @@ func (p *ptyProc) Read(b []byte) (int, error) {
 
 func (p *ptyProc) Write(b []byte) (int, error) { return p.in.Write(b) }
 
-func (p *ptyProc) Resize(cols, rows int) error {
+// Resize resizes the console; ConPTY has no size in pixels.
+func (p *ptyProc) Resize(cols, rows, _, _ int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.console == 0 {

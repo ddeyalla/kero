@@ -4,11 +4,12 @@ import (
 	"embed"
 
 	"github.com/egoist/mygo/ui"
+	"kero/internal/proto"
 )
 
 // The icons are Framework7's, drawn after SF Symbols so that they feel at
-// home on macOS, and one of Ionicons', as Iconify serves them: see
-// icons/README.md.
+// home on macOS, a few of other sets where it has none, and programs'
+// logos from Simple Icons, as Iconify serves them: see icons/README.md.
 //
 //go:embed icons/*.svg
 var iconFiles embed.FS
@@ -35,7 +36,7 @@ var (
 	chevronDownIcon = glyph("f7-chevron-down")
 	folderIcon      = glyph("f7-folder")
 	searchIcon      = glyph("f7-search")
-	terminalIcon    = glyph("ion-terminal-outline")
+	terminalIcon    = glyph("meteor-terminal")
 	returnIcon      = glyph("f7-return")
 	gearIcon        = glyph("f7-gear-alt")
 	updateIcon      = icon(`<path d="M13 5a5.5 5.5 0 1 0 .3 5M13 2v3H10"/>`)
@@ -75,3 +76,31 @@ var (
 	previewIcon = glyph("f7-eye")
 	sourceIcon  = glyph("f7-chevron-left-slash-chevron-right")
 )
+
+// programIcons are the logos of programs a pane may run, by the name kerod
+// gives the foreground program, its agent or its script's runtime.
+var programIcons = map[string]*ui.SVG{}
+
+func init() {
+	for name, logo := range map[string]string{
+		"claude": "claude", "codex": "openai", "gemini": "googlegemini", "opencode": "opencode",
+		"amp": "amp", "cursor-agent": "cursor", "copilot": "githubcopilot", "qwen": "qwen",
+		"kimi": "kimi", "cline": "cline",
+		"node": "nodedotjs", "bun": "bun", "deno": "deno", "python": "python", "python3": "python",
+		"vim": "vim", "nvim": "neovim", "git": "git", "docker": "docker",
+	} {
+		programIcons[name] = glyph("si-" + logo)
+	}
+}
+
+// programIcon is the logo of the pane's foreground program, as Claude's
+// for Claude Code and Node.js's for a script node runs; the terminal's
+// while the shell is in the foreground or the program has none.
+func programIcon(p *proto.Pane) *ui.SVG {
+	for _, name := range []string{p.Agent, p.Process, p.Runtime} {
+		if i := programIcons[name]; i != nil {
+			return i
+		}
+	}
+	return terminalIcon
+}

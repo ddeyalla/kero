@@ -19,6 +19,7 @@ import (
 type Settings struct {
 	// General
 	NewSessionDir   string `json:"newSessionDir"`   // "current", "project" or "home"
+	SessionName     string `json:"sessionName"`     // what names an unnamed session: proto.NameFocused, NameLead or NameFolder
 	ConfirmClose    bool   `json:"confirmClose"`    // before closing a pane a program runs in
 	RestoreSessions bool   `json:"restoreSessions"` // after kerod restarts, as after a reboot
 	ResumeAgents    bool   `json:"resumeAgents"`    // as it restores sessions: the agents' own
@@ -77,6 +78,7 @@ type Settings struct {
 func Default() Settings {
 	return Settings{
 		NewSessionDir:   "current",
+		SessionName:     proto.NameFocused,
 		ConfirmClose:    true,
 		RestoreSessions: true,
 		ResumeAgents:    true,

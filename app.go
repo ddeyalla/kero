@@ -163,6 +163,7 @@ type App struct {
 	usage        usageState
 	resources    resourceState
 	maintenance  maintenanceState
+	peek         peek // the image a path Command hovers shows
 
 	// growing are the panes just made, which grow from their edge;
 	// closing those giving their room back before they go.
@@ -330,7 +331,7 @@ func (a *App) event(cl *client.Client, m proto.Message) {
 		}
 		title := n.Title
 		if title == "" {
-			title = s.DisplayName()
+			title = s.DisplayName(a.set.SessionName)
 		}
 		a.showNotification(n.Session, title, n.Body)
 	}
@@ -406,17 +407,17 @@ func (a *App) notify(first bool) {
 		var title, body string
 		switch {
 		case s.Status == proto.Waiting && a.set.NotifyWaiting:
-			title, body = locales.NotifyNeedsYouTitle(s.DisplayName()), s.Message
+			title, body = locales.NotifyNeedsYouTitle(s.DisplayName(a.set.SessionName)), s.Message
 			if body == "" {
 				body = locales.NotifyWaitingBody()
 			}
 		case s.Status == proto.Failed && a.set.NotifyFailed:
-			title, body = locales.NotifyFailedTitle(s.DisplayName()), s.Message
+			title, body = locales.NotifyFailedTitle(s.DisplayName(a.set.SessionName)), s.Message
 			if body == "" {
 				body = locales.NotifyFailedBody(s.PaneName())
 			}
 		case s.Status == proto.Idle && prev == proto.Working && s.Unread && a.set.NotifyDone && (s.Agent != "" || s.Message != ""):
-			title, body = locales.NotifyDoneTitle(s.DisplayName()), s.Message
+			title, body = locales.NotifyDoneTitle(s.DisplayName(a.set.SessionName)), s.Message
 			if body == "" {
 				body = locales.NotifyDoneBody(s.Agent, proto.ShortDir(s.WorkDir()))
 			}
@@ -445,7 +446,7 @@ func (a *App) updateTitle() {
 	}
 	title := mygo.App.Name()
 	if s := a.session(a.selected); s != nil {
-		title = s.DisplayName()
+		title = s.DisplayName(a.set.SessionName)
 	}
 	a.win.SetTitle(title)
 }
@@ -591,7 +592,7 @@ type gated struct {
 	hold  *atomic.Int64 // until when sizes wait, in Unix nanoseconds
 
 	mu      sync.Mutex
-	pending [2]int // the size waiting, cols 0 none
+	pending [4]int // the size waiting, and its cells': cols 0 none
 	timer   *time.Timer
 }
 
@@ -600,18 +601,18 @@ func (g *gated) Read(p []byte) (int, error) {
 	return g.Stream.Read(p)
 }
 
-func (g *gated) Resize(cols, rows int) error {
+func (g *gated) ResizePixels(cols, rows, cellWidth, cellHeight int) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if wait := g.wait(); wait > 0 {
-		g.pending = [2]int{cols, rows}
+		g.pending = [4]int{cols, rows, cellWidth, cellHeight}
 		if g.timer == nil {
 			g.timer = time.AfterFunc(wait, g.flush)
 		}
 		return nil
 	}
-	g.pending = [2]int{}
-	return g.Stream.Resize(cols, rows)
+	g.pending = [4]int{}
+	return g.Stream.ResizePixels(cols, rows, cellWidth, cellHeight)
 }
 
 func (g *gated) wait() time.Duration {
@@ -631,8 +632,8 @@ func (g *gated) flush() {
 	}
 	g.timer = nil
 	if p := g.pending; p[0] > 0 {
-		g.pending = [2]int{}
-		g.Stream.Resize(p[0], p[1])
+		g.pending = [4]int{}
+		g.Stream.ResizePixels(p[0], p[1], p[2], p[3])
 	}
 }
 
@@ -738,15 +739,11 @@ func (a *App) termOptions(id string, conn *gated) terminal.Options {
 			a.zoom(z.Steps, z.Reset)
 			return true
 		},
-		// ⌘K and Clear Scrollback clear kerod's terminal, the session's:
-		// cleared here alone, kerod's next frames, drawn from a screen
-		// still full, would put rows back wrong.
-		OnClear: func(c terminal.Clear) bool {
-			what := proto.ClearScreen
-			if c == terminal.ClearScrollback {
-				what = proto.ClearScrollback
-			}
-			conn.Clear(what)
+		// ⌘K and the context menu's Clear clear kerod's terminal, the
+		// session's: cleared here alone, kerod's next frames, drawn from a
+		// screen still full, would put rows back wrong.
+		OnClear: func(terminal.Clear) bool {
+			conn.Clear(proto.ClearScreen)
 			return true
 		},
 		OpenLink: func(link string) bool { return a.openLink(id, link) },
@@ -912,20 +909,45 @@ func (a *App) openLink(id, link string) bool {
 	if strings.Contains(link, "://") {
 		return false
 	}
+	path := a.resolvePath(id, link)
+	if path == "" {
+		return false
+	}
+	openPath(path)
+	return true
+}
+
+// resolvePath returns the file a path printed in a pane names, relative to
+// the directory of the program that printed it, or "" for no such file.
+// id is a pane's, or a session's for its pane in front.
+func (a *App) resolvePath(id, link string) string {
 	path := lineSuffix.ReplaceAllString(link, "")
 	if strings.HasPrefix(path, "~/") || runtime.GOOS == "windows" && strings.HasPrefix(path, `~`) {
 		path = filepath.Join(proto.Home(), path[2:])
 	}
 	if !filepath.IsAbs(path) {
-		if s := a.session(id); s != nil && s.WorkDir() != "" {
-			path = filepath.Join(s.WorkDir(), path)
+		if dir := a.workDir(id); dir != "" {
+			path = filepath.Join(dir, path)
 		}
 	}
 	if _, err := os.Stat(path); err != nil {
-		return false
+		return ""
 	}
-	openPath(path)
-	return true
+	return path
+}
+
+// workDir returns the working directory of the pane, or of the session's
+// pane in front, by id.
+func (a *App) workDir(id string) string {
+	for i := range a.st.Sessions {
+		if p := a.st.Sessions[i].PaneByID(id); p != nil {
+			return p.WorkDir()
+		}
+	}
+	if s := a.session(id); s != nil {
+		return s.WorkDir()
+	}
+	return ""
 }
 
 // --- actions ---
@@ -1046,7 +1068,7 @@ func (a *App) closeSession(id string, ask bool) {
 		return
 	}
 	if ask && a.set.ConfirmClose && busy(s) {
-		name := s.DisplayName()
+		name := s.DisplayName(a.set.SessionName)
 		a.confirm = &confirmation{
 			open:    true,
 			title:   locales.ConfirmCloseTitle(name),
@@ -1088,14 +1110,14 @@ func (a *App) startRename(id string) {
 	if s == nil {
 		return
 	}
-	a.renaming, a.renamingProject, a.renameBuf, a.renameFrames = id, "", s.DisplayName(), 0
+	a.renaming, a.renamingProject, a.renameBuf, a.renameFrames = id, "", s.DisplayName(a.set.SessionName), 0
 }
 
 func (a *App) commitRename() {
 	id, name := a.renaming, strings.TrimSpace(a.renameBuf)
 	a.renaming = ""
 	s := a.session(id)
-	if s == nil || name == s.DisplayName() {
+	if s == nil || name == s.DisplayName(a.set.SessionName) {
 		a.focusTerminal()
 		return
 	}

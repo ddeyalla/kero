@@ -39,7 +39,7 @@ func startPTY(o ptyOptions) (*ptyProc, error) {
 		return nil, fmt.Errorf("pty: opening %s: %w", slaveName, err)
 	}
 	defer slave.Close() // the child has its own copies
-	if err := setSize(master, o.Cols, o.Rows); err != nil {
+	if err := setSize(master, o.Cols, o.Rows, 0, 0); err != nil {
 		master.Close()
 		return nil, err
 	}
@@ -82,7 +82,11 @@ func (p *ptyProc) Read(b []byte) (int, error) {
 
 func (p *ptyProc) Write(b []byte) (int, error) { return p.master.Write(b) }
 
-func (p *ptyProc) Resize(cols, rows int) error { return setSize(p.master, cols, rows) }
+// Resize resizes the terminal, a cell being cellW by cellH pixels (0 when
+// unknown).
+func (p *ptyProc) Resize(cols, rows, cellW, cellH int) error {
+	return setSize(p.master, cols, rows, cellW, cellH)
+}
 
 func (p *ptyProc) PID() int { return p.cmd.Process.Pid }
 
@@ -105,12 +109,15 @@ func (p *ptyProc) Foreground() int {
 	return int(pgid)
 }
 
-func setSize(f *os.File, cols, rows int) error {
-	ws := struct{ row, col, xpixel, ypixel uint16 }{clamp(rows), clamp(cols), 0, 0}
+func setSize(f *os.File, cols, rows, cellW, cellH int) error {
+	ws := struct{ row, col, xpixel, ypixel uint16 }{clamp(rows), clamp(cols), pixels(cols, cellW), pixels(rows, cellH)}
 	return ioctl(f, syscall.TIOCSWINSZ, unsafe.Pointer(&ws))
 }
 
 func clamp(v int) uint16 { return uint16(max(1, min(v, 0xFFFF))) }
+
+// pixels is the extent of n cells of size cell, 0 when unknown.
+func pixels(n, cell int) uint16 { return uint16(max(0, min(n*cell, 0xFFFF))) }
 
 func ioctl(f *os.File, req uintptr, arg unsafe.Pointer) error {
 	c, err := f.SyscallConn()

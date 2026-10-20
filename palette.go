@@ -50,7 +50,7 @@ func (a *App) paletteItems() []paletteItem {
 			if s.Process != "" {
 				detail += " · " + s.Process
 			}
-			items = append(items, paletteItem{session: s, title: s.DisplayName(), detail: detail + " · " + proto.ShortDir(s.WorkDir()),
+			items = append(items, paletteItem{session: s, title: s.DisplayName(a.set.SessionName), detail: detail + " · " + proto.ShortDir(s.WorkDir()),
 				run: func() { delete(a.prefs.Collapsed, s.Project); a.selectSession(id) }})
 		}
 	}

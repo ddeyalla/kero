@@ -7,7 +7,7 @@ tool github.com/egoist/mygo/cmd/mygo
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/ebitengine/purego v0.11.1
-	github.com/egoist/mygo v0.5.6-0.20261020115920-163d50e2acc1
+	github.com/egoist/mygo v0.5.6-0.20261020184213-ea23ad2975a8
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
 )

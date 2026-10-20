@@ -58,7 +58,7 @@ func TestClaudeRedrawIsNoWork(t *testing.T) {
 		t.Fatalf("at the prompt: %s", st)
 	}
 	for i := range 20 {
-		s.resize(96-i, 28)
+		s.resize(96-i, 28, 0, 0)
 		s.show(idle)
 		now = now.Add(16 * time.Millisecond)
 		if st := s.status(now); st != proto.Idle {
@@ -70,7 +70,7 @@ func TestClaudeRedrawIsNoWork(t *testing.T) {
 		t.Fatalf("in a turn: %s", st)
 	}
 	// Redraws of the turn, as a resize makes, are the same turn.
-	s.resize(80, 28)
+	s.resize(80, 28, 0, 0)
 	s.show(claudeScreen(t, "working"))
 	if st := s.status(now); st != proto.Working {
 		t.Fatalf("in a turn, resized: %s", st)

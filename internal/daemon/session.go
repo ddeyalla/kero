@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/plugins/terminal"
+	"github.com/egoist/mygo/ui"
 
 	"kero/internal/detect"
 	"kero/internal/proto"
@@ -32,14 +33,17 @@ type pane struct {
 	// mu guards the fields below, and orders the output the emulator and
 	// the clients get with clients attaching. The emulator's callbacks
 	// (OnTitle, OnNotify) run within Feed, with mu held.
-	mu       sync.Mutex
-	info     proto.Pane
-	proc     *ptyProc
-	term     *terminal.Terminal
-	clients  map[*attachment]struct{}
-	shellPID int
-	fgPGID   int
-	cwdAt    time.Time
+	mu   sync.Mutex
+	info proto.Pane
+	// cellW and cellH are the size of a cell in pixels on the client
+	// that last resized the pane, 0 until one did.
+	cellW, cellH int
+	proc         *ptyProc
+	term         *terminal.Terminal
+	clients      map[*attachment]struct{}
+	shellPID     int
+	fgPGID       int
+	cwdAt        time.Time
 
 	dirty bool // output since the history on disk
 	// seen is what the screen showed when the status last came from it,
@@ -118,6 +122,7 @@ func newPane(d *Daemon, sid string, info proto.Pane) (*pane, error) {
 		return nil, err
 	}
 	term.Resize(s.info.Cols, s.info.Rows)
+	term.UseTheme(d.theme.Load())
 	s.term = term
 	return s, nil
 }
@@ -286,7 +291,7 @@ func (s *pane) tick(now time.Time) bool {
 	changed := false
 	pg := s.proc.Foreground()
 	s.fgPGID = pg
-	proc, agent := "", ""
+	proc, agent, runtime := "", "", ""
 	if pg != 0 && pg != s.shellPID {
 		proc = procName(pg)
 		args := procArgs(pg)
@@ -294,6 +299,7 @@ func (s *pane) tick(now time.Time) bool {
 		if proc == "node" || proc == "bun" || proc == "python" || proc == "python3" || proc == "deno" {
 			// A script: name it by the script, as "codex", not "node".
 			if len(args) > 1 {
+				runtime = strings.TrimSuffix(proc, "3")
 				proc = strings.TrimSuffix(filepath.Base(args[1]), filepath.Ext(args[1]))
 			}
 		}
@@ -325,8 +331,8 @@ func (s *pane) tick(now time.Time) bool {
 			s.d.taskStart(s.info.TaskID, proto.TaskRun{Agent: agent, Session: s.sid, Pane: s.info.ID, Dir: dir})
 		}
 	}
-	if proc != s.info.Process || agent != s.info.Agent {
-		s.info.Process, s.info.Agent = proc, agent
+	if proc != s.info.Process || agent != s.info.Agent || runtime != s.info.Runtime {
+		s.info.Process, s.info.Agent, s.info.Runtime = proc, agent, runtime
 		s.seen, s.looked = "", false
 		changed = true
 	}
@@ -452,13 +458,47 @@ func (s *pane) input(p []byte) {
 	}
 }
 
-func (s *pane) resize(cols, rows int) {
+// useTheme gives the panes, and those to come, a client's colors, which
+// programs asking about them get: Copilot CLI drew its input box dark on
+// a light background, as kerod's terminals answered with a dark theme.
+func (d *Daemon) useTheme(t proto.Theme) {
+	color := func(c [4]byte) ui.Color { return ui.Color{R: c[0], G: c[1], B: c[2], A: c[3]} }
+	th := &terminal.Theme{Foreground: color(t.Foreground), Background: color(t.Background), Cursor: color(t.Cursor)}
+	for i, c := range t.Palette {
+		th.Palette[i] = color(c)
+	}
+	d.theme.Store(th)
+	d.mu.Lock()
+	panes := make([]*pane, 0, len(d.panes))
+	for _, p := range d.panes {
+		panes = append(panes, p)
+	}
+	d.mu.Unlock()
+	for _, p := range panes {
+		p.term.UseTheme(th)
+	}
+}
+
+func (s *pane) resize(cols, rows, cellW, cellH int) {
 	if cols <= 0 || rows <= 0 {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || cols == s.info.Cols && rows == s.info.Rows {
+	if s.closed {
+		return
+	}
+	if cellW > 0 && cellH > 0 && (cellW != s.cellW || cellH != s.cellH) {
+		// The cells' size in pixels: what the program asking the size in
+		// pixels gets, and what the client's mouse reports in pixels count
+		// in.
+		s.cellW, s.cellH = cellW, cellH
+		s.term.ResizePixels(s.info.Cols, s.info.Rows, cellW, cellH)
+		if s.proc != nil {
+			s.proc.Resize(s.info.Cols, s.info.Rows, cellW, cellH)
+		}
+	}
+	if cols == s.info.Cols && rows == s.info.Rows {
 		return
 	}
 	// The clients show what the screen holds at its old size, which
@@ -467,7 +507,7 @@ func (s *pane) resize(cols, rows int) {
 	s.info.Cols, s.info.Rows = cols, rows
 	s.term.Resize(cols, rows)
 	if s.proc != nil {
-		s.proc.Resize(cols, rows)
+		s.proc.Resize(cols, rows, s.cellW, s.cellH)
 	}
 	// Where this terminal took the size, which the clients' take there
 	// too (proto.FrameResized), then what it shows at it.
@@ -572,7 +612,7 @@ func (s *pane) exited(proc *ptyProc) {
 	s.proc = nil
 	s.dropLive()
 	s.info.ExitCode = code
-	s.info.Process, s.info.Agent, s.info.PID = "", "", 0
+	s.info.Process, s.info.Agent, s.info.Runtime, s.info.PID = "", "", "", 0
 	if code == 0 {
 		s.mu.Unlock()
 		s.d.removePane(s.info.ID)
@@ -722,10 +762,7 @@ func newAttachment(conn net.Conn) *attachment {
 }
 
 func (a *attachment) send(kind byte, payload []byte) {
-	f := make([]byte, 5+len(payload))
-	f[0] = kind
-	f[1], f[2], f[3], f[4] = byte(len(payload)>>24), byte(len(payload)>>16), byte(len(payload)>>8), byte(len(payload))
-	copy(f[5:], payload)
+	f := proto.AppendFrames(nil, kind, payload)
 	select {
 	case a.out <- f:
 	case <-a.done:

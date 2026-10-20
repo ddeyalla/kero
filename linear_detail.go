@@ -345,7 +345,7 @@ func (a *App) linearSession(c *ui.Context, pal *palette, d *proto.LinearIssueDet
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			popup(c, "linear-link-session", &a.lin.linkSession, ids, func(id string) string {
 				if s := a.session(id); s != nil {
-					return s.DisplayName()
+					return s.DisplayName(a.set.SessionName)
 				}
 				return locales.LinearChooseSession()
 			}, 190, pal).Shrink(1).MinWidth(0)

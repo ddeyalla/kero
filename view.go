@@ -122,6 +122,12 @@ func (a *App) view(c *ui.Context) {
 		a.previewKey = ""
 	}
 	a.previewShown = false
+	// An image previewed no more closes, and lets go of its bitmap.
+	if !a.peek.shown {
+		a.closePeek()
+		a.peek = peek{}
+	}
+	a.peek.shown = false
 	if later := a.later; len(later) > 0 {
 		a.later = nil
 		for _, fn := range later {
@@ -395,7 +401,7 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 			}
 			return
 		}
-		name := ui.Text(c, s.DisplayName()).FontSize(13.5).SingleLine().Ellipsis("…").Grow(1).MinWidth(0).TextColor(pal.text)
+		name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13.5).SingleLine().Ellipsis("…").Grow(1).MinWidth(0).TextColor(pal.text)
 		if s.Unread {
 			name.FontWeight(650)
 		}

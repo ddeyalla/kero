@@ -19,6 +19,7 @@ import (
 	"kero/internal/actions"
 	"kero/internal/client"
 	"kero/internal/proto"
+	"kero/internal/settings"
 )
 
 const usage = `kero — terminal sessions that keep running, for you and your agents
@@ -517,7 +518,7 @@ func run(args []string) error {
 		if t.pane != "" {
 			p = *t.s.PaneByID(t.pane)
 		}
-		line := fmt.Sprintf("%s\t%s\t%s", t.s.ID, p.Status, t.s.DisplayName())
+		line := fmt.Sprintf("%s\t%s\t%s", t.s.ID, p.Status, t.s.DisplayName(settings.Load().SessionName))
 		if p.Message != "" {
 			line += "\t" + p.Message
 		}
@@ -639,7 +640,7 @@ func find(st proto.State, ref string) (target, error) {
 	}
 	var matches []target
 	for _, s := range st.Sessions {
-		if strings.HasPrefix(s.ID, ref) || strings.EqualFold(s.Name, ref) || strings.EqualFold(s.DisplayName(), ref) {
+		if strings.HasPrefix(s.ID, ref) || strings.EqualFold(s.Name, ref) || strings.EqualFold(s.DisplayName(settings.Load().SessionName), ref) {
 			matches = append(matches, target{s: s})
 			continue
 		}
@@ -767,7 +768,7 @@ func listSessions(st proto.State) {
 		return s
 	}
 	for _, s := range st.Sessions {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.ID, names[s.Project], s.DisplayName(), status(s.Pane),
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.ID, names[s.Project], s.DisplayName(settings.Load().SessionName), status(s.Pane),
 			orDash(s.Process), proto.Ago(s.Since, now), proto.ShortDir(s.WorkDir()))
 		if len(s.Panes) > 1 {
 			for _, p := range s.Panes {

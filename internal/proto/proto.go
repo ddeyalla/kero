@@ -21,9 +21,11 @@ import (
 	"github.com/egoist/mygo"
 )
 
-// Version changes whenever the protocol does: a client refuses a daemon of
-// another version, which it offers to restart.
-const Version = 2
+// Version changes whenever the protocol changes in a way the other side
+// can't ignore: a client refuses a daemon of another version, which it
+// offers to restart. A new optional field, which the other side leaves
+// out or skips, doesn't change it.
+const Version = 3
 
 // Hello opens a connection.
 type Hello struct {
@@ -336,6 +338,9 @@ type Pane struct {
 	ProcessDir string `json:"processDir,omitempty"`
 	// Agent names the coding agent running in the foreground, when known.
 	Agent string `json:"agent,omitempty"`
+	// Runtime names the interpreter of a foreground script, as "node",
+	// when Process is the script's name.
+	Runtime string `json:"runtime,omitempty"`
 	// Shell is the name of the pane's shell, as "fish".
 	Shell string `json:"shell,omitempty"`
 
@@ -510,25 +515,49 @@ func (p *Pane) WorkDir() string {
 	return p.Dir
 }
 
-// DisplayName is the name to show for a session: the user's or an agent's, else the
-// title a program in the foreground set, else its directory's name.
-func (s *Session) DisplayName() string {
+// What names a session the user or an agent didn't (settings'
+// session-name).
+const (
+	// NameFocused: the program in the pane the user is in, else the
+	// lead's: a shell alone names nothing its directory doesn't.
+	NameFocused = "focused"
+	NameLead    = "lead"   // the program in the pane that most needs the user
+	NameFolder  = "folder" // the first pane's directory, whatever runs
+)
+
+// DisplayName is the name to show for a session: the user's or an agent's,
+// else the title a program in the foreground set, else its directory's
+// name; from, one of the Name constants, picks the pane it comes from.
+func (s *Session) DisplayName(from string) string {
 	if s.Name != "" {
 		return s.Name
 	}
-	if s.Process != "" {
-		if t := CleanTitle(s.Title); t != "" && !looksLikePath(t) {
-			return t
+	p := &s.Pane
+	switch from {
+	case NameFolder:
+		if len(s.Panes) > 0 {
+			p = &s.Panes[0]
 		}
-		if s.Agent != "" {
-			return s.Agent
+		p = &Pane{Dir: p.Dir}
+	case NameLead:
+	default:
+		if f := s.FocusPane(); f != nil && f.Process != "" {
+			p = f
 		}
 	}
-	if s.Dir != "" {
-		if s.Dir == Home() {
+	if p.Process != "" {
+		if t := CleanTitle(p.Title); t != "" && !looksLikePath(t) {
+			return t
+		}
+		if p.Agent != "" {
+			return p.Agent
+		}
+	}
+	if p.Dir != "" {
+		if p.Dir == Home() {
 			return "~"
 		}
-		return filepath.Base(s.Dir)
+		return filepath.Base(p.Dir)
 	}
 	return "shell"
 }

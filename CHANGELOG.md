@@ -3,6 +3,42 @@
 Shibu Code personal-fork releases are tracked in
 [docs/changelog.md](docs/changelog.md). The upstream Kero history follows.
 
+## 2.0.7
+
+- A split pane's title leads with its program's logo: Claude Code's,
+  Codex's and other agents', Node.js's for a script node runs, as vite,
+  and those of bun, deno, python, vim, git and docker; a shell's is a
+  bolder terminal icon.
+- A split pane shows its status once, by its title, not again in the
+  chip beside it.
+- An unnamed session takes its name from the program in the pane you're
+  in, else in the one that most needs you; `session-name` chooses
+  between these and the first pane's folder.
+- Clear Scrollback in a pane's context menu clears as Cmd+K does, the
+  screen too, and works on a full-screen program's.
+
+## 2.0.6
+
+- Images programs show appear in their panes, as grok's preview of a
+  pasted image, through the Kitty graphics protocol, as in Ghostty.
+- Command-hovering an image's path in a pane previews the image.
+- Files dropped on a pane paste their paths, escaped for the shell, as in
+  Ghostty: an agent takes a dropped image as a file it attaches.
+- The mouse lands where it points in programs that take it in pixels:
+  Claude Code's "Jump to bottom" lights up and takes a click, and dragging
+  selects its text again.
+- Programs asking the terminal's colors get the theme's: Copilot CLI's
+  input box is light on a light theme. Colors a program sets for the
+  terminal show, and programs that follow the appearance, as Claude Code
+  and Copilot CLI, change with it when it goes from light to dark.
+- Box drawing and blocks keep their colors under `minimum-contrast`, and
+  only rows a program fills extend into a pane's padding, as in Ghostty:
+  Copilot CLI's input box and tabs draw as they should.
+- A name an agent gave its session with `kero rename` goes when a new
+  conversation starts in the session's first pane.
+- After updating, Kero asks to restart kerod, whose sessions restore as
+  after a restart of the Mac.
+
 ## 2.0.5
 
 - Find in a pane's scrollback with Cmd+F (Ctrl+F on Windows).

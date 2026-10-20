@@ -459,11 +459,11 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 			case multi && (p.Status != proto.Idle || p.Unread):
 				statusIconP(c, pal, p.Status, p.Unread, p.Progress, 13)
 			case multi:
-				ui.Icon(c, terminalIcon).Size(14, 14).TextColor(pal.textFaint)
+				ui.Icon(c, programIcon(p)).Size(14, 14).TextColor(pal.textFaint)
 			}
 			title, size := p.PaneName(), float32(13.5)
 			if !multi {
-				title, size = s.DisplayName(), 14
+				title, size = s.DisplayName(a.set.SessionName), 14
 			}
 			if p.IsView() {
 				title, size = paneViewName(p.View), 13.5
@@ -498,7 +498,7 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 			gap.DragWindow()
 		}
 		if !p.IsView() {
-			a.paneChips(c, pal, p)
+			a.paneChips(c, pal, p, !multi)
 		}
 		show := (hovered || focused && multi) && !dragging
 		ctl := ui.Row(c.Key("controls")).Gap(0).AlignItems(ui.Center)
@@ -565,7 +565,9 @@ func (a *App) paneMenu(m *ui.Menu, s *proto.Session, p *proto.Pane) {
 	}
 }
 
-func (a *App) paneChips(c *ui.Context, pal *palette, p *proto.Pane) {
+// paneChips says what the pane is doing. With several panes the title
+// already leads with the status icon, so the chips go without (icon false).
+func (a *App) paneChips(c *ui.Context, pal *palette, p *proto.Pane, icon bool) {
 	switch p.Status {
 	case proto.Waiting:
 		msg := p.Message
@@ -576,12 +578,16 @@ func (a *App) paneChips(c *ui.Context, pal *palette, p *proto.Pane) {
 			msg = locales.StatusNeedsYou()
 		}
 		chip(c, pal, pal.attnSoft, pal.attention, func() {
-			statusIcon(c, pal, p.Status, p.Unread, 11)
+			if icon {
+				statusIcon(c, pal, p.Status, p.Unread, 11)
+			}
 			ui.Text(c, msg).FontSize(12).FontWeight(500).SingleLine().Ellipsis("…").MaxWidth(320)
 		})
 	case proto.Working:
 		chip(c, pal, pal.chip, pal.textMuted, func() {
-			statusIconP(c, pal, p.Status, false, p.Progress, 11)
+			if icon {
+				statusIconP(c, pal, p.Status, false, p.Progress, 11)
+			}
 			label := ago(p.Since, c.Now())
 			if p.Progress >= 0 {
 				label = itoa(p.Progress) + "%"
@@ -593,7 +599,9 @@ func (a *App) paneChips(c *ui.Context, pal *palette, p *proto.Pane) {
 		})
 	case proto.Failed:
 		chip(c, pal, pal.danger.Alpha(0.1), pal.danger, func() {
-			statusIcon(c, pal, p.Status, true, 11)
+			if icon {
+				statusIcon(c, pal, p.Status, true, 11)
+			}
 			msg := p.Message
 			if msg == "" {
 				msg = locales.StatusFailed()
@@ -610,7 +618,9 @@ func (a *App) paneChips(c *ui.Context, pal *palette, p *proto.Pane) {
 	case proto.Idle:
 		if p.Message != "" {
 			chip(c, pal, pal.chip, pal.textMuted, func() {
-				statusIcon(c, pal, p.Status, p.Unread, 11)
+				if icon {
+					statusIcon(c, pal, p.Status, p.Unread, 11)
+				}
 				ui.Text(c, p.Message).FontSize(12).SingleLine().Ellipsis("…").MaxWidth(320)
 			})
 		}
@@ -636,9 +646,14 @@ func (a *App) paneTerminal(c *ui.Context, pal *palette, s *proto.Session, p *pro
 		case e != nil && e.term != nil:
 			ref := a.paneRef(p.ID)
 			termView := terminal.View(c.Key("term"), e.term).Fill().Bind(ref)
+			// Our drop goes first: it takes images too, which the
+			// terminal's own file drop does not.
 			if drop, ok := ui.DropData(termView, transfer.DropOptions{Formats: []transfer.Format{transfer.FileList, transfer.PNG}, Operations: transfer.Copy}); ok {
 				a.pasteAttachment(p.ID, drop.Data)
 				ref.Focus(c)
+			}
+			if link, isPath, at := e.term.HoveredLink(); isPath {
+				a.imagePeek(p.ID, link, at, ref.Bounds(c))
 			}
 			if ref.Focused(c) && a.focusOf(s) != p.ID {
 				a.setFocus(s, p.ID)
