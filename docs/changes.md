@@ -140,44 +140,37 @@ those candidate ports are not implemented.
 
 ## Title bar and traffic lights
 
-The title bar is 48 points tall (`topBar`, twice `barMid` in
-[`view.go`](../view.go)): between macOS's compact title bar (38) and its
-unified toolbar (52). It cannot go to 38, because the cards' headers start
-`cardGap` down and center on the same line, `barMid`, as the traffic lights
-and the sidebar's buttons: a header must still hold a pane's title, 28 tall.
-MyGo sets the system's lights with `TrafficLightPosition` (`lightsX`, centered
-on `barMid`) in [`platform.go`](../platform.go).
+Shibu follows Apple's title bar on macOS rather than drawing its own:
 
-In full screen macOS moves a window's title bar, its traffic lights with it,
-into a bar that slides down with the menu bar only as the pointer reaches
-the top of the screen, and MyGo reports an empty title bar there. No window
-setting keeps the system's lights in place: MyGo's toolbar only decides
-whether that bar hides with the menu bar. So Shibu draws its own lights in
-full screen, where the system's are in the window
-([`traffic_lights.go`](../traffic_lights.go)):
+- MyGo's inset title bar style (`TitleBarHiddenInset`, in
+  [`platform.go`](../platform.go)) gives the window an empty `NSToolbar`
+  with the automatic toolbar style, which AppKit lays out as the unified
+  title bar and toolbar. Measured on macOS 27.0.1: the bar is 52 points,
+  the buttons 14 points, 23 apart, the close button 19 from the left, and
+  their middle 26 from the top. (The window's content layout rect starts
+  lower, 66 while the window is key, but the lights center on 26.)
+- Shibu no longer moves the lights (`TrafficLightPosition` is gone): they
+  stay where AppKit puts them, and the app lines up with them. `topBar` is
+  52 and `barMid` 26 ([`view.go`](../view.go)), so the sidebar's buttons
+  and the cards' headers, 36 tall from `cardGap` down, center on the
+  lights' line. Windows and Linux are unchanged (`ownControls`).
+- In full screen macOS hides the lights and brings them down with the menu
+  bar as the pointer reaches the top of the screen, as in Finder, Safari or
+  Xcode; Shibu leaves that alone. MyGo reports an empty title bar there,
+  which put the sidebar's buttons at the window's edge, under the lights
+  as they come down. `titleBar` ([`title_bar.go`](../title_bar.go)) keeps
+  the bar as it last was in the window instead, so nothing moves going
+  full screen, during the animation too. A window that opens in full
+  screen keeps room where AppKit puts the lights (`systemBar`).
 
-- The app follows full screen with the window's `OnEnterFullScreen` and
-  `OnLeaveFullScreen` ([`main.go`](../main.go)).
-- `titleBar` keeps the title bar as it last was in the window and gives it
-  in full screen, and while the window grows into it, so the sidebar's
-  buttons and the headers lay out as in the window and do not move. A window that opens in full screen uses the
-  lights' room from their position and AppKit's spacing.
-- `fullScreenLights` draws close, minimize and the green light at the
-  system's place, centered on `barMid`. Close closes the window and the
-  green light leaves full screen. Minimize is greyed and does nothing, as
-  macOS has it in full screen, where a window cannot minimize. The lights
-  grey out while the window is in the background, and show their glyphs
-  as the pointer comes over them.
-- The system's bar still slides down with the menu bar at the top of the
-  screen, over Shibu's lights, as in any app in full screen.
+An earlier version of this fix (`f777a8c`) drew Shibu's own lights in full
+screen and a 48-point bar; it was dropped for the system's own controls and
+behaviour.
 
-Windows and Linux draw their own window controls always (`ownControls`) and
-are unchanged. The Settings window keeps the system's behaviour in full
-screen.
-
-Tests: [`traffic_lights_test.go`](../traffic_lights_test.go) (the bar's
-height, the lights' place and colors, the sidebar's buttons in the window
-and in full screen, a window that opens in full screen).
+Tests: [`title_bar_test.go`](../title_bar_test.go) (the unified bar's
+height, the sidebar's buttons centered with the lights and unmoved in full
+screen, with the sidebar shown and hidden, and a window that opens in full
+screen).
 
 ## Identity and icon
 

@@ -18,10 +18,10 @@ const (
 	// barMid is the line the title bar's contents center on: the traffic
 	// lights, the sidebar's buttons, the panes' headers. topBar is the
 	// sidebar's title bar, centered on it, and headerH a header of a card,
-	// which starts cardGap down, centered on it too. 48 tall, between the
-	// compact title bar of macOS and its unified toolbar, as low as the
-	// header goes and still holds a pane's title, 28 tall, with room.
-	barMid  = 24
+	// which starts cardGap down, centered on it too. 52 tall, as the
+	// unified title bar and toolbar of macOS, whose middle AppKit centers
+	// the traffic lights on.
+	barMid  = 26
 	topBar  = 2 * barMid
 	headerH = 2 * (barMid - cardGap)
 	cardGap = 8 // around the card
@@ -114,7 +114,6 @@ func (a *App) view(c *ui.Context) {
 			a.card(c, pal, bar, shown)
 		})
 	})
-	a.fullScreenLights(c, pal, bar)
 	a.paletteView(c, pal)
 	a.chooserView(c, pal)
 	a.sweepViews()
