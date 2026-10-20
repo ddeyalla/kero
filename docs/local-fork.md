@@ -18,8 +18,8 @@ Install the built app in `~/Applications/Shibu Code.app` if desired.
 
 Shibu Code is the personal edition previously named Kero Local. Its bundle
 identifier and data directory stay the same, preserving local sessions,
-settings and provider keys. The supplied screenshot is padded to a square
-in `resources/shibu-icon.png` for the app icon. The CLI remains `kero`.
+settings and provider keys. The supplied golden retriever terminal artwork
+is stored in `resources/shibu-icon.png` for the app icon. The CLI remains `kero`.
 
 Data lives in `~/Library/Application Support/kero-local` on macOS, or
 `$KERO_HOME` when explicitly configured. Development builds use
@@ -41,7 +41,8 @@ The same readout is available without a window using `kero usage --json`.
 Each CLI invocation performs a fresh read; automatic polling and backoff
 retention belong to the running app.
 
-CPU and RAM sit below the account readouts in the sidebar; click that strip
+CPU and RAM sit below the account readouts as two equal-width meters; their
+bars show CPU busy percentage and the used fraction of physical RAM. Click them
 for details in the same modal. They measure the whole Mac, across all apps.
 Native Mach calls sample every two seconds on a background goroutine, without
 spawning `top` or shell processes. CPU is the busy share of all cores. RAM is

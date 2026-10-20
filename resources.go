@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -66,19 +68,51 @@ func memoryLabel(s resources.Sample, total bool) string {
 
 func (a *App) resourceSidebar(c *ui.Context, pal *palette) {
 	s := a.resources.sample
-	label := cpuLabel(s) + "   ·   " + memoryLabel(s, false)
-	if a.resources.err != "" {
-		label = "System stats unavailable"
-	}
-	button := ui.ButtonBase(c.Key("system-resources")).Height(24).Shrink(0).Margin(0, 12, 3, 12).Padding(0, 8).Radius(5).
+	button := ui.ButtonBase(c.Key("system-resources")).Height(48).Shrink(0).Margin(4, 12, 7, 12).Padding(8).Radius(5).
 		Label("System resources").Tooltip("This Mac · " + cpuLabel(s) + " · " + memoryLabel(s, true) + ". Across all apps; click for details.")
 	if button.Hovered() {
 		button.Background(pal.rowHover)
 	}
-	button.Children(func() { ui.Text(c, label).FontSize(10.5).TextColor(pal.textFaint).SingleLine().Ellipsis("…") })
+	button.Children(func() {
+		if a.resources.err != "" {
+			ui.Text(c, "System stats unavailable").FontSize(10.5).TextColor(pal.textFaint)
+			return
+		}
+		ui.Row(c).Fill().Gap(16).Children(func() {
+			cpu := float64(0)
+			if s.CPU != nil {
+				cpu = *s.CPU
+			}
+			resourceMeter(c.Key("cpu"), pal, "CPU", strings.TrimPrefix(cpuLabel(s), "CPU "), cpu, s.CPU != nil)
+			memory := float64(0)
+			if s.MemoryTotal > 0 {
+				memory = float64(s.MemoryUsed) / float64(s.MemoryTotal) * 100
+			}
+			resourceMeter(c.Key("memory"), pal, "RAM", strings.TrimPrefix(memoryLabel(s, false), "RAM "), memory, s.MemoryTotal > 0)
+		})
+	})
 	if button.Clicked() {
 		a.openUsage()
 	}
+}
+
+func resourceMeter(c *ui.Context, pal *palette, name, value string, percent float64, available bool) {
+	ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(7).Children(func() {
+		ui.Row(c).AlignItems(ui.Center).Gap(4).Children(func() {
+			ui.Text(c, name).FontSize(10.5).TextColor(pal.textFaint).Shrink(0)
+			ui.Spacer(c)
+			ui.Text(c, value).FontSize(10.5).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0)
+		})
+		fill := pal.textMuted
+		if percent >= 90 {
+			fill = pal.attention
+		}
+		ui.Box(c).Height(3).Radius(2).Background(pal.divider).Children(func() {
+			if available && !math.IsNaN(percent) && !math.IsInf(percent, 0) {
+				ui.Box(c).Height(3).WidthPercent(float32(max(0, min(100, percent)))).Radius(2).Background(fill)
+			}
+		})
+	})
 }
 
 func (a *App) resourceCard(c *ui.Context, pal *palette) {

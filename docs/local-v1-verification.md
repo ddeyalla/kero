@@ -70,6 +70,7 @@ keyboard-to-display latency or guarantee that all reported lag is resolved.
 Kero Local 2.0.5-local.2 was built and installed as ARM64. Its daemon started
 from the installed app, restored its saved idle session, and accepted
 `kero do usage.open`. The original Kero was not replaced by this pass.
+
 # Shibu Code branding verification — 2026-10-20
 
 The personal app is installed at `~/Applications/Shibu Code.app`, with
