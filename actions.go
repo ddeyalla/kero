@@ -34,6 +34,8 @@ func (a *App) run(id string, args map[string]string) {
 	switch id {
 	case "settings.open":
 		a.openSettings("")
+	case "updates.sync":
+		a.startSourceUpdate()
 	case "usage.open":
 		a.openUsage()
 	case "usage.refresh":

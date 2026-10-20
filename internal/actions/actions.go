@@ -22,6 +22,7 @@ type Action struct {
 // All are the app's actions, in their menus' order.
 var All = []Action{
 	{ID: "settings.open", Title: "Settings…", Menu: "Kero", Keys: "CmdOrCtrl+,", Remote: true},
+	{ID: "updates.sync", Title: "Update Shibu from Kero", Menu: "Kero", Remote: true},
 	{ID: "cli.install", Title: "Install Command Line Tool…", Menu: "Kero"},
 	{ID: "app.quitAll", Title: "Quit and End All Sessions…", Menu: "Kero", Keys: "CmdOrCtrl+Alt+Q"},
 

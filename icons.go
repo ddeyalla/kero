@@ -38,6 +38,7 @@ var (
 	terminalIcon    = glyph("ion-terminal-outline")
 	returnIcon      = glyph("f7-return")
 	gearIcon        = glyph("f7-gear-alt")
+	updateIcon      = icon(`<path d="M13 5a5.5 5.5 0 1 0 .3 5M13 2v3H10"/>`)
 	splitRightIcon  = glyph("f7-square-split-2x1")
 	splitDownIcon   = glyph("f7-square-split-1x2")
 	zoomIcon        = glyph("f7-arrow-up-left-arrow-down-right")

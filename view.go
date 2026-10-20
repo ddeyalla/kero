@@ -466,6 +466,11 @@ func (a *App) sidebarFooter(c *ui.Context, pal *palette) {
 		iconButton(c, "open-project", folderIcon, a.tip(locales.ActionOpenProject(), "project.open"), pal, a.openProject)
 		iconButton(c, "palette", searchIcon, a.tip(locales.ActionGoToSession(), "palette.open"), pal, a.openPalette)
 		iconButton(c, "settings", gearIcon, a.tip(locales.SettingsTitle(), "settings.open"), pal, func() { a.openSettings("") })
+		updateTip := "Update Shibu from Kero"
+		if a.maintenance.status != "" {
+			updateTip += " · " + a.maintenance.status
+		}
+		iconButton(c, "source-update", updateIcon, updateTip, pal, func() { a.startSourceUpdate() })
 		ui.Spacer(c)
 		switch a.conn {
 		case connReady:

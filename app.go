@@ -121,6 +121,7 @@ type App struct {
 	copyText     string
 	usage        usageState
 	resources    resourceState
+	maintenance  maintenanceState
 }
 
 // confirmation is a question the app asks before something it cannot undo.
