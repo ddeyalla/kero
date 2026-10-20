@@ -23,6 +23,17 @@ builds only. What each feature is and where it stands is tracked in the
   until then the hooks do nothing. No protocol change.
 - `agent-hooks` configuration key, `true` by default.
 
+### Fixed
+
+- The title bar follows macOS: 52 points, the unified title bar and
+  toolbar (it was 60). The traffic lights are the system's, where AppKit
+  puts them in that bar, no longer moved; the sidebar's buttons and the
+  panes' headers center on the same line.
+- Full screen behaves as in other Mac apps: the traffic lights hide, and
+  come down with the menu bar as the pointer reaches the top of the screen.
+  The sidebar's buttons no longer jump left as the window goes full screen,
+  and stay clear of the lights as they come down.
+
 ### Documentation
 
 - Added the [feature tracker](features.md): every Shibu feature, the release

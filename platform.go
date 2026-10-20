@@ -59,12 +59,11 @@ func framed(o mygo.WindowOptions) mygo.WindowOptions {
 		o.AutoHideMenuBar = true
 		return o
 	}
+	// The traffic lights stay where AppKit puts them in the unified title
+	// bar that the inset style's toolbar makes: centered on barMid, as the
+	// sidebar's buttons and the panes' headers are.
 	o.TitleBarStyle = mygo.TitleBarHiddenInset
 	o.TitleBarHeight = topBar
-	// The lights' buttons are 16 tall, and MyGo puts them a DIP above the
-	// position: centered on barMid, as the sidebar's buttons and the
-	// panes' headers are.
-	o.TrafficLightPosition = &mygo.Point{X: 18, Y: barMid - 7}
 	return o
 }
 

@@ -87,6 +87,13 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Faster redraws after a synchronized frame (55.9 ms → 16.9 ms transport median) | Automatic | 2.0.5-local.2 | Shipped |
 | Native ARM64 build, no constant status animation | Automatic | 2.0.5-local.1 | Shipped |
 
+## Window
+
+| Feature | How to use it | Since | Status |
+| --- | --- | --- | --- |
+| macOS unified title bar (52 pt); the system's traffic lights where AppKit puts them, centered with the sidebar's buttons and the panes' headers | Automatic | Unreleased | Untried |
+| Standard full screen: the traffic lights come down with the menu bar at the top of the screen; the sidebar's buttons stay put, clear of them | `Ctrl+Cmd+F`, or the green light | Unreleased | Untried |
+
 ## Updates and releases
 
 | Feature | How to use it | Since | Status |

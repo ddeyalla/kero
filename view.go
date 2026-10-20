@@ -18,8 +18,10 @@ const (
 	// barMid is the line the title bar's contents center on: the traffic
 	// lights, the sidebar's buttons, the panes' headers. topBar is the
 	// sidebar's title bar, centered on it, and headerH a header of a card,
-	// which starts cardGap down, centered on it too.
-	barMid  = 30
+	// which starts cardGap down, centered on it too. 52 tall, as the
+	// unified title bar and toolbar of macOS, whose middle AppKit centers
+	// the traffic lights on.
+	barMid  = 26
 	topBar  = 2 * barMid
 	headerH = 2 * (barMid - cardGap)
 	cardGap = 8 // around the card
@@ -87,7 +89,7 @@ func (a *App) view(c *ui.Context) {
 	}
 	a.shortcuts(c)
 
-	bar := c.TitleBar()
+	bar := a.titleBar(c)
 	row := ui.Row(c).Fill().AlignItems(ui.Stretch)
 	backdrop(c, pal, row, a.set)
 	// A curve, not a spring: a spring's long tail crawls under a pixel a

@@ -200,6 +200,40 @@ Probe: [`scripts/measure-terminal-latency.py`](../scripts/measure-terminal-laten
 See [Herdr comparison](herdr-porting.md) for architecture and future candidates;
 those candidate ports are not implemented.
 
+## Title bar and traffic lights
+
+Shibu follows Apple's title bar on macOS rather than drawing its own:
+
+- MyGo's inset title bar style (`TitleBarHiddenInset`, in
+  [`platform.go`](../platform.go)) gives the window an empty `NSToolbar`
+  with the automatic toolbar style, which AppKit lays out as the unified
+  title bar and toolbar. Measured on macOS 27.0.1: the bar is 52 points,
+  the buttons 14 points, 23 apart, the close button 19 from the left, and
+  their middle 26 from the top. (The window's content layout rect starts
+  lower, 66 while the window is key, but the lights center on 26.)
+- Shibu no longer moves the lights (`TrafficLightPosition` is gone): they
+  stay where AppKit puts them, and the app lines up with them. `topBar` is
+  52 and `barMid` 26 ([`view.go`](../view.go)), so the sidebar's buttons
+  and the cards' headers, 36 tall from `cardGap` down, center on the
+  lights' line. Windows and Linux are unchanged (`ownControls`).
+- In full screen macOS hides the lights and brings them down with the menu
+  bar as the pointer reaches the top of the screen, as in Finder, Safari or
+  Xcode; Shibu leaves that alone. MyGo reports an empty title bar there,
+  which put the sidebar's buttons at the window's edge, under the lights
+  as they come down. `titleBar` ([`title_bar.go`](../title_bar.go)) keeps
+  the bar as it last was in the window instead, so nothing moves going
+  full screen, during the animation too. A window that opens in full
+  screen keeps room where AppKit puts the lights (`systemBar`).
+
+An earlier version of this fix (`f777a8c`) drew Shibu's own lights in full
+screen and a 48-point bar; it was dropped for the system's own controls and
+behaviour.
+
+Tests: [`title_bar_test.go`](../title_bar_test.go) (the unified bar's
+height, the sidebar's buttons centered with the lights and unmoved in full
+screen, with the sidebar shown and hidden, and a window that opens in full
+screen).
+
 ## Identity and icon
 
 - App name: **Shibu Code** (previously **Kero Local**).
