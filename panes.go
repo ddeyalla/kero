@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/plugins/terminal"
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/proto"
@@ -492,7 +493,11 @@ func (a *App) paneTerminal(c *ui.Context, pal *palette, s *proto.Session, p *pro
 		switch {
 		case e != nil && e.term != nil:
 			ref := a.paneRef(p.ID)
-			terminal.View(c.Key("term"), e.term).Fill().Bind(ref)
+			termView := terminal.View(c.Key("term"), e.term).Fill().Bind(ref)
+			if drop, ok := ui.DropData(termView, transfer.DropOptions{Formats: []transfer.Format{transfer.FileList, transfer.PNG}, Operations: transfer.Copy}); ok {
+				a.pasteAttachment(p.ID, drop.Data)
+				ref.Focus(c)
+			}
 			if ref.Focused(c) && a.focusOf(s) != p.ID {
 				a.setFocus(s, p.ID)
 			}

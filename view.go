@@ -240,6 +240,7 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 			ui.Text(c, locales.SidebarNoSessions()).FontSize(12.5).TextColor(pal.textFaint).Padding(8, 10)
 		}
 	})
+	a.usageSidebar(c, pal)
 	a.sidebarFooter(c, pal)
 	c.After(20 * time.Second) // times ago move on
 }
@@ -602,9 +603,7 @@ func statusIconP(c *ui.Context, pal *palette, st proto.Status, unread bool, prog
 			var track ui.Path
 			track.Circle(cx, cy, rad)
 			p.StrokePath(&track, 1.7, pal.text.Alpha(0.13))
-			p.AnimationFrame()
-			deg := float32(p.Now().UnixMilli()%1000) / 1000 * 360
-			p.Transform(ui.Rotation(deg), cx, cy, func() {
+			p.Transform(ui.Rotation(-90), cx, cy, func() {
 				var arc ui.Path
 				arc.Circle(cx, cy, rad)
 				p.StrokePath(arc.Trim(0, 0.3), 1.7, pal.text)
@@ -613,11 +612,9 @@ func statusIconP(c *ui.Context, pal *palette, st proto.Status, unread bool, prog
 			var ring ui.Path
 			ring.Circle(cx, cy, rad)
 			p.StrokePath(&ring, 1.7, pal.attention)
-			p.AnimationFrame()
-			pulse := float32(0.5 + 0.5*math.Sin(float64(p.Now().UnixMilli()%1600)/1600*2*math.Pi))
 			var dot ui.Path
 			dot.Circle(cx, cy, rad*0.42)
-			p.FillPath(&dot, pal.attention.Alpha(0.65+0.35*pulse))
+			p.FillPath(&dot, pal.attention)
 		case st == proto.Failed:
 			var disc ui.Path
 			disc.Circle(cx, cy, rad+0.5)

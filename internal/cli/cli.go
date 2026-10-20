@@ -52,6 +52,7 @@ Usage:
       -x, --exit                  instead wait for the command it started
                                   with to end, exit with its status
   kero status [target] [--json]
+  kero usage [--json]           read account allowances and API balances
   kero rename <session> <name>
   kero focus <target>           show a session (and pane) in the app
   kero close <target>           end a session (or, given a pane, the pane)
@@ -85,7 +86,7 @@ ambiguous one), 4 kerod unreachable.
 // Commands lists the subcommands, which main sends here.
 var Commands = []string{"ls", "list", "new", "split", "send", "key", "prompt", "read", "capture", "wait", "status",
 	"rename", "focus", "close", "kill", "restart", "notify", "report", "projects", "skill", "hook", "daemon", "do", "actions", "config",
-	"help", "--help", "-h", "version", "--version"}
+	"usage", "help", "--help", "-h", "version", "--version"}
 
 // Errors of exit statuses other than 1.
 var (
@@ -196,6 +197,8 @@ func run(args []string) error {
 		return hookCmd(args)
 	case "config":
 		return configCmd(args)
+	case "usage":
+		return accountUsage(args)
 	}
 	c, err := client.Connect(false)
 	if err != nil {

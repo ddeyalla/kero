@@ -16,6 +16,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/terminal"
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/actions"
@@ -118,6 +119,7 @@ type App struct {
 	previewShown bool
 	arrived      map[string]bool
 	copyText     string
+	usage        usageState
 }
 
 // confirmation is a question the app asks before something it cannot undo.
@@ -632,6 +634,7 @@ func (a *App) termOptions(id string, conn *gated) terminal.Options {
 			return true
 		},
 		OpenLink: func(link string) bool { return a.openLink(id, link) },
+		OnPaste:  func(d transfer.Data) bool { return a.pasteAttachment(id, d) },
 		// A selection copied as it ends shows nothing else: say so.
 		OnCopy: func(_ string, by terminal.CopySource) {
 			if by == terminal.CopySelect {

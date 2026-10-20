@@ -420,6 +420,12 @@ func Home() string {
 // build, so that it runs a daemon, sessions and settings of its own beside
 // the installed Kero.
 func Name() string {
+	if strings.HasPrefix(mygo.App.Name(), "Kero Local") {
+		if mygo.IsDev() {
+			return "kero-local-dev"
+		}
+		return "kero-local"
+	}
 	if mygo.IsDev() {
 		return "kero-dev"
 	}

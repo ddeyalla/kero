@@ -114,10 +114,13 @@ func runApp() {
 	})
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
 		a.savePrefs()
+		if a.usage.cancel != nil {
+			a.usage.cancel()
+		}
 	})
 	mygo.App.WhenReady(func() {
 		a.win = mygo.NewWindow(framed(mygo.WindowOptions{
-			Title:     "Kero",
+			Title:     mygo.App.Name(),
 			Width:     1180,
 			Height:    760,
 			MinWidth:  560,
@@ -129,6 +132,7 @@ func runApp() {
 		a.win.OnFocus(func() { a.update(func() { a.focused = true; a.reportView() }) })
 		a.win.OnBlur(func() { a.update(func() { a.focused = false; a.reportView() }) })
 		a.connect()
+		a.startUsage()
 		go a.watchConfig()
 	})
 	if err := mygo.App.Run(); err != nil {
