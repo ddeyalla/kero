@@ -23,8 +23,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  check:
     if: github.repository == 'ddeyalla/kero' && github.ref == 'refs/heads/shibu'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.upstream.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: shibu
+      - name: Check stable Kero release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode || 'check' }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          import shibu_release as release
+          release.validate_config(json.loads(Path('mygo.json').read_text()))
+          baseline = json.loads(Path('shibu-upstream.json').read_text())
+          upstream = json.loads(release.run('gh', 'api', 'repos/egoist/kero/releases/latest').stdout)
+          if upstream.get('draft') or upstream.get('prerelease'):
+              raise SystemExit('Upstream release is not stable')
+          if release.stable_version(upstream['tag_name']) < release.stable_version(baseline['tag']):
+              raise SystemExit('Upstream version went backwards; review required')
+          changed = os.environ['MODE'] == 'release' or upstream['tag_name'] != baseline['tag']
+          release.output(changed=str(changed).lower())
+          PY
+  release:
+    needs: check
+    if: needs.check.outputs.changed == 'true'
     runs-on: macos-15
     timeout-minutes: 30
     env:

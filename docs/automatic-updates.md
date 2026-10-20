@@ -8,6 +8,8 @@ never the original Kero application.
 
 - Maintained/default branch: `shibu`. Original fork branch `main` remains separate.
 - Daily upstream check: 03:23 UTC (08:53 India time), subject to GitHub scheduling delays.
+- Release checks use a lightweight Linux runner; Mac build capacity is requested
+  only when there is a candidate to verify and build.
 - Input: the latest published, stable `egoist/kero` release, recorded in
   [`shibu-upstream.json`](../shibu-upstream.json).
 - Clean candidates run release-guard tests, all application tests and MyGo vet.
