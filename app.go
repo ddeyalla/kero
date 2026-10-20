@@ -117,8 +117,13 @@ type App struct {
 	statuses map[string]proto.Status // as last seen, for notifications
 
 	// windowBar is the title bar as it last was in the window, which
-	// titleBar keeps in full screen, where the traffic lights hide.
-	windowBar ui.TitleBar
+	// titleBar keeps in full screen. There, fullScreen, Kero draws the
+	// traffic lights, at lights, where they were in the window once read
+	// (lightsRead).
+	windowBar  ui.TitleBar
+	fullScreen bool
+	lights     [3]ui.Rect
+	lightsRead bool
 
 	renaming        string
 	renamingProject string

@@ -106,6 +106,7 @@ func (a *App) openSettings(page string) {
 		Vibrancy: vibrancyFor(a.set),
 		Content:  ui.View(a.settingsView),
 	}))
+	setCompactTitleBar(a.setWin)
 	a.setWin.OnClosed(func() {
 		offUpdates()
 		a.setWin = nil

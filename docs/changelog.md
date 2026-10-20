@@ -12,14 +12,17 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
-- The title bar follows macOS: 52 points, the unified title bar and
-  toolbar (it was 60). The traffic lights are the system's, where AppKit
-  puts them in that bar, no longer moved; the sidebar's buttons and the
-  panes' headers center on the same line.
-- Full screen behaves as in other Mac apps: the traffic lights hide, and
-  come down with the menu bar as the pointer reaches the top of the screen.
-  The sidebar's buttons no longer jump left as the window goes full screen,
-  and stay clear of the lights as they come down.
+- The title bar is lower: macOS's compact title bar and toolbar, 40 points
+  (it was 60), with the traffic lights where macOS puts them in it and the
+  sidebar's buttons centered on them. The panes' headers keep their own
+  height, 36, for their titles and buttons.
+- In full screen the traffic lights stay in sight, where they are in the
+  window: Shibu draws them there. Close closes the window, the green light
+  leaves full screen, and minimize is greyed, as macOS has it in full
+  screen. The bar that slides down over the top of the window with the
+  menu bar still comes, but empty, without a second set of lights or its
+  background, and clicks go through it. The sidebar's buttons no longer move going in or out of
+  full screen.
 
 ### Documentation
 

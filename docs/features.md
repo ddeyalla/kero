@@ -85,8 +85,8 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| macOS unified title bar (52 pt); the system's traffic lights where AppKit puts them, centered with the sidebar's buttons and the panes' headers | Automatic | Unreleased | Untried |
-| Standard full screen: the traffic lights come down with the menu bar at the top of the screen; the sidebar's buttons stay put, clear of them | `Ctrl+Cmd+F`, or the green light | Unreleased | Untried |
+| Compact title bar (40 pt): the traffic lights where macOS puts them, the sidebar's buttons centered on them | Automatic | Unreleased | Untried |
+| Traffic lights in sight in full screen, where they are in the window: close, minimize (greyed, as macOS has it) and exit full screen; the bar that slides down with the menu bar is empty and lets clicks through | `Ctrl+Cmd+F`, or the green light | Unreleased | Untried |
 
 ## Updates and releases
 
