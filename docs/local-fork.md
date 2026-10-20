@@ -94,8 +94,12 @@ recommended next ports. Apple Silicon is arm64; amd64 is Intel/AMD x86-64.
 
 ## Incorporate upstream changes
 
+For routine updates, use the [guarded stable-release workflow](automatic-updates.md).
+The commands below are for deliberately reviewing unreleased upstream `main`
+changes on an isolated feature branch, not the daily release path.
+
 Keep feature work on its branch, with `origin` pointing to the personal fork
-and `upstream` to the original repository:
+and `upstream` to the original repository for fetch only:
 
 ```sh
 git fetch upstream

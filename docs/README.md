@@ -11,6 +11,7 @@ These docs describe the local macOS edition.
 | Document | Contents |
 | --- | --- |
 | [Changelog](changelog.md) | Shibu release history and unreleased work |
+| [Keep your changes on your fork](keeping-your-fork.md) | Local commits, fork-only pushes, private settings and app releases |
 | [Changes and implementation](changes.md) | Features, code locations, behavior and remaining limits |
 | [Build and install](build.md) | Toolchain, checks, local installation and rollback |
 | [Versioning and releases](versioning.md) | Version source, numbering rules and release checklist |

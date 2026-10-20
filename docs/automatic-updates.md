@@ -129,3 +129,8 @@ The workflow runs only in `ddeyalla/kero` and pushes only to that checkout's
 origin and Shibu release tags. The local upstream remote has its push URL set to
 `DISABLED`. Keep it that way; upstream is read/fetch only. No upstream pull request
 is created by this automation.
+
+For daily source work, see [Keeping your Shibu changes](keeping-your-fork.md).
+Finished code/docs belong on your fork; session data, credentials and personal
+settings remain local. A source push is separate from publishing/installing a
+new app build.

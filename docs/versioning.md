@@ -36,21 +36,24 @@ Do not interpret upstream update ordering as Shibu release ordering.
 
 1. Review the changes since the previous personal release. Update
    [change details](changes.md) and the [local guide](local-fork.md) as needed.
-2. Increment `version` in `mygo.json` once for the new app release. Keep the
+2. Choose the release path. The guarded workflow in **mode: release** increments
+   `version` in `mygo.json` itself; do not increment it manually first. For a
+   separately managed local build, increment it once before building. Keep the
    name, bundle ID and `kero-local` data identity stable.
-3. Move the relevant **Unreleased** entries into a new dated section in
-   [Shibu changelog](changelog.md). Record features, fixes, migration needs,
-   verification and known limits; do not claim an install before it happens.
+3. Maintain the relevant **Unreleased** entries in [Shibu changelog](changelog.md).
+   The workflow moves them into a dated release section; do that manually only
+   for the separately managed local path. Record features, fixes, migration
+   needs, verification and known limits; do not claim an install before it happens.
 4. Follow [Build and install](build.md): run checks, build, confirm embedded
    version/architecture/signature, install, and smoke-test the app. Record
    the results in [verification history](local-v1-verification.md). Keep
    credentials, local session IDs and private histories out of new reports.
 5. Keep the release/base in `mygo.json`/`shibu-upstream.json` accurate.
    Preserve previous changelog and verification entries.
-6. Commit the release changes. When intentionally marking a verified release,
-   use an annotated tag `shibu-v<version>`, such as
-   `shibu-v2.0.5-local.4`, on that exact commit. Push the branch and tag only
-   when publishing that release is part of the task.
+6. The workflow commits the release changes, creates the annotated
+   `shibu-v<version>` tag and publishes after its gates pass. For a separately
+   managed release, commit/tag that exact verified build yourself and push only
+   when publishing is part of the task. Never push a release to `egoist/kero`.
 
 The `shibu-v` prefix distinguishes personal tags from upstream `v2.0.5` tags.
 The inherited upstream release workflow is replaced by the Shibu workflow.
@@ -60,9 +63,11 @@ archives after checks pass; a tag by itself does not notarize a macOS build.
 
 ## Incorporating upstream
 
-Keep `origin` as `ddeyalla/kero` and `upstream` as `egoist/kero`. Fetch and
-merge upstream on the feature branch, resolve conflicts, then verify the
-personal identity, Shibu-only binary update feed and all local features before
-shipping. See [source update instructions](local-fork.md#incorporate-upstream-changes).
+Keep `origin` as `ddeyalla/kero` and `upstream` as `egoist/kero`, with upstream
+pushes disabled. Prefer the guarded stable-release workflow. For a manual
+upstream merge, use an isolated feature branch, resolve conflicts, then verify
+the personal identity, Shibu-only binary update feed and all local features
+before shipping. See [source update instructions](local-fork.md#incorporate-upstream-changes)
+and [fork-only source saves](keeping-your-fork.md).
 Retain the root upstream changelog and add personal changes to
 `docs/changelog.md` to reduce merge conflicts.

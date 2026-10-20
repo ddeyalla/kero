@@ -8,7 +8,13 @@ they do not imply published GitHub releases or existing release tags.
 
 ## Unreleased
 
-No pending changes.
+### Documentation
+
+- Added the fork-only source-save guide, separating local commits, GitHub pushes,
+  signed app releases and private Mac session/configuration data.
+- Recorded the authorized session recovery and remaining socket-guard integration.
+- Clarified workflow-owned version increments and retained unfinished Linear work
+  outside these documentation commits.
 
 ## [2.0.5-local.7] - 2026-10-20
 
