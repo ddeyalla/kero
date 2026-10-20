@@ -828,6 +828,19 @@ type (
 		Title string `json:"title,omitempty"`
 		Body  string `json:"body,omitempty"`
 	}
+	// ReportParams are a coding agent's status, as its hook tells it
+	// (kero hook): the pane is the one whose AgentSession is Agent's
+	// Session, Pane ($KERO_PANE) first; none when no pane runs it, as a
+	// nested `claude -p` runs a session of its own. State is a Record's,
+	// and Kind and Msg go with it.
+	ReportParams struct {
+		Pane    string `json:"pane"`
+		Agent   string `json:"agent"`
+		Session string `json:"session"`
+		State   string `json:"state"`
+		Kind    string `json:"kind,omitempty"`
+		Msg     string `json:"msg,omitempty"`
+	}
 	WaitParams struct {
 		ID string `json:"id"`
 		// Status waits for one of these; empty waits for the session to

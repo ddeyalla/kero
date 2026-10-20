@@ -63,6 +63,12 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Zoom the page (Safari's steps); the zoom chip resets it | `Cmd+=`, `Cmd+-`, `Cmd+0` | 2.0.7-local.1 | Shipped |
 | Reload the page (instead of renaming the session) | `Cmd+R` | 2.0.7-local.1 | Shipped |
 
+## Agents
+
+| Feature | How to use it | Since | Status |
+| --- | --- | --- | --- |
+| Claude Code and Codex report working, waiting, done and error from their hooks; Esc and granted permissions still read from the screen | `kero skill setup`; `agent-hooks` in the configuration | Unreleased | Untried |
+
 ## Usage and the machine
 
 | Feature | How to use it | Since | Status |

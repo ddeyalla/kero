@@ -56,8 +56,10 @@ type pane struct {
 	idleFrom time.Time
 	// osc finds OSC 7501 and 133 in the output; records are the programs'
 	// status reports (OSC 7501), by id, and reported tells that one came.
+	// soft are the ids of those agents' hooks reported (applySoft).
 	osc      oscScanner
 	records  map[string]proto.Record
+	soft     map[string]bool
 	reported bool
 	// awaiting tells that the command the pane started with runs, whose
 	// end its shell will tell (OSC 133;D, see shellArgs).
@@ -393,7 +395,9 @@ func (s *pane) look(now time.Time) bool {
 		s.idleFrom = time.Time{}
 		return false
 	}
-	if st == detect.Idle && !visible && s.info.Status == proto.Working {
+	// An agent's hook said it works or waits: its prompt too must stay
+	// a while to say otherwise, as it shows a moment as a turn begins.
+	if st == detect.Idle && (!visible && s.info.Status == proto.Working || s.softLive()) {
 		if s.idleFrom.IsZero() {
 			s.idleFrom = now
 		}
@@ -403,6 +407,7 @@ func (s *pane) look(now time.Time) bool {
 	}
 	s.idleFrom = time.Time{}
 	s.seen = st
+	s.overrule(st)
 	before := s.info.Status
 	switch st {
 	case detect.Working:
@@ -441,6 +446,7 @@ func (s *pane) input(p []byte) {
 	// Waiting is over once the user acts, unless the screen still asks,
 	// as a permission dialog does until it is answered.
 	if s.info.Status == proto.Waiting && !s.declared() && s.seen != detect.Blocked || s.info.Status == proto.Failed {
+		s.overrule(detect.Idle)
 		s.setStatus(proto.Idle)
 		s.info.Message = ""
 		changed = true

@@ -285,6 +285,13 @@ func (s *pane) applyReport(r proto.Record, osc7501 bool) {
 	if s.records == nil {
 		s.records = map[string]proto.Record{}
 	}
+	delete(s.soft, r.ID) // a program's own report, not an agent's hook's (applySoft)
+	if osc7501 && r.ID == "" {
+		// The program reports for itself, as Claude Code does, after its
+		// hooks: its working ends the wait they told, its idle the turn
+		// (Esc).
+		s.overrule("")
+	}
 	if r.State == "clear" {
 		if r.ID == "" {
 			clear(s.records)
@@ -430,10 +437,11 @@ func (s *pane) reportedStatus() bool {
 }
 
 // declared reports whether a program declared it works or waits, which
-// the daemon's guesses then leave alone; s.mu is held.
+// the daemon's guesses then leave alone; an agent's hooks don't (see
+// applySoft); s.mu is held.
 func (s *pane) declared() bool {
-	for _, r := range s.records {
-		if r.State == "working" || r.State == "blocked" {
+	for id, r := range s.records {
+		if !s.soft[id] && (r.State == "working" || r.State == "blocked") {
 			return true
 		}
 	}

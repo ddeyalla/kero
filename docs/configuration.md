@@ -99,6 +99,7 @@ kero config check             # report unknown keys and bad values
 | Key              | Default | Description                                         |
 | ---------------- | ------- | --------------------------------------------------- |
 | `remote-control` | `true`  | Let `kero do` and `kero focus` drive the app        |
+| `agent-hooks`    | `true`  | Let Claude Code's and Codex's hooks tell a pane's status as a turn starts, asks for permission and ends; `false` leaves it to their screens ([Status](./status.md#agents-that-report-their-turns)) |
 
 ## Keyboard
 

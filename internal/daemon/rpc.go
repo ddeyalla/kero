@@ -318,6 +318,13 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		pn.mu.Unlock()
 		return true, nil
 
+	case "report":
+		var p proto.ReportParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		return true, d.hookReport(p)
+
 	case "wait":
 		var p proto.WaitParams
 		if err := decode(&p); err != nil {

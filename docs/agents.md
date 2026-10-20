@@ -16,14 +16,14 @@ kero skill setup
 This installs two things:
 
 - A **skill** that teaches agents the CLI. Claude Code reads it from `~/.claude/skills/kero`; Codex, OpenCode and other agents from `~/.agents/skills/kero`.
-- A **hook** that runs as an agent starts a session. It tells the agent which Kero session and pane it's in, so it doesn't spend time finding out, and has it name an unnamed session after its task, such as `fix-login-redirect`, so you don't have to. It also tells Kero the agent's own session, so that after kerod restarts, as after a reboot, the agent [picks up its conversation](./sessions.md#kerod).
+- A **hook** that runs as an agent starts a session. It tells the agent which Kero session and pane it's in, so it doesn't spend time finding out, and has it name an unnamed session after its task, such as `fix-login-redirect`, so you don't have to. It also tells Kero the agent's own session, so that after kerod restarts, as after a reboot, the agent [picks up its conversation](./sessions.md#kerod). For Claude Code and Codex, the same hook runs as a turn starts, asks for permission and ends, and [tells the pane's status](./status.md#agents-that-report-their-turns).
 
 The hook goes where each agent looks for one, for the agents you have installed:
 
 | Agent       | Where the hook goes                                   |
 | ----------- | ----------------------------------------------------- |
-| Claude Code | A `SessionStart` hook in `~/.claude/settings.json`     |
-| Codex       | A `SessionStart` hook in `~/.codex/hooks.json`         |
+| Claude Code | Hooks in `~/.claude/settings.json`: `SessionStart`, and the events of its turns |
+| Codex       | Hooks in `~/.codex/hooks.json`: `SessionStart`, and the events of its turns |
 | Pi          | An extension, `~/.pi/agent/extensions/kero.ts`         |
 | OpenCode    | A plugin, `~/.config/opencode/plugins/kero`            |
 
@@ -40,7 +40,7 @@ kero skill remove    # uninstall the skill and the hooks
 The hook works only in agent sessions started after setup, and agents may ask first:
 
 - **Claude Code** runs hooks only in folders you trust.
-- **Codex** asks you to approve a new hook: approve Kero's with `/hooks`.
+- **Codex** asks you to approve a new hook: approve Kero's with `/hooks`. After an update that adds events, approve the new ones too; `SessionStart` stays approved.
 - **OpenCode** loads plugins as its background service starts: run `opencode service restart` once, when no session is busy.
 
 OpenCode runs an agent's commands in its background service rather than in the pane, so they don't have `KERO_SESSION` and `KERO_PANE`. Kero tells the agent its pane instead, for it to name as the target. For the same reason, `kero report` from an OpenCode agent doesn't reach its pane.
