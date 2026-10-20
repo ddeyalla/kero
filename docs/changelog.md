@@ -14,6 +14,7 @@ they do not imply published GitHub releases or existing release tags.
 - Shibu-only background update checks/downloads, applying on the next launch without automatic restarts.
 - Real updater probes for signature rejection and installation into temporary app bundles.
 - Replaced the inherited upstream release workflow with the personal Shibu pipeline.
+- Retained the separately merged upstream session-naming change (`ad99d14`); reviewed its additive JSON fields and unchanged protocol/schema versions.
 
 ## 2.0.5-local.5 — 2026-10-20
 

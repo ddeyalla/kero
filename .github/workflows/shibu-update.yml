@@ -1,9 +1,6 @@
 name: Shibu updates
 
 on:
-  push:
-    branches: [shibu]
-    paths: ['.github/workflows/shibu-update.yml']
   schedule:
     - cron: '23 3 * * *'
   workflow_dispatch:
@@ -28,7 +25,7 @@ concurrency:
 jobs:
   release:
     if: github.repository == 'ddeyalla/kero' && github.ref == 'refs/heads/shibu'
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
