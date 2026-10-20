@@ -1,5 +1,8 @@
 # Changelog
 
+Shibu Code personal-fork releases are tracked in
+[docs/changelog.md](docs/changelog.md). The upstream Kero history follows.
+
 ## 2.0.5
 
 - Find in a pane's scrollback with Cmd+F (Ctrl+F on Windows).

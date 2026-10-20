@@ -1,5 +1,9 @@
 # Kero
 
+**Shibu Code personal fork:** see the [documentation hub](docs/README.md),
+[local changelog](docs/changelog.md), [build guide](docs/build.md) and
+[versioning policy](docs/versioning.md). The original Kero overview follows.
+
 A terminal for coding agents, on macOS, Windows and Linux.
 
 Run Claude Code, Codex, a dev server or a test watcher each in its own session. Kero groups sessions by project in a sidebar that shows which are working, which need you and which are done.

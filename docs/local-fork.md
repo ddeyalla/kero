@@ -1,5 +1,8 @@
 # Shibu Code
 
+See the [documentation hub](README.md), [changelog](changelog.md),
+[build guide](build.md) and [versioning policy](versioning.md).
+
 Personal fork: https://github.com/ddeyalla/kero. Upstream:
 https://github.com/egoist/kero. The local build follows Kero's native UI.
 
@@ -13,7 +16,8 @@ open "build/darwin-arm64/Shibu Code.app"
 The script builds for the Go toolchain's native host architecture. On Apple
 Silicon it must report `arm64`. The app is signed ad hoc for local use.
 It has its own app ID, daemon, settings and sessions, so the original Kero
-can keep running. Existing sessions stay in the original app.
+can keep running. Sessions are not automatically imported; the requested
+one-time copy is recorded in [change details](changes.md#sessions-and-data-continuity).
 Install the built app in `~/Applications/Shibu Code.app` if desired.
 
 Shibu Code is the personal edition previously named Kero Local. Its bundle
