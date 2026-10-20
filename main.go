@@ -131,6 +131,8 @@ func runApp() {
 		}))
 		a.win.OnFocus(func() { a.update(func() { a.focused = true; a.reportView() }) })
 		a.win.OnBlur(func() { a.update(func() { a.focused = false; a.reportView() }) })
+		a.win.OnEnterFullScreen(func() { a.update(func() { a.fullScreen = true }) })
+		a.win.OnLeaveFullScreen(func() { a.update(func() { a.fullScreen = false }) })
 		a.connect()
 		a.startUsage()
 		a.startResources()

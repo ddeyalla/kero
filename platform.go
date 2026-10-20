@@ -64,7 +64,7 @@ func framed(o mygo.WindowOptions) mygo.WindowOptions {
 	// The lights' buttons are 16 tall, and MyGo puts them a DIP above the
 	// position: centered on barMid, as the sidebar's buttons and the
 	// panes' headers are.
-	o.TrafficLightPosition = &mygo.Point{X: 18, Y: barMid - 7}
+	o.TrafficLightPosition = &mygo.Point{X: lightsX, Y: barMid - 7}
 	return o
 }
 

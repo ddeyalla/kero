@@ -10,6 +10,18 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
+### Fixed
+
+- The title bar is lower: 48 points instead of 60, between macOS's compact
+  title bar and its unified toolbar. The traffic lights, the sidebar's
+  buttons and the panes' headers stay centered on one line.
+- In full screen the traffic lights stay in sight: Shibu draws them where
+  the system's are in the window, as macOS hides its own there until the
+  pointer reaches the top of the screen. Close closes the window, the green
+  light leaves full screen, and minimize is greyed, as macOS has it in full
+  screen. The sidebar's buttons no longer move as the window goes full
+  screen.
+
 ### Documentation
 
 - Added the [feature tracker](features.md): every Shibu feature, the release

@@ -138,6 +138,47 @@ Probe: [`scripts/measure-terminal-latency.py`](../scripts/measure-terminal-laten
 See [Herdr comparison](herdr-porting.md) for architecture and future candidates;
 those candidate ports are not implemented.
 
+## Title bar and traffic lights
+
+The title bar is 48 points tall (`topBar`, twice `barMid` in
+[`view.go`](../view.go)): between macOS's compact title bar (38) and its
+unified toolbar (52). It cannot go to 38, because the cards' headers start
+`cardGap` down and center on the same line, `barMid`, as the traffic lights
+and the sidebar's buttons: a header must still hold a pane's title, 28 tall.
+MyGo sets the system's lights with `TrafficLightPosition` (`lightsX`, centered
+on `barMid`) in [`platform.go`](../platform.go).
+
+In full screen macOS moves a window's title bar, its traffic lights with it,
+into a bar that slides down with the menu bar only as the pointer reaches
+the top of the screen, and MyGo reports an empty title bar there. No window
+setting keeps the system's lights in place: MyGo's toolbar only decides
+whether that bar hides with the menu bar. So Shibu draws its own lights in
+full screen, where the system's are in the window
+([`traffic_lights.go`](../traffic_lights.go)):
+
+- The app follows full screen with the window's `OnEnterFullScreen` and
+  `OnLeaveFullScreen` ([`main.go`](../main.go)).
+- `titleBar` keeps the title bar as it last was in the window and gives it
+  in full screen, and while the window grows into it, so the sidebar's
+  buttons and the headers lay out as in the window and do not move. A window that opens in full screen uses the
+  lights' room from their position and AppKit's spacing.
+- `fullScreenLights` draws close, minimize and the green light at the
+  system's place, centered on `barMid`. Close closes the window and the
+  green light leaves full screen. Minimize is greyed and does nothing, as
+  macOS has it in full screen, where a window cannot minimize. The lights
+  grey out while the window is in the background, and show their glyphs
+  as the pointer comes over them.
+- The system's bar still slides down with the menu bar at the top of the
+  screen, over Shibu's lights, as in any app in full screen.
+
+Windows and Linux draw their own window controls always (`ownControls`) and
+are unchanged. The Settings window keeps the system's behaviour in full
+screen.
+
+Tests: [`traffic_lights_test.go`](../traffic_lights_test.go) (the bar's
+height, the lights' place and colors, the sidebar's buttons in the window
+and in full screen, a window that opens in full screen).
+
 ## Identity and icon
 
 - App name: **Shibu Code** (previously **Kero Local**).

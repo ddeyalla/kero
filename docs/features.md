@@ -81,6 +81,13 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Faster redraws after a synchronized frame (55.9 ms → 16.9 ms transport median) | Automatic | 2.0.5-local.2 | Shipped |
 | Native ARM64 build, no constant status animation | Automatic | 2.0.5-local.1 | Shipped |
 
+## Window
+
+| Feature | How to use it | Since | Status |
+| --- | --- | --- | --- |
+| Lower title bar (48 pt), traffic lights centered with the sidebar's buttons and the panes' headers | Automatic | Unreleased | Untried |
+| Traffic lights stay in sight in full screen: close, minimize (greyed, as macOS has it) and exit full screen | `Ctrl+Cmd+F`, or the green light | Unreleased | Untried |
+
 ## Updates and releases
 
 | Feature | How to use it | Since | Status |
