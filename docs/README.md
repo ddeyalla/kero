@@ -17,6 +17,7 @@ These docs describe the local macOS edition.
 | [Automatic updates](automatic-updates.md) | Daily upstream synchronization, signed releases, client behavior and recovery |
 | [Local edition guide](local-fork.md) | Usage, shortcuts, credentials, attachments and upstream merges |
 | [Verification record](local-v1-verification.md) | Completed checks, measurements and session import evidence |
+| [Session recovery](session-recovery-2026-10-20.md) | Socket failure, authorized restart, restored panes and local backup |
 | [Herdr comparison](herdr-porting.md) | Terminal architecture, latency findings and potential future ports |
 | [Original v1 plan](plans/local-v1.md) | Initial implementation scope |
 
