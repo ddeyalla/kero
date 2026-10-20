@@ -57,11 +57,11 @@ type pane struct {
 	reported bool
 	// awaiting tells that the command the pane started with runs, whose
 	// end its shell will tell (OSC 133;D, see shellArgs).
-	awaiting bool
-	closed   bool
-	changed  chan struct{} // closed and replaced on every status change
-	// framing tells that frames for the clients are due, after output.
-	framing bool
+	awaiting   bool
+	closed     bool
+	changed    chan struct{} // closed and replaced on every status change
+	frameTimer *time.Timer
+	frameAt    time.Time
 }
 
 // headless connects the daemon's emulator to the program: it reads
@@ -490,16 +490,37 @@ const frameDelay = 4 * time.Millisecond
 
 // frameSoon sends the clients a frame shortly; s.mu is held.
 func (s *pane) frameSoon() {
-	if s.framing || len(s.clients) == 0 {
+	s.scheduleFrame(frameDelay)
+}
+
+// New output can advance a synchronized-update retry, but cannot postpone an
+// already scheduled frame. A burst therefore still coalesces without starvation.
+func (s *pane) scheduleFrame(delay time.Duration) {
+	if s.closed || len(s.clients) == 0 {
 		return
 	}
-	s.framing = true
-	time.AfterFunc(frameDelay, func() {
+	at := time.Now().Add(delay)
+	if s.frameTimer != nil {
+		if !at.Before(s.frameAt) {
+			return
+		}
+		s.frameTimer.Stop()
+	}
+	var timer *time.Timer
+	timer = time.AfterFunc(delay, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.framing = false
+		// Stop can lose a race with a callback waiting on mu.
+		if s.frameTimer != timer {
+			return
+		}
+		s.frameTimer = nil
+		if s.closed {
+			return
+		}
 		s.frame()
 	})
+	s.frameTimer, s.frameAt = timer, at
 }
 
 // frame sends each client what brings its terminal to what this one
@@ -514,14 +535,8 @@ func (s *pane) frame() {
 		}
 		due = due || later
 	}
-	if due && !s.framing {
-		s.framing = true
-		time.AfterFunc(50*time.Millisecond, func() {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			s.framing = false
-			s.frame()
-		})
+	if due {
+		s.scheduleFrame(50 * time.Millisecond)
 	}
 }
 
@@ -583,6 +598,10 @@ func (s *pane) close() {
 		return
 	}
 	s.closed = true
+	if s.frameTimer != nil {
+		s.frameTimer.Stop()
+		s.frameTimer = nil
+	}
 	close(s.changed) // wakes those waiting on it
 	s.changed = make(chan struct{})
 	proc := s.proc

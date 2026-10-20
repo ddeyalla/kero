@@ -133,6 +133,7 @@ func runApp() {
 		a.win.OnBlur(func() { a.update(func() { a.focused = false; a.reportView() }) })
 		a.connect()
 		a.startUsage()
+		a.startResources()
 		go a.watchConfig()
 	})
 	if err := mygo.App.Run(); err != nil {

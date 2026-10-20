@@ -113,6 +113,7 @@ func (a *App) view(c *ui.Context) {
 		})
 	})
 	a.paletteView(c, pal)
+	a.usageModal(c, pal)
 	a.confirmView(c, pal)
 	// A preview that showed no more fades in anew next time.
 	if !a.previewShown {
@@ -241,6 +242,7 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 		}
 	})
 	a.usageSidebar(c, pal)
+	a.resourceSidebar(c, pal)
 	a.sidebarFooter(c, pal)
 	c.After(20 * time.Second) // times ago move on
 }

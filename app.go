@@ -120,6 +120,7 @@ type App struct {
 	arrived      map[string]bool
 	copyText     string
 	usage        usageState
+	resources    resourceState
 }
 
 // confirmation is a question the app asks before something it cannot undo.

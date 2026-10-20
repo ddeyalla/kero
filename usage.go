@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/usage"
@@ -17,7 +16,8 @@ type usageState struct {
 	loading bool
 	ctx     context.Context
 	cancel  context.CancelFunc
-	window  *mygo.Window
+	open    bool
+	scroll  ui.ScrollState
 	keys    map[string]*string
 	notice  string
 	saving  bool
@@ -61,8 +61,8 @@ func (a *App) refreshUsage() {
 }
 
 func (a *App) invalidateUsage() {
-	if a.usage.window != nil {
-		a.usage.window.Invalidate()
+	if a.win != nil {
+		a.win.Invalidate()
 	}
 }
 
@@ -107,7 +107,7 @@ func usageColor(r usage.Report, pal *palette) ui.Color {
 
 func (a *App) usageSidebar(c *ui.Context, pal *palette) {
 	ui.Column(c.Key("account-usage")).Shrink(0).Padding(6, 12, 8, 12).Gap(1).Children(func() {
-		header := ui.ButtonBase(c.Key("usage-details")).Height(24).Radius(5).Padding(0, 8).Label("Account usage").Tooltip("Account allowances and reset times")
+		header := ui.ButtonBase(c.Key("usage-details")).Height(24).Radius(5).Padding(0, 8).Label("Account usage").Tooltip(a.tip("Account allowances and reset times", "usage.open"))
 		if header.Hovered() {
 			header.Background(pal.rowHover)
 		}
@@ -115,7 +115,7 @@ func (a *App) usageSidebar(c *ui.Context, pal *palette) {
 			ui.Row(c).Fill().AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "Usage").FontSize(11).Bold().TextColor(pal.textMuted)
 				ui.Spacer(c)
-				ui.Text(c, "Details ›").FontSize(10).TextColor(pal.textFaint)
+				ui.Text(c, a.keys("usage.open")).FontSize(10).TextColor(pal.textFaint)
 			})
 		})
 		if header.Clicked() {
@@ -144,25 +144,42 @@ func (a *App) usageSidebar(c *ui.Context, pal *palette) {
 }
 
 func (a *App) openUsage() {
-	if a.usage.window != nil {
-		a.usage.window.Show()
-		a.usage.window.Focus()
+	if a.usage.open || a.confirm != nil {
 		return
 	}
+	a.pal.open = false
+	a.usage.open = true
 	a.usage.keys = map[string]*string{}
-	a.usage.window = mygo.NewWindow(framed(mygo.WindowOptions{
-		Title: "Usage · Kero Local", Width: 520, Height: 680, MinWidth: 420, MinHeight: 420,
-		StateKey: "usage", Vibrancy: vibrancyFor(a.set), Content: ui.View(a.usageView),
-	}))
-	a.usage.window.OnClosed(func() { a.usage.window = nil; a.usage.keys = nil; a.usage.notice = "" })
 }
 
-func (a *App) usageView(c *ui.Context) {
-	pal := paletteFor(c)
-	c.SetTheme(borderless(c, pal))
-	c.Root().Background(pal.sidebar)
+func (a *App) closeUsage() {
+	a.usage.open = false
+	a.usage.keys = nil
+	a.usage.notice = ""
+	a.focusTerminal()
+}
+
+func (a *App) usageModal(c *ui.Context, pal *palette) {
+	if !a.usage.open {
+		return
+	}
+	w, h := c.Size()
+	ui.DialogBase(c.Key("usage-modal"), &a.usage.open, func(backdrop, panel ui.Element) {
+		backdrop.Background(pal.overlay)
+		floating(panel.Width(min(640, w-32)).Height(min(720, h-40)).Radius(14).Background(pal.popover), pal).Clip().Label("Account usage")
+		if panel.OverlayShortcut(ui.Cmd, ui.KeyR) {
+			a.refreshUsage()
+		}
+		a.usageContent(c, pal)
+	})
+	if !a.usage.open {
+		a.closeUsage()
+	}
+}
+
+func (a *App) usageContent(c *ui.Context, pal *palette) {
 	ui.Column(c).Fill().Children(func() {
-		ui.Row(c).Height(66).Shrink(0).Padding(20, 24, 0, 24).AlignItems(ui.Center).DragWindow().Children(func() {
+		ui.Row(c).Height(64).Shrink(0).Padding(12, 20, 0, 24).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "Account usage").FontSize(20).Bold().TextColor(pal.text)
 			ui.Spacer(c)
 			label := "Refresh"
@@ -172,10 +189,12 @@ func (a *App) usageView(c *ui.Context) {
 			if ui.Button(c, label).Disabled(a.usage.loading).Clicked() {
 				a.refreshUsage()
 			}
+			iconButton(c, "close-usage", closeIcon, "Close usage (Esc)", pal, a.closeUsage)
 		})
-		ui.Scroll(c.Key("usage-scroll")).Grow(1).Padding(12, 24, 24, 24).Children(func() {
+		ui.Scroll(c.Key("usage-scroll")).Grow(1).MinHeight(0).TrackScroll(&a.usage.scroll).Padding(12, 24, 24, 24).Children(func() {
 			ui.Column(c).Gap(12).Children(func() {
 				ui.Text(c, "Your account allowances, across projects.").FontSize(12).TextColor(pal.textMuted)
+				a.resourceCard(c, pal)
 				for _, r := range a.usageReports() {
 					a.usageCard(c, pal, r)
 				}

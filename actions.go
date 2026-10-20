@@ -17,10 +17,27 @@ import (
 // run runs one of the app's actions, from a menu, the palette or
 // `kero do`, on the main thread.
 func (a *App) run(id string, args map[string]string) {
+	if a.usage.open {
+		switch id {
+		case "pane.close", "session.close":
+			a.closeUsage()
+			return
+		case "session.rename", "usage.refresh":
+			a.refreshUsage()
+			return
+		case "usage.open":
+			return
+		}
+		return
+	}
 	s := a.session(a.selected)
 	switch id {
 	case "settings.open":
 		a.openSettings("")
+	case "usage.open":
+		a.openUsage()
+	case "usage.refresh":
+		a.refreshUsage()
 	case "cli.install":
 		a.installCLI()
 	case "app.quitAll":
@@ -184,7 +201,7 @@ func (a *App) menu() *mygo.Menu {
 			{Label: locales.MenuQuit(), Accelerator: quitKeys, ToolTip: locales.MenuQuitTip(), Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
 			a.item("app.quitAll")}}
 	}
-	view := append(a.items("View", []string{"sidebar.toggle"}, []string{"text.bigger", "text.smaller", "text.reset"}),
+	view := append(a.items("View", []string{"sidebar.toggle", "usage.open", "usage.refresh"}, []string{"text.bigger", "text.smaller", "text.reset"}),
 		mygo.Separator(), &mygo.MenuItem{Role: mygo.RoleToggleFullScreen}, &mygo.MenuItem{Role: mygo.RoleToggleDevTools})
 	return mygo.NewMenu([]*mygo.MenuItem{
 		kero,

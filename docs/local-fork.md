@@ -23,14 +23,25 @@ use its executable directly, or its menu's CLI installer when ready to switch.
 
 ## Usage
 
-Click **Usage** in the sidebar for allowance windows, reset times, and manual
-refresh. Reads run in the background every two minutes. The last successful
+Click **Usage** in the sidebar or press **Cmd+Shift+U** for an in-app modal
+with allowance windows, reset times, and manual refresh. **Cmd+R** refreshes
+while the modal is open; **Esc** or **Cmd+W** closes it and returns to the
+terminal. On Linux/Windows the open shortcut is **Ctrl+Alt+U**. The action is
+also available in View, the command palette and `kero do usage.open`.
+Reads run in the background every two minutes. The last successful
 observation remains visible, marked stale, after a failed request. A 429
 backs off before trying again; refresh does not bypass it.
 
 The same readout is available without a window using `kero usage --json`.
 Each CLI invocation performs a fresh read; automatic polling and backoff
 retention belong to the running app.
+
+CPU and RAM sit below the account readouts in the sidebar; click that strip
+for details in the same modal. They measure the whole Mac, across all apps.
+Native Mach calls sample every two seconds on a background goroutine, without
+spawning `top` or shell processes. CPU is the busy share of all cores. RAM is
+active, wired and compressed physical memory, with reclaimable cache excluded.
+`kero resources --json` exposes the same measurements without a window.
 
 - **Claude:** reads the active Claude Code Keychain login on macOS, or its
   `.credentials.json`. Supports `CLAUDE_CONFIG_DIR`. It never renews tokens.
@@ -65,6 +76,11 @@ when no longer needed. Text paste keeps the terminal's normal behavior.
 Status indicators retain Kero's status colors but do not animate continuously.
 The local ARM64 build avoids the Rosetta overhead observed in the installed
 Intel app. This does not establish that every source of terminal lag is fixed.
+
+Local.2 also fixes completed synchronized redraws waiting behind a 50ms retry:
+new output brings that retry forward to the usual 4ms coalescing deadline.
+The [Herdr study](herdr-porting.md) records the regression, benchmark limits and
+recommended next ports. Apple Silicon is arm64; amd64 is Intel/AMD x86-64.
 
 ## Incorporate upstream changes
 

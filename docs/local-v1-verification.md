@@ -46,3 +46,27 @@ binding tests pass, but do not establish end-to-end native event delivery.
 Performance checks establish a native ARM64 process and removal of continuous
 status animation, not a controlled before/after latency benchmark. New usage
 strings are English in this first local version.
+
+## Local.2 follow-up
+
+Usage now renders in a `DialogBase` in the main window, with keyboard and
+outside-click dismissal. Cmd+Shift+U opens it, Cmd+R refreshes while open, and
+Esc/Cmd+W closes it without closing the underlying pane. The action is in the
+menu, command palette and CLI. UI tests exercise open, dismiss, reopen, key
+editing, and avoiding session rename/close actions behind the modal.
+
+Native CPU/memory sampling and its CLI command were verified on this Mac.
+The strip sits below account usage in the sidebar; its details are in the modal.
+New monitoring tests and race checks pass, as do the existing full suite and
+MyGo vet. Readings are machine-wide and do not claim memory-pressure or
+per-process attribution.
+
+The synchronized-redraw scheduler test failed before the fix and passes after
+it. A live isolated transport probe measured median 55.93ms before and 16.90ms
+after, with 15 samples per build. See [Herdr porting](herdr-porting.md) for the
+workload, limits, sources, and reproduction command. This does not establish
+keyboard-to-display latency or guarantee that all reported lag is resolved.
+
+Kero Local 2.0.5-local.2 was built and installed as ARM64. Its daemon started
+from the installed app, restored its saved idle session, and accepted
+`kero do usage.open`. The original Kero was not replaced by this pass.

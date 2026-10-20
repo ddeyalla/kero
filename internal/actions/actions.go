@@ -52,6 +52,8 @@ var All = []Action{
 	{ID: "pane.down", Title: "Pane Below", Menu: "Pane", Keys: "CmdOrCtrl+Alt+Down", Remote: true},
 
 	{ID: "sidebar.toggle", Title: "Toggle Sidebar", Menu: "View", Keys: "CmdOrCtrl+B", Remote: true},
+	{ID: "usage.open", Title: "Account Usage…", Menu: "View", Keys: "CmdOrCtrl+Shift+U", Remote: true},
+	{ID: "usage.refresh", Title: "Refresh Account Usage", Menu: "View", Remote: true},
 	{ID: "text.bigger", Title: "Bigger", Menu: "View", Keys: "CmdOrCtrl+=", Remote: true},
 	{ID: "text.smaller", Title: "Smaller", Menu: "View", Keys: "CmdOrCtrl+-", Remote: true},
 	{ID: "text.reset", Title: "Actual Size", Menu: "View", Keys: "CmdOrCtrl+0", Remote: true},
@@ -62,6 +64,7 @@ var All = []Action{
 // Shift, as Windows Terminal's do, or Alt; "" leaves an action without one.
 var pcKeys = map[string]string{
 	"settings.open":     "Ctrl+,",
+	"usage.open":        "Ctrl+Alt+U",
 	"app.quitAll":       "",
 	"session.new":       "Ctrl+Shift+T",
 	"session.newHome":   "",
