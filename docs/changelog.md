@@ -19,6 +19,8 @@ builds only. What each feature is and where it stands is tracked in the
 - Added test-daemon isolation and socket recovery guidance to
   [Automatic updates](automatic-updates.md) and the socket guard's
   verification record.
+- Rewrote `AGENTS.md` and added `CLAUDE.md`: branches, checks, docs with
+  every change, releases, upstream merges, the daily app and private files.
 
 ## [2.0.7-local.1] - 2026-10-20
 
