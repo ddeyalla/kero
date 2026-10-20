@@ -21,6 +21,8 @@ builds only. What each feature is and where it stands is tracked in the
   verification record.
 - Rewrote `AGENTS.md` and added `CLAUDE.md`: branches, checks, docs with
   every change, releases, upstream merges, the daily app and private files.
+- Set the product direction in `AGENTS.md`: everything is a pane or a plugin,
+  and plans that work against it get pushed back on.
 
 ## [2.0.7-local.1] - 2026-10-20
 

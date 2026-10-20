@@ -6,6 +6,32 @@ Customizations are for the user's own use. Start with
 [docs/README.md](docs/README.md); the [feature tracker](docs/features.md) lists
 what Shibu adds and the [changelog](docs/changelog.md) what each release shipped.
 
+## Direction: everything is a pane or a plugin
+
+Shibu Code is heading towards an app where every capability is a pane or a
+plugin. The user adds plugins to their panes, uses them side by side with
+terminals and agents, and writes new plugins of their own. Plan and build
+towards that:
+
+- Today a pane is a terminal or one of the built-in views: Tasks, Files and
+  Browser (`pane_views.go`, `Pane.View` and `Pane.Target` in
+  `internal/proto/proto.go`). kerod keeps each view and its target, so it
+  comes back after a restart, and agents open views with `kero split`. There
+  is no plugin API yet; these views are the first steps towards it.
+- Shape a new capability as a pane, or as a plugin a pane can host, rather
+  than a special screen, modal or sidebar feature. Give it what the built-in
+  views have: its state in the pane's target, restored after a restart, and
+  reachable from the New Pane chooser, a shortcut, the command palette and the
+  `kero` CLI.
+- Keep a view's code self-contained behind the shared pane seam, so each built-in
+  view can later become a plugin and a plugin can do what a built-in view does.
+- When planning, say how the work fits this direction. Push back when a plan
+  works against it: a one-off screen outside panes, a feature coupled into the
+  core that could be a pane, or a design that would make a later plugin API
+  harder. Offer the pane- or plugin-shaped alternative and let the user decide.
+- Older planning notes that rule out plugins or a plugin SDK predate this
+  direction; this section takes precedence.
+
 ## Fork safety
 
 - Never push commits, branches, or tags to the original repository, `egoist/kero`,
