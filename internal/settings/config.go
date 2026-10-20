@@ -115,8 +115,11 @@ var keys = []key{
 	choiceKey("window-theme", "the app's appearance", func(s *Settings) *string { return &s.Appearance }, "system", "light", "dark"),
 	choiceKey("language", "the app's language; system follows the system's", func(s *Settings) *string { return &s.Language }, append([]string{"system"}, Languages...)...),
 	mapChoice("background", "the window's wash", func(s *Settings) *string { return &s.Background },
-		[]string{"petal", "mist", "meadow", "dusk", "plain"}, []string{"rex", "mist", "meadow", "dusk", "plain"}),
+		[]string{"petal", "mist", "meadow", "dusk", "plum", "rose", "sea", "plain"}, []string{"rex", "mist", "meadow", "dusk", "plum", "rose", "sea", "plain"}),
+	choiceKey("accent", "the accent's preset: its color, the wash that comes with it and the terminals' selection; the wash stays yours after, by background", func(s *Settings) *string { return &s.Accent },
+		accentIDs()...),
 	boolKey("window-translucent", "let the desktop show through the window", func(s *Settings) *bool { return &s.Vibrancy }),
+	boolKey("grain", "a faint grain over the wash, so flat gradients read as material", func(s *Settings) *bool { return &s.Grain }),
 
 	stringKey("font-family", "the terminals' font: empty for JetBrains Mono Nerd Font, which Kero carries; monospace for the system's", func(s *Settings) *string { return &s.FontFamily }),
 	numberKey("font-size", "in points", func(s *Settings) float64 { return float64(s.FontSize) }, func(s *Settings, n float64) { s.FontSize = float32(n) }),
@@ -242,6 +245,15 @@ var keys = []key{
 			}
 			return nil
 		}},
+}
+
+// accentIDs are the accents' ids, as the accent key's choices.
+func accentIDs() []string {
+	out := make([]string, len(Accents))
+	for i, a := range Accents {
+		out[i] = a.ID
+	}
+	return out
 }
 
 func findKey(name string) *key {

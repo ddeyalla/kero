@@ -118,7 +118,7 @@ func (a *App) linearNav(c *ui.Context, pal *palette) {
 	case item.Hovered():
 		bg = pal.rowHover
 	}
-	item.Background(item.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond}))
+	item.Background(item.AnimateColor("bg", bg, hover))
 	if item.Clicked() {
 		a.openLinear()
 	}
@@ -390,7 +390,7 @@ func (a *App) linearView(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 			a.lin.arrive = false
 			c.Invalidate()
 		}
-		detail.AnimatePose(pose, ui.Animation{Spring: ui.SpringOptions{Duration: 320 * time.Millisecond}})
+		detail.AnimatePose(pose, springUI)
 	})
 }
 
@@ -727,7 +727,7 @@ func filterChip(c *ui.Context, key string, value *string, options []string, icon
 			bg = pal.chip.Mix(pal.text, 0.04)
 		}
 	}
-	trig.Background(trig.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond})).TextColor(fg)
+	trig.Background(trig.AnimateColor("bg", bg, hover)).TextColor(fg)
 	trig.Children(func() {
 		if lead != nil && *value != "" {
 			lead(*value)

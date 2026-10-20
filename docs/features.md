@@ -83,6 +83,8 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
 | Settings as a modal over the main window, not a separate window | `Cmd+,` toggles it, or the sidebar's gear; Esc, a click beside it or `Cmd+W` closes it | Unreleased | Untried |
+| Accent presets: Blue, Plum, Rose, Sea, Moss, Graphite — an accent color, the wash that comes with it, the terminals' selection | Settings › Appearance › Accent; `accent = <preset>` in the config | Unreleased | Untried |
+| Grain over the background wash | Settings › Appearance › Grain; `grain = false` off | Unreleased | Untried |
 
 ## Terminal
 
@@ -100,6 +102,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Compact title bar (40 pt): the traffic lights where macOS puts them, the sidebar's buttons centered on them | Automatic | Unreleased | Untried |
 | With the sidebar hidden, the first header's title centered on the traffic lights; the sidebar's first row 30 pt below them, aligned with the close light | Automatic; `Cmd+B` hides the sidebar | Unreleased | Untried |
 | macOS's own traffic lights in sight in full screen, where they are in the window, with their hover glyphs: close, minimize (greyed, as macOS has it) and exit full screen; the bar that slides down with the menu bar is empty and lets clicks through | `Ctrl+Cmd+F`, or the green light | Unreleased | Untried |
+| The app moves as one (motion tokens); a project collapsing folds its rows away animated, the chosen row never leaving | Automatic; collapse by clicking a project header | Unreleased | Untried |
 
 ## Updates and releases
 

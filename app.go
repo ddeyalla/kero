@@ -702,7 +702,8 @@ func (a *App) termFont() terminal.Font {
 }
 
 // termThemes returns the terminal's colors in light and dark windows:
-// kero's, on the card's color, or a Ghostty theme of the user's choice.
+// kero's, on the card's color with the accent's selection, or a Ghostty
+// theme of the user's choice.
 func (a *App) termThemes() (light, dark *terminal.Theme) {
 	pick := func(name string, def *terminal.Theme) *terminal.Theme {
 		if name == "" || name == "kero" {
@@ -713,7 +714,18 @@ func (a *App) termThemes() (light, dark *terminal.Theme) {
 		}
 		return def
 	}
-	return pick(a.set.LightTheme, lightTermTheme), pick(a.set.DarkTheme, darkTermTheme)
+	l, d := a.accentPal(false), a.accentPal(true)
+	s := accentSpecs[a.accentID()]
+	return pick(a.set.LightTheme, termTheme(l, s.lightSel)), pick(a.set.DarkTheme, termTheme(d, s.darkSel))
+}
+
+// accentID is the accent the app shows, the default's where none is set,
+// as a new install's and the tests' app's.
+func (a *App) accentID() string {
+	if a.set.Accent == "" {
+		return settings.AccentDefault
+	}
+	return a.set.Accent
 }
 
 func (a *App) termOptions(id string, conn *gated) terminal.Options {
@@ -798,7 +810,7 @@ func (a *App) apply(s settings.Settings, save bool) {
 	}
 	font := old.FontFamily != s.FontFamily || old.FontSize != s.FontSize || old.FontWeight != s.FontWeight ||
 		old.LineHeight != s.LineHeight || old.Ligatures != s.Ligatures || old.Thicken != s.Thicken
-	themes := old.LightTheme != s.LightTheme || old.DarkTheme != s.DarkTheme
+	themes := old.LightTheme != s.LightTheme || old.DarkTheme != s.DarkTheme || old.Accent != s.Accent
 	anew := old.Cursor != s.Cursor || old.CursorBlink != s.CursorBlink || old.OptionAsAlt != s.OptionAsAlt ||
 		old.Clipboard != s.Clipboard || old.RightClick != s.RightClick
 	light, dark := a.termThemes()

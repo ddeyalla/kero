@@ -146,8 +146,8 @@ func TestSidebarAnimationMonotonic(t *testing.T) {
 // The sidebar's animation never holds still before it lands: a frame
 // that does not move, then one that does, reads as a stutter.
 func TestSidebarAnimationNoHolds(t *testing.T) {
-	ease := sidebarMotion.Ease
-	frames := int(sidebarMotion.Duration / (time.Second / 60))
+	ease := slide.Ease
+	frames := int(slide.Duration / (time.Second / 60))
 	prev := float32(-1)
 	for i := 0; i <= frames; i++ {
 		w := chromeFor(ease(float32(i)/float32(frames)), 268, ui.TitleBar{}).sideW
@@ -160,6 +160,33 @@ func TestSidebarAnimationNoHolds(t *testing.T) {
 
 // The window moves from the panes' headers and the gaps around them, and
 // not from a press on a pane, which focuses it.
+// Collapsing a project folds its rows away and shows them again, the
+// chosen one never leaving.
+func TestProjectCollapse(t *testing.T) {
+	a := testApp(t)
+	a.st.Sessions = append(a.st.Sessions,
+		proto.Session{ID: "s2", Project: "p1", Name: "second", Panes: []proto.Pane{{ID: "a", Status: proto.Idle, Progress: -1}}},
+		proto.Session{ID: "s3", Project: "p1", Name: "third", Panes: []proto.Pane{{ID: "a", Status: proto.Idle, Progress: -1}}})
+	tt := ui.NewTester(a.view, 900, 700)
+	frames(tt)
+	if !tt.HasText("second") || !tt.HasText("third") {
+		t.Fatalf("the rows are not shown; texts %q", tt.Texts())
+	}
+	a.toggleProject("p1")
+	frames(tt)
+	if tt.HasText("second") || tt.HasText("third") {
+		t.Errorf("the rows stayed after the collapse; texts %q", tt.Texts())
+	}
+	if !tt.HasText("demo") {
+		t.Error("the chosen row left with the others")
+	}
+	a.toggleProject("p1")
+	frames(tt)
+	if !tt.HasText("second") || !tt.HasText("third") {
+		t.Error("the rows did not come back")
+	}
+}
+
 func TestWindowDragRegions(t *testing.T) {
 	a := testApp(t)
 	tt := ui.NewTester(a.view, 1100, 640)

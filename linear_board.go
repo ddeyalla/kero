@@ -135,7 +135,7 @@ func (a *App) linearCard(c *ui.Context, pal *palette, m *linearModel, i proto.Li
 	if card.Hovered() {
 		bg = hoverBg
 	}
-	raised(card.Background(card.AnimateColor("bg", bg, ui.Animation{Duration: 100 * time.Millisecond})), pal)
+	raised(card.Background(card.AnimateColor("bg", bg, hover)), pal)
 	if open {
 		card.InsetShadow(0, 0, 0, 1.5, pal.accent.Alpha(0.85))
 	}

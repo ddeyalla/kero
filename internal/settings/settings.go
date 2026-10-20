@@ -28,8 +28,10 @@ type Settings struct {
 	// Appearance
 	Appearance string `json:"appearance"` // "system", "light" or "dark"
 	Language   string `json:"language"`   // "system", or one of Languages
+	Accent     string `json:"accent"`     // an accent preset, see Accents: its color, wash and terminal selection
 	Background string `json:"background"` // a wash, see Backgrounds
 	Vibrancy   bool   `json:"vibrancy"`   // the window's material under the wash
+	Grain      bool   `json:"grain"`      // a faint grain over the wash
 
 	// Terminal
 	FontFamily   string  `json:"fontFamily"` // "" the font kero carries; "monospace" the system's
@@ -86,8 +88,10 @@ func Default() Settings {
 		QuitConfirm:     true,
 		Appearance:      "system",
 		Language:        "system",
+		Accent:          AccentDefault,
 		Background:      "rex",
 		Vibrancy:        true,
+		Grain:           true,
 		FontSize:        13,
 		LineHeight:      1.22,
 		FontWeight:      400,
@@ -128,8 +132,25 @@ var Backgrounds = []struct{ ID, Name string }{
 	{"mist", "Mist"},
 	{"meadow", "Meadow"},
 	{"dusk", "Dusk"},
+	{"plum", "Plum"},
+	{"rose", "Rose"},
+	{"sea", "Sea"},
 	{"plain", "Plain"},
 }
+
+// Accents are the accent presets: an accent's color in the light and the
+// dark, the wash that comes with it, and the terminals' selection with it.
+var Accents = []struct{ ID, Name, Wash string }{
+	{"blue", "Blue", "rex"},
+	{"plum", "Plum", "plum"},
+	{"rose", "Rose", "rose"},
+	{"sea", "Sea", "sea"},
+	{"moss", "Moss", "meadow"},
+	{"graphite", "Graphite", "mist"},
+}
+
+// AccentDefault is the accent of a new install: the blue the app has had.
+const AccentDefault = "blue"
 
 // Path returns the settings' file, the configuration (ConfigPath).
 func Path() string { return ConfigPath() }
@@ -258,16 +279,23 @@ func (s *Settings) normalize() {
 	oneOf(&s.NewSessionDir, d.NewSessionDir, "current", "project", "home")
 	oneOf(&s.Appearance, d.Appearance, "system", "light", "dark")
 	oneOf(&s.Language, d.Language, append([]string{"system"}, Languages...)...)
-	oneOf(&s.Cursor, d.Cursor, "block", "bar", "underline")
-	oneOf(&s.Clipboard, d.Clipboard, "ask", "allow", "deny")
-	oneOf(&s.RightClick, d.RightClick, "menu", "paste", "copyOrPaste")
 	known := false
+	for _, a := range Accents {
+		known = known || a.ID == s.Accent
+	}
+	if !known {
+		s.Accent = d.Accent
+	}
+	known = false
 	for _, b := range Backgrounds {
 		known = known || b.ID == s.Background
 	}
 	if !known {
 		s.Background = d.Background
 	}
+	oneOf(&s.Cursor, d.Cursor, "block", "bar", "underline")
+	oneOf(&s.Clipboard, d.Clipboard, "ask", "allow", "deny")
+	oneOf(&s.RightClick, d.RightClick, "menu", "paste", "copyOrPaste")
 	if s.FontSize < 8 || s.FontSize > 36 {
 		s.FontSize = d.FontSize
 	}

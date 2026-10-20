@@ -102,6 +102,34 @@ func TestKeybinds(t *testing.T) {
 	}
 }
 
+// The accent's preset and the grain read back, and a preset the file
+// does not have keeps the default.
+func TestAccentAndGrain(t *testing.T) {
+	s, probs := parse("accent = plum\ngrain = false\n")
+	if s.Accent != "plum" || s.Grain {
+		t.Errorf("parsed %+v", s)
+	}
+	if len(probs) != 0 {
+		t.Errorf("problems %q", probs)
+	}
+	s, probs = parse("accent = gold\n")
+	if s.Accent != AccentDefault {
+		t.Errorf("gold kept as %q", s.Accent)
+	}
+	if len(probs) != 1 {
+		t.Errorf("problems %q", probs)
+	}
+	// Written only when they differ from the defaults.
+	if out := format(s, ""); strings.Contains(out, "accent") || strings.Contains(out, "grain") {
+		t.Errorf("defaults wrote:\n%s", out)
+	}
+	s2 := Default()
+	s2.Accent, s2.Grain = "sea", false
+	if out := format(s2, ""); !strings.Contains(out, "accent = sea\n") || !strings.Contains(out, "grain = false\n") {
+		t.Errorf("formatted:\n%s", out)
+	}
+}
+
 func TestBadValuesKeepDefaults(t *testing.T) {
 	s, probs := parse("cursor-style = triangle\nfont-size = big\nconfirm-close = maybe\n")
 	d := Default()

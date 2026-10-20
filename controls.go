@@ -1,11 +1,9 @@
 package main
 
 import (
+	"github.com/egoist/mygo/ui"
 	"slices"
 	"strings"
-	"time"
-
-	"github.com/egoist/mygo/ui"
 
 	"kero/locales"
 )
@@ -40,20 +38,19 @@ func popupFace(c *ui.Context, trig ui.Element, text string, open bool, pal *pale
 	if pal.dark {
 		tint = ui.RGBA(255, 255, 255, 0.09)
 	}
-	hover := trig.Hovered() || open
+	over := trig.Hovered() || open
 	bg, disc := ui.Transparent, tint
 	switch {
 	case open || trig.Pressed():
 		bg, disc = tint.Mix(pal.text, 0.06), ui.Transparent
-	case hover:
+	case over:
 		bg, disc = tint, ui.Transparent
 	}
-	anim := ui.Animation{Duration: 120 * time.Millisecond}
-	trig.Background(trig.AnimateColor("bg", bg, anim))
+	trig.Background(trig.AnimateColor("bg", bg, hover))
 	trig.Children(func() {
 		ui.Text(c, text).FontSize(13).TextColor(pal.text).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
 		d := ui.Box(c.Key("disc")).Size(22, 22).Radius(11).Center().Shrink(0)
-		d.Background(d.AnimateColor("bg", disc, anim)).Children(func() {
+		d.Background(d.AnimateColor("bg", disc, hover)).Children(func() {
 			ui.Icon(c, updownIcon).Size(16, 16).TextColor(pal.text.Alpha(0.85))
 		})
 	})
@@ -288,7 +285,7 @@ func field(c *ui.Context, frame ui.Element, focused bool, pal *palette) ui.Eleme
 		stroke, bg = ui.RGBA(255, 255, 255, 0.13), ui.RGBA(255, 255, 255, 0.06)
 	}
 	frame.Background(bg).InsetShadow(0, 0, 0, 1, stroke)
-	glow := frame.Animate("glow", b2f(focused), 120*time.Millisecond)
+	glow := frame.Animate("glow", b2f(focused), hover.Duration)
 	if glow > 0 {
 		frame.Shadow(0, 0, 0, 3.5*glow, pal.accent.Alpha(0.32*glow)).InsetShadow(0, 0, 0, 1, pal.accent.Alpha(0.75*glow))
 	}
@@ -329,7 +326,7 @@ func slider(c *ui.Context, key string, value *float64, lo, hi float64, width flo
 		f = float32((*value - lo) / (hi - lo))
 	}
 	f = min(max(f, 0), 1)
-	held := s.Animate("held", b2f(s.Pressed()), 150*time.Millisecond)
+	held := s.Animate("held", b2f(s.Pressed()), press.Duration)
 	accent, dark, focus := pal.accent, pal.dark, s.FocusVisible()
 	s.Draw(func(p *ui.Painter, r ui.Rect) {
 		x0, x1 := r.X+knobW/2, r.X+r.W-knobW/2

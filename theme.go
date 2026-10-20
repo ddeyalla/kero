@@ -1,8 +1,11 @@
 package main
 
 import (
+	"sync"
+
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/shader"
 
 	"kero/internal/settings"
 )
@@ -127,7 +130,7 @@ var darkPalette = palette{
 	done:      ui.Hex("#ececf0"),
 	onDone:    ui.Hex("#161618"),
 	danger:    ui.Hex("#ff6961"),
-	accent:    ui.Hex("#6b93ff"),
+	accent:    ui.Hex("#4a71d4"),
 
 	overlay:   ui.RGBA(0, 0, 0, 0.35),
 	popover:   ui.Hex("#232327"),
@@ -135,50 +138,113 @@ var darkPalette = palette{
 	kbdBorder: ui.RGBA(255, 255, 255, 0.1),
 }
 
-func paletteFor(c *ui.Context) *palette {
-	if c.Theme().Dark {
-		return &darkPalette
+// accentSpec is an accent the user can choose, hand-tuned: its color in
+// the light and the dark, and the terminals' selection with it. The
+// neutrals stay literal; nothing derives. The blue is the app's own, and
+// the light and dark palettes above carry it, so that choosing nothing
+// shows what the app has had.
+type accentSpec struct {
+	light, dark       ui.Color
+	lightSel, darkSel ui.Color // the terminals' selection, on the card
+}
+
+var accentSpecs = map[string]accentSpec{
+	settings.AccentDefault: {light: ui.Hex("#3b6cf6"), dark: ui.Hex("#4a71d4"), lightSel: ui.Hex("#cfdcfb"), darkSel: ui.Hex("#2f4170")},
+	"plum":                 {light: ui.Hex("#7a4fd0"), dark: ui.Hex("#8158cd"), lightSel: ui.Hex("#e2d8f5"), darkSel: ui.Hex("#3f3361")},
+	"rose":                 {light: ui.Hex("#c74684"), dark: ui.Hex("#d13480"), lightSel: ui.Hex("#f2d6e3"), darkSel: ui.Hex("#5c2a46")},
+	"sea":                  {light: ui.Hex("#247e91"), dark: ui.Hex("#258094"), lightSel: ui.Hex("#c9e2e8"), darkSel: ui.Hex("#26414d")},
+	"moss":                 {light: ui.Hex("#36872f"), dark: ui.Hex("#35852e"), lightSel: ui.Hex("#d2e4d1"), darkSel: ui.Hex("#284029")},
+	"graphite":             {light: ui.Hex("#6f6f78"), dark: ui.Hex("#75757e"), lightSel: ui.Hex("#e0e0e4"), darkSel: ui.Hex("#3b3b41")},
+}
+
+// palKey is what a palette in the cache is of: the accent's id and the
+// appearance. The zero accent, as a test's app has, is the default's.
+type palKey struct {
+	accent string
+	dark   bool
+}
+
+// palCache holds a palette per accent and appearance, built once, not
+// per frame.
+var palCache sync.Map // palKey → *palette
+
+// accentPal returns the palette of the accent and the appearance: the
+// app's colors, with the accent's over them where it is not the blue.
+func (a *App) accentPal(dark bool) *palette {
+	key := palKey{accent: a.set.Accent, dark: dark}
+	if p, ok := palCache.Load(key); ok {
+		return p.(*palette)
 	}
-	return &lightPalette
+	p := &lightPalette
+	if dark {
+		p = &darkPalette
+	}
+	if key.accent != settings.AccentDefault {
+		if s, ok := accentSpecs[key.accent]; ok {
+			c := *p
+			c.accent = s.dark
+			if !dark {
+				c.accent = s.light
+			}
+			p = &c
+		}
+	}
+	palCache.Store(key, p)
+	return p
+}
+
+// paletteFor returns the palette of the frame, as the accent has it.
+func (a *App) paletteFor(c *ui.Context) *palette {
+	return a.accentPal(c.Theme().Dark)
 }
 
 // Terminal themes on the card's color, with palettes tuned to read on it:
-// Apple's system colors, a little deeper in the light.
-var lightTermTheme = &terminal.Theme{
-	Foreground:    ui.Hex("#1d1d1f"),
-	Background:    lightPalette.card,
-	Cursor:        ui.Hex("#1d1d1f"),
-	CursorText:    ui.Hex("#ffffff"),
-	Selection:     ui.Hex("#cfdcfb"),
-	SelectionText: ui.Hex("#1d1d1f"),
-	Palette: [16]ui.Color{
-		ui.Hex("#1d1d1f"), ui.Hex("#d3302f"), ui.Hex("#22863a"), ui.Hex("#b08800"),
-		ui.Hex("#2f5bd8"), ui.Hex("#a033c4"), ui.Hex("#0f8199"), ui.Hex("#8e8e93"),
-		ui.Hex("#5f5f66"), ui.Hex("#ef4444"), ui.Hex("#2fa84f"), ui.Hex("#d4a017"),
-		ui.Hex("#3b82f6"), ui.Hex("#c04ee0"), ui.Hex("#14a3bf"), ui.Hex("#b4b4bb"),
-	},
-}
-
-var darkTermTheme = &terminal.Theme{
-	Foreground:    ui.Hex("#e6e6ea"),
-	Background:    darkPalette.card,
-	Cursor:        ui.Hex("#e6e6ea"),
-	CursorText:    ui.Hex("#161618"),
-	Selection:     ui.Hex("#2f4170"),
-	SelectionText: ui.Hex("#ffffff"),
-	Palette: [16]ui.Color{
-		ui.Hex("#3a3a40"), ui.Hex("#ff6b64"), ui.Hex("#4fd17a"), ui.Hex("#f2c14e"),
-		ui.Hex("#6b9bff"), ui.Hex("#d07cf0"), ui.Hex("#4cc9e0"), ui.Hex("#c9c9cf"),
-		ui.Hex("#6c6c78"), ui.Hex("#ff8a84"), ui.Hex("#74e397"), ui.Hex("#ffd479"),
-		ui.Hex("#8fb3ff"), ui.Hex("#e09cf7"), ui.Hex("#7fdcec"), ui.Hex("#f5f5f7"),
-	},
+// Apple's system colors, a little deeper in the light; the selection in
+// the accent's tint.
+func termTheme(pal *palette, sel ui.Color) *terminal.Theme {
+	if pal.dark {
+		return &terminal.Theme{
+			Foreground:    ui.Hex("#e6e6ea"),
+			Background:    pal.card,
+			Cursor:        ui.Hex("#e6e6ea"),
+			CursorText:    ui.Hex("#161618"),
+			Selection:     sel,
+			SelectionText: ui.Hex("#ffffff"),
+			Palette: [16]ui.Color{
+				ui.Hex("#3a3a40"), ui.Hex("#ff6b64"), ui.Hex("#4fd17a"), ui.Hex("#f2c14e"),
+				ui.Hex("#6b9bff"), ui.Hex("#d07cf0"), ui.Hex("#4cc9e0"), ui.Hex("#c9c9cf"),
+				ui.Hex("#6c6c78"), ui.Hex("#ff8a84"), ui.Hex("#74e397"), ui.Hex("#ffd479"),
+				ui.Hex("#8fb3ff"), ui.Hex("#e09cf7"), ui.Hex("#7fdcec"), ui.Hex("#f5f5f7"),
+			},
+		}
+	}
+	return &terminal.Theme{
+		Foreground:    ui.Hex("#1d1d1f"),
+		Background:    pal.card,
+		Cursor:        ui.Hex("#1d1d1f"),
+		CursorText:    ui.Hex("#ffffff"),
+		Selection:     sel,
+		SelectionText: ui.Hex("#1d1d1f"),
+		Palette: [16]ui.Color{
+			ui.Hex("#1d1d1f"), ui.Hex("#d3302f"), ui.Hex("#22863a"), ui.Hex("#b08800"),
+			ui.Hex("#2f5bd8"), ui.Hex("#a033c4"), ui.Hex("#0f8199"), ui.Hex("#8e8e93"),
+			ui.Hex("#5f5f66"), ui.Hex("#ef4444"), ui.Hex("#2fa84f"), ui.Hex("#d4a017"),
+			ui.Hex("#3b82f6"), ui.Hex("#c04ee0"), ui.Hex("#14a3bf"), ui.Hex("#b4b4bb"),
+		},
+	}
 }
 
 // backdrop paints the window's wash of color, under the sidebar and
 // between the cards: the base on the root, a glow from the top right on
-// row, which holds everything else. It lies over the window's material,
-// which shows through a little; the plain one is the material alone.
+// row, which holds everything else, and the grain over them both when it
+// is on. It lies over the window's material, which shows through a
+// little; the plain one is the material alone.
 func backdrop(c *ui.Context, pal *palette, row ui.Element, s settings.Settings) {
+	if s.Grain {
+		row.Draw(func(p *ui.Painter, r ui.Rect) {
+			grain.Draw(p, r, shader.Options{Uniforms: map[string]any{"Alpha": grainAlpha(c, pal.dark)}})
+		})
+	}
 	base, glow := washes(s.Background, pal.dark)
 	if s.Background == "plain" {
 		// The material alone is as light or as dark as the wallpaper
@@ -248,6 +314,20 @@ var washTable = map[string]wash{
 	"dusk": {
 		light: []string{"#e4dbf3", "#efdeee", "#f6e3dc", "#f7e6cf"}, lightGlow: ui.RGBA(246, 206, 222, 0.8),
 		dark: []string{"#191321", "#1e161e", "#221a17"}, darkGlow: ui.RGBA(150, 80, 110, 0.25),
+	},
+	// The accents' own washes, with their presets: a violet's lavender, a
+	// rose's warm pink, a sea's cool green-blue.
+	"plum": {
+		light: []string{"#e3dcf6", "#e8def2", "#efe2ea", "#f4e8dc"}, lightGlow: ui.RGBA(236, 214, 245, 0.75),
+		dark: []string{"#171425", "#191623", "#1b1918"}, darkGlow: ui.RGBA(120, 80, 170, 0.22),
+	},
+	"rose": {
+		light: []string{"#f6dfe7", "#f5e1e2", "#f7e7dd", "#f8ecd4"}, lightGlow: ui.RGBA(248, 214, 226, 0.78),
+		dark: []string{"#1f1319", "#211518", "#241918"}, darkGlow: ui.RGBA(200, 82, 128, 0.24),
+	},
+	"sea": {
+		light: []string{"#dde9ee", "#e0edf1", "#e5f1ee", "#e9f1e6"}, lightGlow: ui.RGBA(196, 228, 236, 0.75),
+		dark: []string{"#101820", "#121b20", "#141d1c"}, darkGlow: ui.RGBA(58, 128, 148, 0.22),
 	},
 	"plain": {
 		light: []string{"#eceef4", "#eceef4"}, lightGlow: ui.RGBA(0, 0, 0, 0),

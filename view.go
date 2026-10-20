@@ -66,8 +66,6 @@ func (a *App) headerButtons(c *ui.Context, bar ui.TitleBar, shown float32) ui.El
 	return ui.Row(c).Absolute().Left(a.chrome.buttonsLeft(bar)).Top(barMid - a.chrome.topPad - h/2).Height(h).AlignItems(ui.Center).Gap(2).Opacity(1 - 2*shown)
 }
 
-var sidebarMotion = ui.Animation{Duration: 260 * time.Millisecond, Ease: ui.CubicBezier(0.25, 1, 0.5, 1)}
-
 func chromeFor(progress, width float32, bar ui.TitleBar) chrome {
 	round := func(v float32) float32 { return float32(math.Round(float64(v))) }
 	w := round(width * min(max(progress, 0), 1))
@@ -98,7 +96,7 @@ func b2f(b bool) float32 {
 }
 
 func (a *App) view(c *ui.Context) {
-	pal := paletteFor(c)
+	pal := a.paletteFor(c)
 	c.SetTheme(borderless(c, pal))
 
 	if a.pendingToast != "" {
@@ -110,10 +108,8 @@ func (a *App) view(c *ui.Context) {
 	bar := a.titleBar(c)
 	row := ui.Row(c).Fill().AlignItems(ui.Stretch)
 	backdrop(c, pal, row, a.set)
-	// A curve, not a spring: a spring's long tail crawls under a pixel a
-	// frame, which whole pixels turn into hops and holds, a shake as it
-	// settles. This one lands in about 13 frames, moving in every one.
-	progress := row.AnimateTo("sidebar", b2f(!a.prefs.SidebarHidden), sidebarMotion)
+	// A curve, not a spring: see slide.
+	progress := row.AnimateTo("sidebar", b2f(!a.prefs.SidebarHidden), slide)
 	a.chrome = chromeFor(progress, a.prefs.SidebarWidth, bar)
 	shown := a.chrome.shown
 	row.Children(func() {
@@ -293,7 +289,8 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 	if gi == 0 {
 		top = 2
 	}
-	hdr := ui.Row(c.Key("project-"+id)).Height(28).Margin(top, 0, 3, 0).Padding(0, 6, 0, 10).Gap(6).AlignItems(ui.Center).Radius(6)
+	hdr := ui.Row(c.Key("project-"+id)).Height(28).Margin(top, 0, 3, 0).Padding(0, 6, 0, 10).Gap(6).AlignItems(ui.Center).Radius(6).
+		Transition(headerTransition)
 	hovered := hdr.Hovered()
 	renaming := id != "" && a.renamingProject == id
 	if hdr.Clicked() && !renaming {
@@ -344,8 +341,8 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 		ui.Text(c, g.project.Name).FontSize(12.5).FontWeight(600).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
 		ui.Textf(c, "%d", len(g.sessions)).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum")
 		chev := ui.Icon(c, chevronIcon).Size(11, 11).TextColor(pal.textFaint)
-		turn := chev.AnimateTo("turn", 90*(1-b2f(collapsed)), ui.Snappy)
-		chev.Rotate(turn).Opacity(chev.Animate("shown", b2f(hovered || collapsed), 120*time.Millisecond))
+		turn := chev.AnimateTo("turn", 90*(1-b2f(collapsed)), row)
+		chev.Rotate(turn).Opacity(chev.Animate("shown", b2f(hovered || collapsed), hover.Duration))
 		ui.Spacer(c)
 		if needs > 0 {
 			ui.Text(c, locales.SidebarNeedsYou(needs)).FontSize(12.5).FontWeight(500).TextColor(pal.attention).SingleLine()
@@ -379,7 +376,8 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 	*n++
 	index := *n
 	selected := s.ID == a.selected
-	row := ui.Row(c.Key(s.ID)).Height(rowH).Padding(0, 10, 0, 12).Gap(10).AlignItems(ui.Center).Radius(8).Margin(0, 0, 1, 0)
+	row := ui.Row(c.Key(s.ID)).Height(rowH).Padding(0, 10, 0, 12).Gap(10).AlignItems(ui.Center).Radius(8).Margin(0, 0, 1, 0).
+		Transition(rowTransition)
 	hovered := row.Hovered()
 	if pal.dark {
 		// Room for the chosen row's edge in every row, so that choosing
@@ -394,7 +392,7 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 	case hovered:
 		bg = pal.rowHover
 	}
-	row.Background(row.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond}))
+	row.Background(row.AnimateColor("bg", bg, hover))
 	if (row.Pressed() || row.Clicked()) && !selected {
 		a.selectSession(s.ID)
 	}

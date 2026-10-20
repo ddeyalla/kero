@@ -80,7 +80,7 @@ func TestUsageKeyEditing(t *testing.T) {
 	a := testApp(t)
 	a.usage.keys = map[string]*string{}
 	r := usage.Providers()[2]
-	tt := ui.NewTester(func(c *ui.Context) { a.usageCard(c, paletteFor(c), r) }, 520, 360)
+	tt := ui.NewTester(func(c *ui.Context) { a.usageCard(c, a.paletteFor(c), r) }, 520, 360)
 	tt.Frame()
 	if err := tt.Click("OpenCode Go API key"); err != nil {
 		t.Fatal(err)

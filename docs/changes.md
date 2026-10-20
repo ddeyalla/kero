@@ -348,6 +348,60 @@ left edge, and a window that opens in full screen). The native lights
 are AppKit's and are not in MyGo's tester; they were checked in real
 windows as above.
 
+## Motion, accent and grain
+
+The app's motion, its accent colors and the grain over its wash share a
+section here because they are one taste: how the window looks as it moves.
+
+**Motion tokens.** [`motion.go`](../motion.go) holds the app's durations
+and curves as tokens: `press` 90 ms, `hover` 120, `row` 160, `slide` 260
+over `CubicBezier(.25, 1, .5, 1)`, `settle` 280, and the springs
+`springDrag` 420 ms with a bounce of .18 and `springUI` 300 ms with .12.
+Call sites use the token, not the number, so a change to how the app moves
+is one edit. The sidebar's own animation and the panes' layout motion were
+the same 220–260 ms curve; both are `slide`. The chevron turned with a
+500 ms spring; it turns with `row`. `Reduce Motion` is mygo's own.
+
+**A project collapsing animates.** The rows of a collapsed project are
+still not built ([`view.go`](../view.go) keeps the structure: collapse
+expresses itself as a different tree, not hidden geometry). What changed
+is that the rows carry `Transition`: a row that stops being built folds to
+nothing along the list's direction while its parent still shows, and a row
+coming back unfolds from there; the header carries a Position transition
+and moves with them. The transition moves position and size only — the
+row's background keeps its own `AnimateColor`, and easing the colors twice
+would ease them twice.
+
+**Accent presets.** [`accentSpecs`](../theme.go) holds six hand-tuned
+accents — the blue the app has had, Plum, Rose, Sea, Moss and Graphite —
+each a color in the light and in the dark, and a terminal selection in its
+tint over the card. The ids and names live with the wash each comes with
+(`settings.Accents`), and the three washes of their own (plum, rose, sea)
+are in `washTable` with the five the window has had, so `background` stays
+a free choice after a preset is picked. `accentPal` returns a palette from
+a cache keyed by the accent and the appearance — built once, not per frame
+— and `paletteFor` forwards to it; the base palettes carry the default, so
+choosing nothing shows what the app has had. The terminals' themes are
+functions now: `termTheme` styles a theme on the card's color with the
+selection the accent has, and a change of accent attaches the terminals'
+theme anew. A unit test holds every accent to its numbers: at least 3 to 1
+on the card and the sidebar, in both appearances, and the white text of a
+primary button at 4.5 to 1 on it.
+
+**The grain.** [`grain.go`](../grain.go) holds one fragment shader of
+package `ui/shader`: a hash of each two pixels of the window, half the
+specks white and half black, from no image and no time. `backdrop` draws
+it on the backdrop row after its background and before its children, so it
+lies over the wash and under the sidebar and the cards, at 5.5% in the
+light and 7.5% in the dark at a speck's strongest — an average of some 3% —
+and about 30% lighter where `Vibrancy()` has the desktop showing through,
+which has a texture of its own. `grain = false` turns it off.
+
+Code: [`motion.go`](../motion.go), [`theme.go`](../theme.go),
+[`grain.go`](../grain.go),
+[`internal/settings/settings.go`](../internal/settings/settings.go),
+[`internal/settings/config.go`](../internal/settings/config.go).
+
 ## Identity and icon
 
 - App name: **Shibu Code** (previously **Kero Local**).

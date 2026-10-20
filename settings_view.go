@@ -249,7 +249,7 @@ func durationWords(d time.Duration) string {
 }
 
 func (a *App) settingsView(c *ui.Context) {
-	pal := paletteFor(c)
+	pal := a.paletteFor(c)
 	c.SetTheme(borderless(c, pal))
 	if a.ss.toast != "" {
 		c.Toast(a.ss.toast)
@@ -528,8 +528,7 @@ func settingRow(c *ui.Context, pal *palette, label, detail string, control func(
 // segmented chooses one of ids into value, as macOS's segmented control
 // shows it: a soft track, the choice a lighter fill raised a hair, thin
 // separators between the others, and labels of one weight.
-func segmented(c *ui.Context, key string, value *string, ids, labels []string) {
-	pal := paletteFor(c)
+func segmented(c *ui.Context, key string, value *string, ids, labels []string, pal *palette) {
 	i := max(slices.Index(ids, *value), 0)
 	track, thumb := ui.RGBA(0, 0, 0, 0.06), ui.Hex("#ffffff")
 	if pal.dark {
@@ -567,11 +566,11 @@ func (a *App) generalPage(c *ui.Context, pal *palette) {
 	s := &a.set
 	settingsGroup(c, pal, locales.SetSessions(), locales.SetSessionsDetail(a.tip(strings.TrimSuffix(actionTitle("app.quitAll"), "…"), "app.quitAll")), func() {
 		settingRow(c, pal, locales.SetNewSessionsStartIn(), "", func() {
-			segmented(c, "newdir", &s.NewSessionDir, []string{"current", "project", "home"}, []string{locales.SetDirCurrent(), locales.SetDirProject(), locales.SetDirHome()})
+			segmented(c, "newdir", &s.NewSessionDir, []string{"current", "project", "home"}, []string{locales.SetDirCurrent(), locales.SetDirProject(), locales.SetDirHome()}, pal)
 		})
 		settingRow(c, pal, locales.SetSessionName(), locales.SetSessionNameDetail(), func() {
 			segmented(c, "sessionname", &s.SessionName, []string{proto.NameFocused, proto.NameLead, proto.NameFolder},
-				[]string{locales.SetNameFocused(), locales.SetNameLead(), locales.SetNameFolder()})
+				[]string{locales.SetNameFocused(), locales.SetNameLead(), locales.SetNameFolder()}, pal)
 		})
 		settingRow(c, pal, locales.SetAskBeforeClosing(), locales.SetAskBeforeClosingDetail(), func() {
 			toggle(c.Key("confirm"), &s.ConfirmClose, pal)
@@ -628,13 +627,24 @@ func (a *App) appearancePage(c *ui.Context, pal *palette) {
 	s := &a.set
 	settingsGroup(c, pal, "", "", func() {
 		settingRow(c, pal, locales.SetAppearance(), "", func() {
-			segmented(c, "appearance", &s.Appearance, []string{"system", "light", "dark"}, []string{locales.SetThemeSystem(), locales.SetThemeLight(), locales.SetThemeDark()})
+			segmented(c, "appearance", &s.Appearance, []string{"system", "light", "dark"}, []string{locales.SetThemeSystem(), locales.SetThemeLight(), locales.SetThemeDark()}, pal)
 		})
 		settingRow(c, pal, locales.SetLanguage(), "", func() {
 			popup(c, "language", &s.Language, append([]string{"system"}, settings.Languages...), languageName, 180, pal)
 		})
 		settingRow(c, pal, locales.SetTranslucent(), locales.SetTranslucentDetail(), func() {
 			toggle(c.Key("vibrancy"), &s.Vibrancy, pal)
+		})
+		settingRow(c, pal, locales.SetGrain(), locales.SetGrainDetail(), func() {
+			toggle(c.Key("grain"), &s.Grain, pal)
+		})
+	})
+	ui.Column(c).Gap(8).Children(func() {
+		groupTitle(c, pal, locales.SetAccent())
+		ui.Row(c).Gap(12).Wrap().Children(func() {
+			for _, ac := range settings.Accents {
+				a.accentTile(c, pal, ac.ID, accentName(ac.ID, ac.Name))
+			}
 		})
 	})
 	ui.Column(c).Gap(8).Children(func() {
@@ -667,10 +677,59 @@ func localeTag(language string) string {
 
 // backgroundName is a wash's name in the language the app shows.
 func backgroundName(id, name string) string {
-	if t, ok := map[string]func() string{"rex": locales.BgPetal, "mist": locales.BgMist, "meadow": locales.BgMeadow, "dusk": locales.BgDusk, "plain": locales.BgPlain}[id]; ok {
+	if t, ok := map[string]func() string{"rex": locales.BgPetal, "mist": locales.BgMist, "meadow": locales.BgMeadow, "dusk": locales.BgDusk, "plum": locales.BgPlum, "rose": locales.BgRose, "sea": locales.BgSea, "plain": locales.BgPlain}[id]; ok {
 		return t()
 	}
 	return name
+}
+
+// accentName is an accent preset's name in the language the app shows.
+func accentName(id, name string) string {
+	if t, ok := map[string]func() string{"blue": locales.AccentBlue, "plum": locales.AccentPlum, "rose": locales.AccentRose, "sea": locales.AccentSea, "moss": locales.AccentMoss, "graphite": locales.AccentGraphite}[id]; ok {
+		return t()
+	}
+	return name
+}
+
+// accentTile previews an accent preset, choosing it on a click: it takes
+// the preset's color and the wash that comes with it, whose choice stays
+// the user's after, by background.
+func (a *App) accentTile(c *ui.Context, pal *palette, id, name string) {
+	sel := a.set.Accent == id
+	tile := ui.ButtonBase(c.Key("accent-" + id)).Column().Width(104).Gap(8).AlignItems(ui.Stretch).Label(name)
+	if tile.Clicked() {
+		a.set.Accent = id
+		for _, ac := range settings.Accents {
+			if ac.ID == id {
+				a.set.Background = ac.Wash
+			}
+		}
+	}
+	tile.Children(func() {
+		sw := raised(ui.Box(c).Size(104, 68).Radius(12).Background(pal.card), pal).Clip()
+		sw.Children(func() {
+			spec := accentSpecs[id]
+			dot := spec.light
+			if pal.dark {
+				dot = spec.dark
+			}
+			ui.Column(c).Fill().Center().Children(func() {
+				ui.Box(c).Size(28, 28).Radius(14).Background(dot)
+			})
+			if sel {
+				ui.Box(c).Absolute().Top(6).Right(6).Size(18, 18).Radius(9).Center().Background(pal.accent).Children(func() {
+					ui.Box(c).Size(10, 10).Draw(func(p *ui.Painter, r ui.Rect) {
+						ck := (&ui.Path{}).MoveTo(r.X+1, r.Y+5.2).LineTo(r.X+4, r.Y+8).LineTo(r.X+9, r.Y+2)
+						p.StrokePath(ck, 1.6, ui.Hex("#ffffff"))
+					})
+				})
+			}
+		})
+		lbl := ui.Text(c, name).FontSize(12.5).TextColor(pal.textMuted).TextAlign(ui.Center)
+		if sel {
+			lbl.TextColor(pal.text).FontWeight(600)
+		}
+	})
 }
 
 // backgroundTile previews a wash, choosing it on a click.
@@ -774,7 +833,7 @@ func (a *App) terminalPage(c *ui.Context, pal *palette) {
 	})
 	settingsGroup(c, pal, locales.SetCursor(), "", func() {
 		settingRow(c, pal, locales.SetShape(), locales.SetShapeDetail(), func() {
-			segmented(c, "cursor", &s.Cursor, []string{"block", "bar", "underline"}, []string{locales.SetCursorBlock(), locales.SetCursorBar(), locales.SetCursorUnderline()})
+			segmented(c, "cursor", &s.Cursor, []string{"block", "bar", "underline"}, []string{locales.SetCursorBlock(), locales.SetCursorBar(), locales.SetCursorUnderline()}, pal)
 		})
 		settingRow(c, pal, locales.SetBlink(), "", func() { toggle(c.Key("blink"), &s.CursorBlink, pal) })
 	})
@@ -791,7 +850,7 @@ func (a *App) terminalPage(c *ui.Context, pal *palette) {
 			}, 170, pal)
 		})
 		settingRow(c, pal, locales.SetClipboardRead(), locales.SetClipboardReadDetail(), func() {
-			segmented(c, "clip", &s.Clipboard, []string{"ask", "allow", "deny"}, []string{locales.SetAsk(), locales.SetAllow(), locales.SetDeny()})
+			segmented(c, "clip", &s.Clipboard, []string{"ask", "allow", "deny"}, []string{locales.SetAsk(), locales.SetAllow(), locales.SetDeny()}, pal)
 		})
 	})
 }
@@ -1022,7 +1081,7 @@ func (a *App) linearPage(c *ui.Context, pal *palette) {
 		})
 		settingRow(c, pal, locales.SetLinearDensity(), locales.SetLinearDensityDetail(), func() {
 			segmented(c, "linear-density", &s.LinearDensity, []string{"comfortable", "compact"},
-				[]string{locales.SetLinearComfortable(), locales.SetLinearCompact()})
+				[]string{locales.SetLinearComfortable(), locales.SetLinearCompact()}, pal)
 		})
 	})
 }

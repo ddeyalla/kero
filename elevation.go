@@ -94,7 +94,7 @@ func button(c *ui.Context, key, label, keys string, primary bool, pal *palette) 
 	case b.Hovered():
 		bg = pal.controlHover
 	}
-	face(b, pal, b.AnimateColor("bg", bg, ui.Animation{Duration: 90e6})).TextColor(fg)
+	face(b, pal, b.AnimateColor("bg", bg, press)).TextColor(fg)
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).FontWeight(500).SingleLine()
 		if keys != "" {

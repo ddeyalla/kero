@@ -12,6 +12,24 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Added
 
+- Accent presets: six hand-tuned themes of the app's own colors — Blue (the
+  one it has had), Plum, Rose, Sea, Moss and Graphite. Each is an accent
+  color in the light and in the dark, the background wash that comes with
+  it, and the terminals' selection in its tint; the neutrals stay as they
+  are. Settings › Appearance › Accent; picking one takes its wash, and the
+  background stays yours after. The dark blue deepens (#6b93ff → #4a71d4)
+  so that the white text on a primary button keeps a 4.5-to-1 contrast;
+  `accent = plum` in the configuration.
+- A faint grain over the background wash, a speckle of a few percent that
+  stops large flat gradients reading as flat, drawn under the sidebar and
+  the cards and lighter where the desktop shows through. Settings ›
+  Appearance › Grain; `grain = false` turns it off.
+- The app moves as one: motion tokens hold its durations and curves in one
+  place (`press` 90 ms, `hover` 120, `row` 160, `slide` 260, and the two
+  springs), in place of the scattered literals. A project collapsing now
+  folds its rows away animated — each row folds to nothing along the list
+  and its neighbours make room — instead of the rows popping in and out,
+  and the chosen session's row stays in view, as it did.
 - Claude Code and Codex report their turns: Kero's hook now also runs as a
   turn starts, asks for permission, runs a tool and ends, and the pane shows
   working, waiting or done at once instead of waiting for the screen to

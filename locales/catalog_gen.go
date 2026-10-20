@@ -2210,6 +2210,96 @@ func (msgs Messages) SetTranslucentDetail() string {
 	return Catalog.Format(msgs.locale, "setTranslucentDetail", nil)
 }
 
+// SetGrain says "Grain"
+// in the language the app shows.
+func SetGrain() string { return In(i18n.Locale()).SetGrain() }
+
+// SetGrain says "Grain"
+// in the language of msgs.
+func (msgs Messages) SetGrain() string {
+	return Catalog.Format(msgs.locale, "setGrain", nil)
+}
+
+// SetGrainDetail says "A faint speckle over the background, so flat colors read as material."
+// in the language the app shows.
+func SetGrainDetail() string { return In(i18n.Locale()).SetGrainDetail() }
+
+// SetGrainDetail says "A faint speckle over the background, so flat colors read as material."
+// in the language of msgs.
+func (msgs Messages) SetGrainDetail() string {
+	return Catalog.Format(msgs.locale, "setGrainDetail", nil)
+}
+
+// SetAccent says "Accent"
+// in the language the app shows.
+func SetAccent() string { return In(i18n.Locale()).SetAccent() }
+
+// SetAccent says "Accent"
+// in the language of msgs.
+func (msgs Messages) SetAccent() string {
+	return Catalog.Format(msgs.locale, "setAccent", nil)
+}
+
+// AccentBlue says "Blue"
+// in the language the app shows.
+func AccentBlue() string { return In(i18n.Locale()).AccentBlue() }
+
+// AccentBlue says "Blue"
+// in the language of msgs.
+func (msgs Messages) AccentBlue() string {
+	return Catalog.Format(msgs.locale, "accentBlue", nil)
+}
+
+// AccentPlum says "Plum"
+// in the language the app shows.
+func AccentPlum() string { return In(i18n.Locale()).AccentPlum() }
+
+// AccentPlum says "Plum"
+// in the language of msgs.
+func (msgs Messages) AccentPlum() string {
+	return Catalog.Format(msgs.locale, "accentPlum", nil)
+}
+
+// AccentRose says "Rose"
+// in the language the app shows.
+func AccentRose() string { return In(i18n.Locale()).AccentRose() }
+
+// AccentRose says "Rose"
+// in the language of msgs.
+func (msgs Messages) AccentRose() string {
+	return Catalog.Format(msgs.locale, "accentRose", nil)
+}
+
+// AccentSea says "Sea"
+// in the language the app shows.
+func AccentSea() string { return In(i18n.Locale()).AccentSea() }
+
+// AccentSea says "Sea"
+// in the language of msgs.
+func (msgs Messages) AccentSea() string {
+	return Catalog.Format(msgs.locale, "accentSea", nil)
+}
+
+// AccentMoss says "Moss"
+// in the language the app shows.
+func AccentMoss() string { return In(i18n.Locale()).AccentMoss() }
+
+// AccentMoss says "Moss"
+// in the language of msgs.
+func (msgs Messages) AccentMoss() string {
+	return Catalog.Format(msgs.locale, "accentMoss", nil)
+}
+
+// AccentGraphite says "Graphite"
+// in the language the app shows.
+func AccentGraphite() string { return In(i18n.Locale()).AccentGraphite() }
+
+// AccentGraphite says "Graphite"
+// in the language of msgs.
+func (msgs Messages) AccentGraphite() string {
+	return Catalog.Format(msgs.locale, "accentGraphite", nil)
+}
+
 // SetBackground says "Background"
 // in the language the app shows.
 func SetBackground() string { return In(i18n.Locale()).SetBackground() }
@@ -2258,6 +2348,36 @@ func BgDusk() string { return In(i18n.Locale()).BgDusk() }
 // in the language of msgs.
 func (msgs Messages) BgDusk() string {
 	return Catalog.Format(msgs.locale, "bgDusk", nil)
+}
+
+// BgPlum says "Plum"
+// in the language the app shows.
+func BgPlum() string { return In(i18n.Locale()).BgPlum() }
+
+// BgPlum says "Plum"
+// in the language of msgs.
+func (msgs Messages) BgPlum() string {
+	return Catalog.Format(msgs.locale, "bgPlum", nil)
+}
+
+// BgRose says "Rose"
+// in the language the app shows.
+func BgRose() string { return In(i18n.Locale()).BgRose() }
+
+// BgRose says "Rose"
+// in the language of msgs.
+func (msgs Messages) BgRose() string {
+	return Catalog.Format(msgs.locale, "bgRose", nil)
+}
+
+// BgSea says "Sea"
+// in the language the app shows.
+func BgSea() string { return In(i18n.Locale()).BgSea() }
+
+// BgSea says "Sea"
+// in the language of msgs.
+func (msgs Messages) BgSea() string {
+	return Catalog.Format(msgs.locale, "bgSea", nil)
 }
 
 // BgPlain says "Plain"

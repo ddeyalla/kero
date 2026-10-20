@@ -26,7 +26,7 @@ const (
 
 // layoutMotion is how the panes glide to the room they share, as when it
 // is made even: not as a divider is dragged, which they follow.
-var layoutMotion = ui.Animation{Duration: 220 * time.Millisecond, Ease: ui.CubicBezier(0.25, 1, 0.5, 1)}
+var layoutMotion = slide
 
 // minExtent is the least room a layout needs across (row) or down.
 func minExtent(l *proto.Layout, row bool) float32 {
@@ -245,7 +245,7 @@ func (a *App) paneCard(c *ui.Context, pal *palette, bar ui.TitleBar, shown float
 		a.cardSize = map[string]ui.Rect{}
 	}
 	a.cardSize[p.ID] = a.paneRef("card-" + p.ID).Bounds(c)
-	raised(card.Background(card.AnimateColor("bg", bg, ui.Animation{Duration: 140 * time.Millisecond})), pal)
+	raised(card.Background(card.AnimateColor("bg", bg, hover)), pal)
 	hovered := card.Hovered()
 	// The card takes presses: one on its padding, beside the terminal,
 	// focuses the pane, rather than going on to what drags the window.
@@ -284,7 +284,7 @@ func (a *App) paneCard(c *ui.Context, pal *palette, bar ui.TitleBar, shown float
 		if multi {
 			// The panes the user is not in fade, text and all.
 			v := ui.Box(c.Key("veil")).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Background(pal.veil)
-			v.Opacity(v.Animate("on", b2f(!focused), 160*time.Millisecond))
+			v.Opacity(v.Animate("on", b2f(!focused), row.Duration))
 		}
 		if zone != zoneNone {
 			a.dropPreview(c, pal, p.ID, zone)
@@ -304,7 +304,7 @@ func (a *App) paneCard(c *ui.Context, pal *palette, bar ui.TitleBar, shown float
 		delete(a.arrived, p.ID)
 		c.Invalidate()
 	}
-	card.AnimatePose(pose, ui.Animation{Spring: ui.SpringOptions{Duration: 420 * time.Millisecond, Bounce: 0.18}})
+	card.AnimatePose(pose, springDrag)
 }
 
 // paneDrag is a pane dragged by its title to another place.
@@ -375,7 +375,7 @@ func (a *App) dropPreview(c *ui.Context, pal *palette, target string, zone dropZ
 	if fadeIn < 1 {
 		c.AnimationFrame()
 	}
-	spring := ui.Animation{Spring: ui.SpringOptions{Duration: 300 * time.Millisecond, Bounce: 0.12}}
+	spring := springUI
 	o := ui.Column(c.Key("drop")).Absolute().PassThrough().Padding(8).Opacity(fadeIn)
 	o.LeftPercent(o.AnimateTo("l", r[0], spring)).TopPercent(o.AnimateTo("t", r[1], spring)).
 		WidthPercent(o.AnimateTo("w", r[2], spring)).HeightPercent(o.AnimateTo("h", r[3], spring))
@@ -392,7 +392,7 @@ func (a *App) dropPreview(c *ui.Context, pal *palette, target string, zone dropZ
 				ui.Icon(c, glyph).Size(14, 14)
 				ui.Text(c, label).FontSize(12.5).FontWeight(600).SingleLine()
 			})
-			pill.AnimatePose(ui.Pose{Scale: 0.9 + 0.1*fadeIn}, ui.Snappy)
+			pill.AnimatePose(ui.Pose{Scale: 0.9 + 0.1*fadeIn}, springUI)
 		})
 	})
 }
@@ -502,7 +502,7 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 		}
 		show := (hovered || focused && multi) && !dragging
 		ctl := ui.Row(c.Key("controls")).Gap(0).AlignItems(ui.Center)
-		ctl.Opacity(ctl.Animate("shown", b2f(show), 120*time.Millisecond)).Children(func() {
+		ctl.Opacity(ctl.Animate("shown", b2f(show), hover.Duration)).Children(func() {
 			if !show {
 				return
 			}
