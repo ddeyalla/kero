@@ -8,6 +8,14 @@ they do not imply published GitHub releases or existing release tags.
 
 ## Unreleased
 
+No pending changes.
+
+## [2.0.5-local.6] - 2026-10-20
+
+- Includes Kero 2.0.5 (`a920e3a0cc25`) and Shibu customizations.
+- Preserves the Shibu app identity, icon, usage features and separate data folders.
+- Signed background updates apply on the next launch; no automatic restart.
+
 ### Added
 
 - Daily stable Kero release checks with guarded merges, tests and signed ARM64 Shibu builds.
