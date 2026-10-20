@@ -85,3 +85,26 @@ session/pane IDs, settings location, and provider credential file persisted.
 Reopening the GUI also restarted the daemon and idle shell, so process IDs did
 not persist. The local `bin/kero` link now targets Shibu Code. The prior bundle
 was moved into a temporary rollback folder; the official app was untouched.
+
+## Sidebar meters and copied sessions — 2026-10-20
+
+Shibu Code `2.0.5-local.3` is installed and running as ARM64. CPU and RAM
+use equal-width sidebar meters with values and proportional bars. Light,
+dark and compact layouts were rendered with MyGo Tester; all Go tests and
+MyGo vet passed. The supplied Golden Retriever Terminal Icon.png replaces
+the earlier screenshot icon; installed and built ICNS hashes match, and
+strict signature verification passed.
+
+At the user's request, three Kero sessions / five panes were copied into
+the separate Shibu data directory, retaining projects, working directories,
+layouts, pane IDs, saved histories, and agent resume IDs. The current Codex
+resume ID was verified against its local session metadata because Kero had
+not recorded it. The existing Shibu session remains: four sessions / six
+panes total. Shibu's daemon and shells restarted after the build; the
+copied agent panes report Claude/Codex processes. Original Kero daemon and
+shell PIDs were verified unchanged.
+
+Pre-import state, preferences and histories are backed up under
+`~/Library/Application Support/kero-local/backups/before-kero-import-20261020-194341`.
+Provider keys were left in place. Session contents and backups are local
+only, outside the repository.
