@@ -11,6 +11,7 @@ These docs describe the local macOS edition.
 | Document | Contents |
 | --- | --- |
 | [Changelog](changelog.md) | Shibu release history and unreleased work |
+| [Feature tracker](features.md) | Every Shibu feature, the release that shipped it, how to reach it and its status |
 | [Keep your changes on your fork](keeping-your-fork.md) | Local commits, fork-only pushes, private settings and app releases |
 | [Changes and implementation](changes.md) | Features, code locations, behavior and remaining limits |
 | [Linear board and session links](linear-workspace.md) | Scope, setup, use, reliability and activation |

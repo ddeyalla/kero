@@ -3,18 +3,29 @@
 This file records personal-fork changes. For original Kero releases, see the
 [upstream changelog](../CHANGELOG.md). The app version is defined in
 [`mygo.json`](../mygo.json); numbering follows [Versioning](versioning.md).
-Dates use the local calendar date. Entries below describe installed builds;
-they do not imply published GitHub releases or existing release tags.
+Dates use the local calendar date. Releases from 2.0.5-local.6 on are
+published on the fork as `shibu-v<version>`; earlier entries describe local
+builds only. What each feature is and where it stands is tracked in the
+[feature tracker](features.md).
 
 ## Unreleased
 
-No pending changes.
+### Documentation
+
+- Added the [feature tracker](features.md): every Shibu feature, the release
+  that shipped it, how to reach it and its status.
+- Noted the one-time service restart for 2.0.7-local.1 and the Files Find
+  and Markdown heading links in its release notes.
 
 ## [2.0.7-local.1] - 2026-10-20
 
 - Includes Kero 2.0.7 (`7b60cc3f5090`) and Shibu customizations.
 - Preserves the Shibu app identity, icon, usage features and separate data folders.
 - Signed background updates apply on the next launch; no automatic restart.
+- After updating, restart the terminal service once when agents are idle.
+  Sessions, layouts, scrollback, views and task links come back and Claude
+  Code and Codex resume; running dev servers must be started again. Linear,
+  task links and the Tasks, Files and Browser panes need the new service.
 
 ### Upstream
 
@@ -56,6 +67,11 @@ No pending changes.
   `kero split --browser/--files/--tasks` for agents.
 - Files rows drag into a terminal as their paths; unfolded folders and the
   page or file a view shows are kept across restarts.
+- The Files pane's Find box (`Cmd+F` in the pane) matches any file of the
+  project loosely, indexed off the main thread; the tree and the viewer share
+  one header line.
+- Markdown links to a heading (`#section`, `other.md#section`) scroll the
+  Files pane to it.
 - In a focused Browser pane, `Cmd+L` selects the address, `Cmd+=`/`-`/`0`
   zoom the page and `Cmd+R` reloads it.
 - A least pane size, double-click a divider (or `Cmd+Ctrl+=`) to make panes
@@ -82,8 +98,7 @@ No pending changes.
   when a different data directory inherits the same socket address.
 
 Scope and verification: [Linear v1](linear-workspace.md),
-[secret protection](security.md). This is unreleased feature-branch work;
-the installed daily app remains on its current release.
+[secret protection](security.md).
 
 ## [2.0.5-local.7] - 2026-10-20
 
