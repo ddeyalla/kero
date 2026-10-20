@@ -15,15 +15,15 @@ import (
 )
 
 const (
-	// barMid is the line the title bar's contents center on: the traffic
-	// lights, the sidebar's buttons, the panes' headers. topBar is the
-	// sidebar's title bar, centered on it, and headerH a header of a card,
-	// which starts cardGap down, centered on it too. 52 tall, as the
-	// unified title bar and toolbar of macOS, whose middle AppKit centers
-	// the traffic lights on.
-	barMid  = 26
+	// barMid is the line the traffic lights center on, and the sidebar's
+	// buttons with them. topBar is the sidebar's title bar, centered on
+	// it: 40 tall, as macOS's compact title bar and toolbar
+	// (setCompactTitleBar), which AppKit centers the lights in. headerH is
+	// a header of a card, which starts cardGap down: as tall as a pane's
+	// title, 28, and its buttons need, apart from the lights' line.
+	barMid  = 20
 	topBar  = 2 * barMid
-	headerH = 2 * (barMid - cardGap)
+	headerH = 36
 	cardGap = 8 // around the card
 	rowH    = 34
 )
@@ -55,6 +55,14 @@ func lead(bar ui.TitleBar) float32 {
 		return bar.Left + 2*cardGap
 	}
 	return bar.Left + cardGap
+}
+
+// headerButtons places the sidebar's buttons that a header holds while the
+// sidebar hides: where they are in the window, after the traffic lights
+// and centered on them as in the sidebar, as the card slides.
+func (a *App) headerButtons(c *ui.Context, bar ui.TitleBar, shown float32) ui.Element {
+	const h = 26 // iconButton's
+	return ui.Row(c).Absolute().Left(a.chrome.buttonsLeft(bar)).Top(barMid - cardGap - h/2).Height(h).AlignItems(ui.Center).Gap(2).Opacity(1 - 2*shown)
 }
 
 var sidebarMotion = ui.Animation{Duration: 260 * time.Millisecond, Ease: ui.CubicBezier(0.25, 1, 0.5, 1)}
@@ -114,6 +122,7 @@ func (a *App) view(c *ui.Context) {
 			a.card(c, pal, bar, shown)
 		})
 	})
+	a.fullScreenLights(c, pal)
 	a.paletteView(c, pal)
 	a.chooserView(c, pal)
 	a.sweepViews()
@@ -694,7 +703,7 @@ func (a *App) card(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32) 
 		left := a.chrome.headerPad
 		ui.Row(c).Height(headerH).Shrink(0).AlignItems(ui.Center).Padding(0, 10, 0, left).DragWindow().Children(func() {
 			if shown < 0.5 {
-				ui.Row(c).Absolute().Left(a.chrome.buttonsLeft(bar)).Top(0).Bottom(0).AlignItems(ui.Center).Gap(2).Opacity(1 - 2*shown).Children(func() {
+				a.headerButtons(c, bar, shown).Children(func() {
 					iconButton(c, "show-sidebar", sidebarIcon, a.tip(locales.SidebarShow(), "sidebar.toggle"), pal, a.toggleSidebar)
 					iconButton(c, "new-session-2", plusIcon, a.tip(locales.ActionNewSession(), "session.new"), pal, func() { a.newSession("") })
 				})

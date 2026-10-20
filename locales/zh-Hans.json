@@ -61,6 +61,7 @@
   "windowMinimize": "最小化",
   "windowMaximize": "最大化",
   "windowRestore": "向下还原",
+  "windowExitFullScreen": "退出全屏幕",
   "toastCopied": "已复制",
   "toastCopiedToClipboard": "已复制到剪贴板",
   "toastSaveSettingsFailed": "无法保存设置：{error}",

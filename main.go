@@ -122,6 +122,8 @@ func runApp() {
 			Vibrancy:  vibrancyFor(a.set),
 			Content:   ui.View(a.view),
 		}))
+		setCompactTitleBar(a.win)
+		a.followFullScreen(a.win)
 		a.win.OnFocus(func() { a.update(func() { a.focused = true; a.reportView() }) })
 		a.win.OnBlur(func() { a.update(func() { a.focused = false; a.reportView() }) })
 		// Settings, in the window, goes with it.

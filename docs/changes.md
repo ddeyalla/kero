@@ -233,37 +233,73 @@ those candidate ports are not implemented.
 
 ## Title bar and traffic lights
 
-Shibu follows Apple's title bar on macOS rather than drawing its own:
+The title bar is macOS's compact title bar and toolbar, and the traffic
+lights stay in sight in full screen. Measurements below are from real
+windows on macOS 27.0.1.
 
-- MyGo's inset title bar style (`TitleBarHiddenInset`, in
-  [`platform.go`](../platform.go)) gives the window an empty `NSToolbar`
-  with the automatic toolbar style, which AppKit lays out as the unified
-  title bar and toolbar. Measured on macOS 27.0.1: the bar is 52 points,
-  the buttons 14 points, 23 apart, the close button 19 from the left, and
-  their middle 26 from the top. (The window's content layout rect starts
-  lower, 66 while the window is key, but the lights center on 26.)
-- Shibu no longer moves the lights (`TrafficLightPosition` is gone): they
-  stay where AppKit puts them, and the app lines up with them. `topBar` is
-  52 and `barMid` 26 ([`view.go`](../view.go)), so the sidebar's buttons
-  and the cards' headers, 36 tall from `cardGap` down, center on the
-  lights' line. Windows and Linux are unchanged (`ownControls`).
-- In full screen macOS hides the lights and brings them down with the menu
-  bar as the pointer reaches the top of the screen, as in Finder, Safari or
-  Xcode; Shibu leaves that alone. MyGo reports an empty title bar there,
-  which put the sidebar's buttons at the window's edge, under the lights
-  as they come down. `titleBar` ([`title_bar.go`](../title_bar.go)) keeps
-  the bar as it last was in the window instead, so nothing moves going
-  full screen, during the animation too. A window that opens in full
-  screen keeps room where AppKit puts the lights (`systemBar`).
+**Height.** MyGo's inset title bar (`TitleBarHiddenInset`, in
+[`platform.go`](../platform.go)) gives the window an empty `NSToolbar` in
+the automatic style, which AppKit made a 52-point bar here (66 to the
+content while the window is key). MyGo does not set the toolbar's style,
+so Shibu does, natively, through purego's Objective-C runtime:
+`setCompactTitleBar` ([`title_bar_darwin.go`](../title_bar_darwin.go))
+sets `NSWindowToolbarStyleUnifiedCompact` on the main and Settings
+windows. AppKit then makes the bar 40 points, with the lights, 14 points
+and 23 apart, 12 from the left and centered 20 from the top. Shibu does
+not move them (no `TrafficLightPosition`). `topBar` is 40 and `barMid` 20
+([`view.go`](../view.go)): the sidebar's title bar, and its buttons,
+center on the lights. The cards' headers no longer center on that line:
+`headerH` is its own 36, for a pane's title, 28, and its buttons, 26. While
+the sidebar hides, the buttons that come to the first header stay on the
+lights' line (`headerButtons`), a point of them under the card's edge.
 
-An earlier version of this fix (`f777a8c`) drew Shibu's own lights in full
-screen and a 48-point bar; it was dropped for the system's own controls and
-behaviour.
+**Full screen.** macOS moves the lights to a title bar in a window of its
+own, which slides down over the top of the window with the menu bar: with
+the automatic style, a 66-point strip with a second set of lights. MyGo
+reports an empty title bar there. Shibu follows the window natively
+(`followFullScreen`), observing `NSWindowWillEnterFullScreenNotification`,
+`...DidEnterFullScreen...` and `...DidExitFullScreen...` for the main
+window only:
 
-Tests: [`title_bar_test.go`](../title_bar_test.go) (the unified bar's
-height, the sidebar's buttons centered with the lights and unmoved in full
-screen, with the sidebar shown and hidden, and a window that opens in full
-screen).
+- Going full screen, while the lights are still in the window, it reads
+  where they are, then hides them and the title bar's container
+  (`NSTitlebarContainerView`), whose background is the strip's, and has
+  the strip's window ignore the mouse. Once there it does so again, as
+  the container has moved to that window; a window that opens in full
+  screen is caught there.
+- Kero draws the lights where they were read
+  ([`title_bar.go`](../title_bar.go), `fullScreenLights`; AppKit's place
+  in the compact bar if none were read): close closes the window, the
+  green light leaves full screen, minimize is greyed and does nothing, as
+  macOS has it in full screen. They grey out with the window behind, and
+  show their glyphs under the pointer.
+- `titleBar` keeps the bar from the window, so the sidebar's buttons do not
+  move. Back in the window, the system's lights and container come back,
+  and Kero's go.
+
+Checked in a standalone probe with real windows: in full screen the three
+buttons and the container are hidden, the strip's window is clear, with
+nothing showing in it, and ignores the mouse, whether it is above the
+screen or down over the window's top 40 points; back in the window the
+lights are where they were. Closing the window in full screen posts the
+exit notification too, so the system's lights come back with it. The
+slide-down itself, with the pointer at the
+top of the screen, was not watched: screen capture is not available, and
+the probe could not move the pointer there.
+
+The Settings window has the compact bar, but keeps the system's behaviour
+in full screen. Windows and Linux are unchanged (`ownControls`), but their
+window controls, in the headers, are now 6 points below the sidebar's
+buttons.
+
+Earlier versions of this fix drew the lights with a 48-point bar
+(`f777a8c`), then followed macOS's own full screen with a 52-point bar
+(`09fae71`); the user rejected the reveal strip and the height.
+
+Tests: [`title_bar_test.go`](../title_bar_test.go) (the compact bar, the
+sidebar's buttons on the lights' line and unmoved, with the sidebar shown
+and hidden, Kero's lights where the system's were read or where AppKit
+puts them, their colors, and a window that opens in full screen).
 
 ## Identity and icon
 

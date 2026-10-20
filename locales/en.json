@@ -67,6 +67,7 @@
   "windowMinimize": "Minimize",
   "windowMaximize": "Maximize",
   "windowRestore": "Restore Down",
+  "windowExitFullScreen": "Exit Full Screen",
   "toastCopied": "Copied",
   "toastCopiedToClipboard": "Copied to clipboard",
   "toastSaveSettingsFailed": "Couldn’t save the settings: {error}",

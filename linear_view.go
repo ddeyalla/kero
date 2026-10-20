@@ -463,7 +463,7 @@ func (a *App) linearSidebarButtons(c *ui.Context, pal *palette, bar ui.TitleBar,
 	if shown >= 0.5 {
 		return
 	}
-	ui.Row(c).Absolute().Left(a.chrome.buttonsLeft(bar)).Top(0).Bottom(0).AlignItems(ui.Center).Gap(2).Opacity(1 - 2*shown).Children(func() {
+	a.headerButtons(c, bar, shown).Children(func() {
 		iconButton(c, "show-sidebar", sidebarIcon, a.tip(locales.SidebarShow(), "sidebar.toggle"), pal, a.toggleSidebar)
 	})
 }
