@@ -10,6 +10,13 @@ they do not imply published GitHub releases or existing release tags.
 
 No pending changes.
 
+## 2.0.5-local.5 — 2026-10-20
+
+### Changed
+
+- Refreshed the Mac app icon from the revised `Desktop/Shibu Code.png`.
+- Retained the running GUI, daemon and terminal sessions during installation.
+
 ## 2.0.5-local.4 — 2026-10-20
 
 ### Changed

@@ -6,7 +6,7 @@
 embeds it in the application bundle. Do not maintain a second VERSION file
 or change `go.mod` to bump the application version.
 
-The current installed release is **2.0.5-local.4**, based on upstream Kero
+The current installed release is **2.0.5-local.5**, based on upstream Kero
 **2.0.5**. Local releases currently use:
 
 ```text
@@ -17,7 +17,7 @@ The current installed release is **2.0.5-local.4**, based on upstream Kero
 - The first three numbers identify the upstream release base.
 - `local.N` is a positive integer, incremented for every newly shipped
   personal app build that changes runtime behavior, branding or assets.
-- The next app release from the current base is `2.0.5-local.5`.
+- The next app release from the current base is `2.0.5-local.6`.
 - Documentation-only commits do not bump the app version. Record them under
   **Unreleased** until the next app release.
 - Once a newer upstream release is merged and verified, adopt its base and

@@ -124,3 +124,13 @@ PID 41840 was unchanged. The prior bundle is backed up in the personal app's
 
 This asset-only release was verified by building, checking the packaged image
 and signature, and checking process continuity; the Go suite was not rerun.
+
+## Revised Desktop icon — 2026-10-20
+
+Installed ARM64 `2.0.5-local.5` using the revised `Desktop/Shibu Code.png`.
+Source/repository PNG equality, packaged/installed ICNS equality and strict
+bundle signature verification passed. Launch Services and Dock were refreshed.
+Running GUI/daemon PIDs 95310/95322 were retained; their runtime version remains
+unchanged until a normal restart. No shell restart or state migration occurred.
+Previous bundle backup: `app-20261020-200116/Shibu Code.app` in the personal data
+backup directory. This asset-only update was build-verified; tests were not rerun.
