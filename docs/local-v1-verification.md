@@ -108,3 +108,19 @@ Pre-import state, preferences and histories are backed up under
 `~/Library/Application Support/kero-local/backups/before-kero-import-20261020-194341`.
 Provider keys were left in place. Session contents and backups are local
 only, outside the repository.
+
+## Desktop icon update — 2026-10-20
+
+Shibu Code `2.0.5-local.4` was built for ARM64 and installed using the exact
+`Desktop/Shibu Code.png` source. The source PNG matches the repository asset;
+built and installed ICNS files match. Strict bundle signature verification
+passed. Launch Services was refreshed and the Dock restarted to refresh icons.
+
+The installed bundle was replaced while retaining the running GUI and daemon
+(PIDs 95310 / 95322); neither was restarted for this asset change. Their runtime
+version remains local.3 until a future normal restart. Original Kero's daemon
+PID 41840 was unchanged. The prior bundle is backed up in the personal app's
+`backups/app-20261020-195940/` directory. No session state was migrated or reset.
+
+This asset-only release was verified by building, checking the packaged image
+and signature, and checking process continuity; the Go suite was not rerun.

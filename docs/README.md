@@ -2,7 +2,7 @@
 
 Shibu Code is the personal Kero fork at [ddeyalla/kero](https://github.com/ddeyalla/kero).
 It follows Kero's native UI and keeps its own application data. The current
-installed application release is **2.0.5-local.3**, based on upstream Kero
+installed application release is **2.0.5-local.4**, based on upstream Kero
 **2.0.5** (`a920e3a`). These docs describe the local macOS edition.
 
 ## Start here

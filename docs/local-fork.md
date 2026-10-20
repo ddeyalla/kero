@@ -22,7 +22,7 @@ Install the built app in `~/Applications/Shibu Code.app` if desired.
 
 Shibu Code is the personal edition previously named Kero Local. Its bundle
 identifier and data directory stay the same, preserving local sessions,
-settings and provider keys. The supplied golden retriever terminal artwork
+settings and provider keys. The supplied `Desktop/Shibu Code.png` golden retriever terminal artwork
 is stored in `resources/shibu-icon.png` for the app icon. The CLI remains `kero`.
 
 Data lives in `~/Library/Application Support/kero-local` on macOS, or

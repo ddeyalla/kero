@@ -8,11 +8,20 @@ they do not imply published GitHub releases or existing release tags.
 
 ## Unreleased
 
+No pending changes.
+
+## 2.0.5-local.4 — 2026-10-20
+
+### Changed
+
+- Updated the app icon to the supplied `Desktop/Shibu Code.png` artwork,
+  keeping its exact source image in `resources/shibu-icon.png`.
+
 ### Documentation
 
 - Added a root documentation index, consolidated change details, build and
   rollback instructions, and a versioning/release maintenance checklist.
-- Kept the installed app version at `2.0.5-local.3`; no executable changes.
+- The preceding documentation-only update retained `2.0.5-local.3`.
 
 ## 2.0.5-local.3 — 2026-10-20
 

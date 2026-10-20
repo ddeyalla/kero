@@ -62,7 +62,7 @@ those candidate ports are not implemented.
 - App name: **Shibu Code** (previously **Kero Local**).
 - Bundle identifier: `dev.ddeyalla.kero`.
 - Icon source: [`resources/shibu-icon.png`](../resources/shibu-icon.png),
-  supplied golden retriever terminal artwork, packaged into native ICNS.
+  supplied `Desktop/Shibu Code.png` golden retriever terminal artwork, packaged into native ICNS.
 - CLI/protocol names stay `kero`; data identity stays `kero-local`.
 - Upstream binary auto-updates are disabled; source changes can still be merged.
 
