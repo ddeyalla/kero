@@ -33,6 +33,10 @@ builds only. What each feature is and where it stands is tracked in the
   come down with the menu bar as the pointer reaches the top of the screen.
   The sidebar's buttons no longer jump left as the window goes full screen,
   and stay clear of the lights as they come down.
+- Settings opens over the main window as a modal, a card on a dimmed
+  backdrop, instead of in a window of its own. `Cmd+,` opens and closes it;
+  Esc, a click beside the card and `Cmd+W` close it. In a small window the
+  sidebar shows its pages' icons and the search moves into the page's header.
 
 ### Documentation
 

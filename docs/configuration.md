@@ -5,7 +5,7 @@ description: Kero's configuration file, its keys and their defaults.
 
 # Configuration
 
-Kero keeps its settings in one plain-text file. The Settings window (<kbd>⌘</kbd> <kbd>,</kbd>) edits it for you, keeping your comments and order, and Kero reloads it when you edit it by hand.
+Kero keeps its settings in one plain-text file. Settings (<kbd>⌘</kbd> <kbd>,</kbd>), over the main window, edits it for you, keeping your comments and order, and Kero reloads it when you edit it by hand.
 
 ## The file
 

@@ -102,7 +102,6 @@ type App struct {
 	prefs       prefs
 	set         settings.Settings // the user's settings: Settings' controls edit it
 	applied     settings.Settings // set, as last applied and saved
-	setWin      *mygo.Window      // the Settings window, while open
 	ss          settingsState
 	selected    string
 	terms       map[string]*termEntry
@@ -846,9 +845,6 @@ func (a *App) apply(s settings.Settings, save bool) {
 	if a.win != nil {
 		a.win.Invalidate()
 	}
-	if a.setWin != nil {
-		a.setWin.Invalidate()
-	}
 }
 
 // watchConfig applies the configuration as the user saves it in an
@@ -891,9 +887,7 @@ func (a *App) reloadConfig() {
 		if changed && len(problems) > 0 {
 			a.toast(locales.ToastConfigProblems(len(problems)))
 		}
-		if a.setWin != nil {
-			a.setWin.Invalidate()
-		}
+		a.invalidateMain()
 	})
 }
 

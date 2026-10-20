@@ -218,13 +218,15 @@ func (a *App) confirmView(c *ui.Context, pal *palette) {
 	}
 	if !cf.open {
 		a.confirm = nil
-		a.focusTerminal()
+		if !a.ss.open { // a confirmation from Settings goes back to it
+			a.focusTerminal()
+		}
 	}
 }
 
 // shortcuts are the window's keys that no menu item has.
 func (a *App) shortcuts(c *ui.Context) {
-	if a.pal.open || a.chooser.open || a.confirm != nil || a.usage.open {
+	if a.pal.open || a.chooser.open || a.confirm != nil || a.usage.open || a.ss.open {
 		return
 	}
 	keys := []ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5, ui.Key6, ui.Key7, ui.Key8, ui.Key9}

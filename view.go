@@ -118,6 +118,7 @@ func (a *App) view(c *ui.Context) {
 	a.chooserView(c, pal)
 	a.sweepViews()
 	a.usageModal(c, pal)
+	a.settingsModal(c, pal)
 	a.confirmView(c, pal)
 	// A preview that showed no more fades in anew next time.
 	if !a.previewShown {

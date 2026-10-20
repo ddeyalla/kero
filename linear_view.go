@@ -790,7 +790,7 @@ func iconSegmented(c *ui.Context, key string, value *string, ids []string, icons
 // J and K and the arrows step through its column. They are the search
 // field's while it has the focus, and nothing's while a dialog is open.
 func (a *App) linearKeys(c *ui.Context, m *linearModel) {
-	if a.lin.searching || a.lin.open == "" || a.pal.open || a.chooser.open || a.confirm != nil || a.usage.open || a.renaming != "" {
+	if a.lin.searching || a.lin.open == "" || a.pal.open || a.chooser.open || a.confirm != nil || a.usage.open || a.ss.open || a.renaming != "" {
 		return
 	}
 	if c.Shortcut(0, ui.KeyEscape) {

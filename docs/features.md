@@ -78,6 +78,12 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Optional private provider keys | Usage modal | 2.0.5-local.1 | Shipped |
 | CPU and RAM meters for the whole Mac | Sidebar, `kero resources --json` | 2.0.5-local.2 | Shipped |
 
+## Settings
+
+| Feature | How to use it | Since | Status |
+| --- | --- | --- | --- |
+| Settings as a modal over the main window, not a separate window | `Cmd+,` toggles it, or the sidebar's gear; Esc, a click beside it or `Cmd+W` closes it | Unreleased | Untried |
+
 ## Terminal
 
 | Feature | How to use it | Since | Status |

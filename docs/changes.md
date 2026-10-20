@@ -162,6 +162,37 @@ while open; Esc/Cmd+W closes it. There is no extra tab or window.
 Code: [`usage.go`](../usage.go), [`internal/usage/`](../internal/usage/).
 Automation: `kero usage --json` and `kero do usage.open`.
 
+## Settings in the window
+
+Settings opens over the main window as a modal, as the palette and the usage
+modal do, rather than in a window of its own (BRU-158). The card is at most
+900 by 640 and keeps 24 points from the window's edges, over the window
+dimmed by the palette's overlay color. It is painted with the window's own
+wash, opaque, with the page on its raised card, in light and dark alike.
+Under 700 points wide the sidebar shows the pages' icons alone, their names
+as tooltips, and the search moves into the page's header.
+
+`Cmd+,` (`settings.open`) opens it, and closes it while it shows; the
+palette's **Settings: <page>** items open it on their page. Esc closes it,
+after clearing a search or ending a shortcut being recorded, as does a click
+on the backdrop, the header's close button and `Cmd+W` or Close Session,
+which close Settings rather than the pane under it. While it shows, Find
+goes to its search, and the palette, the New Pane chooser, the usage modal
+and Rename wait. A confirmation it asks for, as for restarting the service,
+shows over it and goes back to it. Closing the main window ends Settings
+with it, letting go of what it holds, so a window shown again starts without
+it.
+
+The settings' state stays in `settingsState` (`a.ss`), with `open` for the
+modal. The system's, the updater's and kerod's answers are asked as it opens
+in the running app only, which keeps the tests from reaching the daily
+kerod.
+
+Code: [`settings_view.go`](../settings_view.go) (`openSettings`,
+`settingsModal`, `closeSettings`), mounted in [`view.go`](../view.go); the
+actions in [`actions.go`](../actions.go). Tests:
+[`settings_modal_test.go`](../settings_modal_test.go).
+
 ## CPU and memory
 
 Two equal-width sidebar meters show CPU busy percentage and RAM used. They

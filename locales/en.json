@@ -161,6 +161,7 @@
   "sessionCopyDirectory": "Copy Directory",
   "sessionRevealIn": "Reveal in {app}",
   "settingsTitle": "Settings",
+  "settingsClose": "Close Settings",
   "footerNeedsYou": "{count, plural, one {# session needs you} other {# sessions need you}}",
   "@footerNeedsYou": {
     "placeholders": {

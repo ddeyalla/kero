@@ -30,7 +30,7 @@ import (
 	"kero/locales"
 )
 
-// settingsPage is a page of the Settings window.
+// settingsPage is a page of Settings.
 type settingsPage struct {
 	id    string
 	title func() string
@@ -49,8 +49,10 @@ var settingsPages = []settingsPage{
 	{"advanced", locales.PageAdvanced, glyph("f7-slider-horizontal-3")},
 }
 
-// settingsState is what the Settings window keeps besides the settings.
+// settingsState is what Settings keeps besides the settings.
 type settingsState struct {
+	open         bool // Settings shows, over the main window
+	offUpdates   func()
 	page         string
 	recording    string // the action whose shortcut is being typed
 	recordRef    ui.Handle
@@ -76,7 +78,7 @@ type settingsState struct {
 	linearSaving bool
 }
 
-// openSettings shows the Settings window, on a page.
+// openSettings shows Settings over the main window, on a page.
 func (a *App) openSettings(page string) {
 	if page != "" {
 		a.ss.page = page
@@ -84,35 +86,107 @@ func (a *App) openSettings(page string) {
 	if a.ss.page == "" {
 		a.ss.page = "general"
 	}
-	if a.setWin != nil {
-		a.setWin.Show()
-		a.setWin.Focus()
+	// Settings is the dialog on top: the palette and the chooser give way.
+	a.pal.open, a.chooser.open = false, false
+	if a.ss.open {
+		return
+	}
+	a.ss.open = true
+	a.ss.draft = map[string]string{}
+	a.refreshAgents()
+	// What the system, the updater and kerod say needs the running app,
+	// which the tests, without its window, have not.
+	if a.win == nil {
 		return
 	}
 	a.ss.loginOpen = mygo.App.OpenAtLogin()
 	a.refreshUpdates()
-	offUpdates := updater.OnChange(func() {
+	a.ss.offUpdates = updater.OnChange(func() {
 		a.refreshUpdates()
-		if a.setWin != nil {
-			a.setWin.Invalidate()
-		}
+		a.invalidateMain()
 	})
-	a.ss.draft = map[string]string{}
-	a.refreshAgents()
 	a.refreshService()
-	a.setWin = mygo.NewWindow(framed(mygo.WindowOptions{
-		Title: locales.SettingsTitle(), Width: 820, Height: 620, MinWidth: 700, MinHeight: 480,
-		StateKey: "settings",
-		Vibrancy: vibrancyFor(a.set),
-		Content:  ui.View(a.settingsView),
-	}))
-	a.setWin.OnClosed(func() {
-		offUpdates()
-		a.setWin = nil
-		a.setRecording("") // the menus take their shortcuts back
-		a.ss.query = ""
-		a.ss.linearKey = ""
+}
+
+// toggleSettings opens Settings, or closes it when it shows, as its
+// shortcut does.
+func (a *App) toggleSettings() {
+	if a.ss.open {
+		a.closeSettings()
+		return
+	}
+	a.openSettings("")
+}
+
+// closeSettings closes Settings, giving the focus back to the terminal.
+func (a *App) closeSettings() {
+	a.endSettings()
+	a.focusTerminal()
+}
+
+// endSettings closes Settings and lets go of what it holds: the updater's
+// news, the menus' shortcuts while one is typed, the search and the key
+// typed. The main window's closing ends it too, so that a window shown
+// again starts without it.
+func (a *App) endSettings() {
+	a.ss.open = false
+	if a.ss.offUpdates != nil {
+		a.ss.offUpdates()
+		a.ss.offUpdates = nil
+	}
+	a.setRecording("") // the menus take their shortcuts back
+	a.ss.query = ""
+	a.ss.linearKey = ""
+}
+
+// invalidateMain draws the main window anew, which Settings is in.
+func (a *App) invalidateMain() {
+	if a.win != nil {
+		a.win.Invalidate()
+	}
+}
+
+// settingsModal is Settings, over the main window while open: a card
+// over a dimmed window, sized to it, which Escape, a click beside it and
+// its shortcut close.
+func (a *App) settingsModal(c *ui.Context, pal *palette) {
+	if !a.ss.open {
+		return
+	}
+	w, h := settingsSize(c)
+	ui.DialogBase(c.Key("settings"), &a.ss.open, func(backdrop, panel ui.Element) {
+		backdrop.Background(pal.overlay)
+		floating(panel.Width(w).Height(h).Radius(16), pal).Clip().Label(locales.SettingsTitle())
+		settingsWash(pal, panel, a.set)
+		a.settingsView(c)
 	})
+	if !a.ss.open {
+		a.closeSettings()
+	}
+}
+
+// settingsSize is Settings' card's, in the window c is of: at most 900
+// by 640, 24 in from the window's edges.
+func settingsSize(c *ui.Context) (w, h float32) {
+	ww, wh := c.Size()
+	return min(900, ww-48), min(640, wh-48)
+}
+
+// narrowSettings is the width under which Settings' sidebar shows its
+// pages' icons alone, and the search goes up into the page's header, so
+// that a small window leaves the page room.
+const narrowSettings = 700
+
+// settingsWash paints Settings' card as the window is painted, its wash
+// of color under the sidebar and around the page, opaque over the
+// window under it.
+func settingsWash(pal *palette, panel ui.Element, s settings.Settings) {
+	if s.Background == "plain" {
+		panel.Background(pal.sidebar)
+		return
+	}
+	base, _ := washes(s.Background, pal.dark)
+	panel.Background(pal.sidebar).LinearGradient(base)
 }
 
 // updatePrefs are the updater's, as last read: the page reads these, not
@@ -157,9 +231,7 @@ func (a *App) refreshService() {
 		}
 		a.update(func() {
 			a.ss.service = line
-			if a.setWin != nil {
-				a.setWin.Invalidate()
-			}
+			a.invalidateMain()
 		})
 	}()
 }
@@ -185,27 +257,38 @@ func (a *App) settingsView(c *ui.Context) {
 	}
 	found := a.searchSettings()
 	c.OnShortcut(ui.Cmd, ui.KeyF, func() { a.ss.searchRef.Focus(c) })
+	width, _ := settingsSize(c)
+	narrow := width < narrowSettings
 	row := ui.Row(c).Fill().AlignItems(ui.Stretch)
-	backdrop(c, pal, row, a.set)
+	if a.set.Background != "plain" {
+		_, glow := washes(a.set.Background, pal.dark)
+		row.LinearGradient(glow)
+	}
 	row.Children(func() {
-		// Under the traffic lights on macOS; elsewhere the search starts
-		// the sidebar, centered on barMid as the page's title and the
-		// window controls are.
-		top := float32(topBar)
-		if ownControls {
-			top = barMid - (controlH+2)/2
+		// The search starts the sidebar, centered on barMid as the page's
+		// title is; narrow, the first page is.
+		side := ui.Column(c).Width(212).Shrink(0).Padding(barMid-(controlH+2)/2, 10, 12, 10).Gap(2)
+		if narrow {
+			side.Width(52).Padding(barMid-16, 8, 12, 8)
 		}
-		ui.Column(c).Width(212).Shrink(0).Padding(top, 10, 12, 10).Gap(2).DragWindow().Children(func() {
-			a.settingsSearch(c, pal)
-			for _, p := range settingsPages {
-				if found == nil || found[p.id] != nil {
-					a.settingsNav(c, pal, p)
-				}
+		side.Children(func() {
+			if !narrow {
+				a.settingsSearch(c, pal, 0)
 			}
-			if found != nil && len(found) == 0 {
-				ui.Text(c, locales.CommonNoResults()).FontSize(13).TextColor(pal.textFaint).Padding(8, 10)
-			}
-			ui.Spacer(c)
+			// The pages scroll in a window too short for them all, the
+			// configuration's link staying at the bottom.
+			ui.Scroll(c.Key("pages")).Grow(1).MinHeight(0).Children(func() {
+				ui.Column(c).Gap(2).Children(func() {
+					for _, p := range settingsPages {
+						if found == nil || found[p.id] != nil {
+							a.settingsNav(c, pal, p, narrow)
+						}
+					}
+					if found != nil && len(found) == 0 && !narrow {
+						ui.Text(c, locales.CommonNoResults()).FontSize(13).TextColor(pal.textFaint).Padding(8, 10)
+					}
+				})
+			})
 			link := ui.ButtonBase(c.Key("open-config")).Padding(6, 10).Gap(6).Radius(7).AlignItems(ui.Center).Label(locales.SettingsOpenConfigLabel())
 			fg := pal.textMuted
 			if link.Hovered() {
@@ -214,7 +297,9 @@ func (a *App) settingsView(c *ui.Context) {
 			}
 			link.TextColor(fg).Tooltip(proto.ShortDir(settings.Path())).Children(func() {
 				ui.Icon(c, glyph("f7-chevron-left-slash-chevron-right")).Size(13, 13)
-				ui.Text(c, locales.SettingsOpenConfig()).FontSize(12.5).SingleLine()
+				if !narrow {
+					ui.Text(c, locales.SettingsOpenConfig()).FontSize(12.5).SingleLine()
+				}
 			})
 			if link.Clicked() {
 				a.openConfig()
@@ -272,10 +357,13 @@ func (a *App) settingsView(c *ui.Context) {
 					edge := ui.Box(c.Key("edge")).Absolute().Top(0).Left(0).Right(0).Height(headerH).PassThrough().
 						Material(glass.ScrollEdge{Hard: true, Background: pal.card})
 					edge.Opacity(edge.Animate("on", b2f(edgeOn), 160*time.Millisecond))
-					ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(headerH).AlignItems(ui.Center).Padding(0, 10, 0, 24).DragWindow().Children(func() {
-						ui.Text(c, page.title()).FontSize(15).FontWeight(650).TextColor(pal.text)
+					ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(headerH).AlignItems(ui.Center).Padding(0, 10, 0, 24).Children(func() {
+						ui.Text(c, page.title()).FontSize(15).FontWeight(650).TextColor(pal.text).SingleLine().Shrink(0)
 						ui.Spacer(c)
-						windowControls(c, pal, a.setWin)
+						if narrow {
+							a.settingsSearch(c, pal, 170)
+						}
+						iconButton(c, "close-settings", closeIcon, a.tip(locales.SettingsClose(), "settings.open"), pal, a.closeSettings)
 					})
 				})
 			})
@@ -322,14 +410,23 @@ func (a *App) searchSettings() map[string][]string {
 // settingsSearch is the sidebar's search field, which finds settings in
 // every page by their labels, their keys in the configuration file, and
 // words for them.
-func (a *App) settingsSearch(c *ui.Context, pal *palette) {
+//
+// It is as wide as the sidebar, or width when that is not 0, in the page's
+// header.
+func (a *App) settingsSearch(c *ui.Context, pal *palette, width float32) {
 	var in ui.Element
 	frame := ui.Row(c.Key("search")).Cursor(ui.CursorText).Margin(0, 0, 10, 0)
+	if width > 0 {
+		frame.Width(width).Shrink(1).MinWidth(0).Margin(0)
+	}
 	frame.Children(func() {
 		ui.Icon(c, searchIcon).Size(13, 13).TextColor(pal.textFaint).Shrink(0)
 		in = ui.TextInputBase(c.Key("in"), &a.ss.query).Bind(&a.ss.searchRef).Grow(1).MinWidth(0).FontSize(13).
 			Placeholder(locales.CommonSearch()).Label(locales.SettingsSearchLabel())
-		in.OnShortcut(0, ui.KeyEscape, func() { a.ss.query = "" })
+		// Escape clears the search, and with none closes Settings.
+		if a.ss.query != "" {
+			in.OnShortcut(0, ui.KeyEscape, func() { a.ss.query = "" })
+		}
 		if a.ss.query != "" {
 			x := ui.ButtonBase(c.Key("clear")).Size(16, 16).Radius(8).Center().Shrink(0).Label(locales.SettingsClearSearch()).
 				Background(pal.textFaint.Alpha(0.55)).TextColor(pal.card)
@@ -346,9 +443,13 @@ func (a *App) settingsSearch(c *ui.Context, pal *palette) {
 	field(c, frame, in.Focused(), pal)
 }
 
-func (a *App) settingsNav(c *ui.Context, pal *palette, p settingsPage) {
+// settingsNav is a page's item in the sidebar, its icon alone when narrow.
+func (a *App) settingsNav(c *ui.Context, pal *palette, p settingsPage, narrow bool) {
 	sel := a.ss.page == p.id
 	item := ui.Row(c.Key(p.id)).Height(32).Padding(0, 10).Gap(10).AlignItems(ui.Center).Radius(8)
+	if narrow {
+		item.Padding(0).Justify(ui.Center).Label(p.title()).Tooltip(p.title())
+	}
 	if pal.dark {
 		item.Border(1, ui.Transparent) // room for the chosen item's edge
 	}
@@ -370,7 +471,9 @@ func (a *App) settingsNav(c *ui.Context, pal *palette, p settingsPage) {
 		if sel {
 			ic.TextColor(pal.accent)
 		}
-		ui.Text(c, p.title()).FontSize(13.5).TextColor(pal.text).SingleLine()
+		if !narrow {
+			ui.Text(c, p.title()).FontSize(13.5).TextColor(pal.text).SingleLine()
+		}
 	})
 }
 
@@ -811,9 +914,7 @@ func (a *App) notificationsPage(c *ui.Context, pal *palette) {
 			if err := n.Show(); err != nil {
 				a.update(func() {
 					a.ss.toast = locales.SetNotifyError(err.Error())
-					if a.setWin != nil {
-						a.setWin.Invalidate()
-					}
+					a.invalidateMain()
 				})
 			}
 		}()
@@ -976,9 +1077,7 @@ func (a *App) saveLinearKey(key string) {
 				}
 				a.call("linear.refresh", nil, nil)
 			}
-			if a.setWin != nil {
-				a.setWin.Invalidate()
-			}
+			a.invalidateMain()
 		})
 	}()
 }
@@ -1015,9 +1114,6 @@ func (a *App) advancedPage(c *ui.Context, pal *palette) {
 					action: locales.CommonRestart(), destroy: true,
 					run: func() { a.restartDaemon(); time.AfterFunc(2*time.Second, func() { a.update(a.refreshService) }) },
 				}
-				if a.win != nil {
-					a.win.Focus()
-				}
 			}
 		})
 		settingRow(c, pal, locales.SetLog(), proto.ShortDir(filepath.Join(proto.Dir(), "kerod.log")), func() {
@@ -1038,9 +1134,6 @@ func (a *App) advancedPage(c *ui.Context, pal *palette) {
 					open: true, title: locales.SetResetTitle(), detail: locales.SetResetConfirmDetail(), action: locales.SetResetAction(), destroy: true,
 					run: func() { a.applySettings(settings.Default()) },
 				}
-				if a.win != nil {
-					a.win.Focus()
-				}
 			}
 		})
 	})
@@ -1060,7 +1153,8 @@ func (a *App) openConfig() {
 	openTextFile(settings.Path())
 }
 
-// toastIn shows a short message in the window c is of.
+// toastIn shows a short message in the window c is of, the main window's
+// for Settings.
 func (a *App) toastIn(c *ui.Context, msg string) { c.Toast(msg) }
 
 // --- keyboard ---
