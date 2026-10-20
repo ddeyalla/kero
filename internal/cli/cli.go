@@ -490,7 +490,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		return c.Call("rename", proto.RenameParams{ID: t.s.ID, Name: strings.Join(args[1:], " ")}, nil)
+		return c.Call("rename", proto.RenameParams{ID: t.s.ID, Name: strings.Join(args[1:], " "), By: os.Getenv("KERO_PANE")}, nil)
 
 	case "focus":
 		if len(args) < 1 {

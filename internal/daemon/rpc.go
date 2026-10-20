@@ -87,6 +87,12 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		s := d.findSessionLocked(p.ID)
 		if s != nil {
 			s.name = strings.TrimSpace(p.Name)
+			s.agentNamed = false
+			if by := d.panes[p.By]; by != nil && s.name != "" {
+				by.mu.Lock()
+				s.agentNamed = by.info.Agent != "" || by.info.AgentSession != nil
+				by.mu.Unlock()
+			}
 		}
 		d.mu.Unlock()
 		if s == nil {

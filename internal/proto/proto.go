@@ -196,7 +196,10 @@ type Session struct {
 	Pane
 	ID      string `json:"id"` // the session's, not the lead pane's
 	Project string `json:"project"`
-	Name    string `json:"name,omitempty"` // set by the user
+	Name    string `json:"name,omitempty"` // set by the user, or an agent
+	// AgentNamed tells a Name an agent gave, for its conversation: the
+	// next conversation in the session's first pane names it anew.
+	AgentNamed bool `json:"agentNamed,omitempty"`
 	// Panes are the session's terminals; Layout arranges them, nil for
 	// the first alone.
 	Panes  []Pane  `json:"panes"`
@@ -290,7 +293,7 @@ func (p *Pane) WorkDir() string {
 	return p.Dir
 }
 
-// DisplayName is the name to show for a session: the user's, else the
+// DisplayName is the name to show for a session: the user's or an agent's, else the
 // title a program in the foreground set, else its directory's name.
 func (s *Session) DisplayName() string {
 	if s.Name != "" {
@@ -533,6 +536,9 @@ type (
 	RenameParams struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
+		// By is the pane the rename comes from, when one does: a name
+		// from a pane running an agent is the agent's.
+		By string `json:"by,omitempty"`
 	}
 	MoveParams struct {
 		ID      string `json:"id"`

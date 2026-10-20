@@ -2,7 +2,8 @@
 
 Status: future plan, not started. Written 2026-10-20 after looking at Rex
 (superlogical.com/rex), which ships a Linux server mode, multi-user servers and
-remote access over Tailscale.
+remote access over Tailscale. Updated after 2.0 shipped for macOS, Windows
+and Linux.
 
 ## Goal
 
@@ -38,8 +39,11 @@ What ties it to one machine today:
 - **Lifetime:** kerod exits 30s after its last session and connection close,
   and the app starts it on demand (`client.Connect` runs `kero __kerod`).
 - **Packaging:** there's one binary. `main.go` imports the UI, and the daemon
-  imports `mygo` only for `mygo.App.Version()`. Only a darwin-arm64 build
-  exists.
+  imports `mygo` only for `mygo.App.Version()`.
+  - Releases ship for macOS, Windows and Linux, on arm64 and amd64. Linux gets
+    a `.deb`, plus an `install.sh` that installs into `~/.local` without root.
+  - Every one is the full app. On Linux it links GTK, so a headless box needs
+    GTK installed just to run kerod.
 - **The app assumes local paths:**
   - The Open Project dialog picks a local folder.
   - ⌘-clicking a file path runs `os.Stat` and opens the file locally.
@@ -64,9 +68,15 @@ UI exists.
    (`~/.config/systemd/user/kerod.service`), plus `loginctl enable-linger` so
    it survives logout.
    - Remove the service with `kero daemon uninstall-service`.
-4. **Release artifacts:** a linux amd64/arm64 tarball with `kero`, kerod and
-   `libghostty-vt.so`, built in CI from the same tags as the Mac build. Debian
-   or Arch packages and a Nix flake come later, on demand.
+4. **Release artifacts:** the release workflow already builds linux
+   amd64/arm64 `.deb`s and `install.sh` from the same tags as the other
+   platforms. Add a server flavour beside them:
+   - a tarball with the daemon-only `kero` and `libghostty-vt.so`, and no GTK
+     dependency;
+   - `install.sh --server`, which installs that build and runs
+     `kero daemon install-service`.
+
+   Arch packages and a Nix flake come later, on demand.
 5. **Fixes that matter once a box has several users:**
    - Set the umask before `listen` instead of chmodding after.
    - Check the peer's uid with `SO_PEERCRED` and reject other users.
@@ -127,13 +137,17 @@ Each listener lets in only callers it can identify:
 - `Hello` negotiates **compression** for attach frames (zstd, or deflate from
   the standard library). Rendered diffs compress well, and they cost bandwidth
   only on scroll-heavy output.
-- **Version skew:** a remote kerod of another version can't be restarted
-  quietly, because it may hold someone's long-running agents.
+- **Version skew:** today a client refuses a kerod of another
+  `proto.Version` and offers to restart it. That's fine locally, but a remote
+  kerod can't be restarted quietly, because it may hold someone's
+  long-running agents.
   - Show it per host, with "Update Kero on <host>". That has kerod fetch the
     matching release, using the updater the app already has, then restart
     when the user confirms.
-  - Keep the no-compat rule (Kero is unreleased), but the UI has to explain
-    the mismatch rather than fail.
+  - Kero is released now, so hosts will run older versions than the app for
+    days at a time. Decide whether the app speaks the previous
+    `proto.Version` too, or only offers the update. Either way, the UI has to
+    explain the mismatch rather than fail.
 - **Heartbeats** on the connection, so a dead link shows as "reconnecting"
   within seconds, and the app reattaches when it comes back.
 
@@ -246,9 +260,9 @@ For networks without Tailscale, and for the iOS client.
 
 ## Open questions
 
-- Does `kero __kerod` start on a Linux machine with no display, given that the
-  binary links the UI? This decides whether Phase 1 needs a separate build at
-  all.
+- Does `kero __kerod` from the Linux `.deb` start on a machine with no
+  display, given that it links GTK? Try it on a fresh server VM. Even if it
+  starts, needing GTK installed argues for the daemon-only build.
 - **WebSockets or HTTP/2 streams** for the multiplexed transport? Check what
   passes Tailscale Serve, and what an iOS client can speak, before choosing.
 - **Built-in tsnet or the machine's Tailscale?**
@@ -261,7 +275,7 @@ For networks without Tailscale, and for the iOS client.
 - How does input latency feel over a slow link? kerod renders every frame, so
   a typed key needs a round trip before it shows. Measure before considering
   local echo prediction.
-- Windows hosts: kerod already runs on Windows with ConPTY, and the listeners
-  don't depend on the OS. Are there users who'd run one?
+- Windows hosts: Kero ships for Windows and kerod runs there with ConPTY, and
+  the listeners don't depend on the OS. Are there users who'd run one?
 - Should a remote session show the host's own terminal theme, or always the
   app's? Today the app styles the terminal, so it would be the app's.

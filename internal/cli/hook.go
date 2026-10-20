@@ -38,6 +38,7 @@ func hookCmd(args []string) error {
 		AgentID string `json:"agent_id"`   // set for Claude Code's subagents
 		Session string `json:"session_id"` // the agent's own
 		Cwd     string `json:"cwd"`
+		Source  string `json:"source"` // "startup", "resume", "clear", "compact"
 	}
 	json.NewDecoder(io.LimitReader(os.Stdin, 1<<20)).Decode(&in)
 	if pane == "" || in.Event != "SessionStart" || in.AgentID != "" {
@@ -62,12 +63,30 @@ func hookCmd(args []string) error {
 			}
 			pane, sid, away = r.Pane, r.Session, r.Away
 		}
+		if in.Source != "resume" && in.Source != "compact" {
+			forgetAgentName(c, pane, sid)
+		}
 	}
 	out := map[string]any{"hookSpecificOutput": map[string]string{
 		"hookEventName":     "SessionStart",
 		"additionalContext": hookContext(c, pane, sid, away),
 	}}
 	return json.NewEncoder(os.Stdout).Encode(out)
+}
+
+// forgetAgentName drops the name an agent gave session sid, as a new
+// conversation starts in its first pane, the one the name came from: the
+// session shows the pane's title until the new agent names its own task.
+func forgetAgentName(c *client.Client, pane, sid string) {
+	var st proto.State
+	if c.Call("state", nil, &st) != nil {
+		return
+	}
+	for _, s := range st.Sessions {
+		if s.ID == sid && s.AgentNamed && len(s.Panes) > 0 && s.Panes[0].ID == pane {
+			c.Call("rename", proto.RenameParams{ID: sid}, nil)
+		}
+	}
 }
 
 // contextCmd prints what to tell the agent of an agent's session, for an
@@ -128,6 +147,8 @@ func hookContext(c *client.Client, pane, sid string, away bool) string {
 			continue
 		}
 		switch {
+		case s.AgentNamed:
+			fmt.Fprintf(&b, " This conversation named the session %q: leave its name alone.", s.Name)
 		case s.Name != "":
 			fmt.Fprintf(&b, " The user knows this session as %q: leave its name alone.", s.Name)
 		case s.Panes[0].ID != pane:
