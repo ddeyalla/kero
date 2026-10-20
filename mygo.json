@@ -7,5 +7,12 @@
   "i18n": {
     "dir": "locales",
     "source": "en"
+  },
+  "updates": {
+    "publicKey": "lvIPmYoLetZy3sgdXhoMpEZa5ERWc9TsZzpXOA8tL88=",
+    "github": "ddeyalla/kero",
+    "tagPrefix": "shibu-v",
+    "changelog": "docs/changelog.md",
+    "deltas": 0
   }
 }

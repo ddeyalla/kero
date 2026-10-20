@@ -8,7 +8,12 @@ they do not imply published GitHub releases or existing release tags.
 
 ## Unreleased
 
-No pending changes.
+### Added
+
+- Daily stable Kero release checks with guarded merges, tests and signed ARM64 Shibu builds.
+- Shibu-only background update checks/downloads, applying on the next launch without automatic restarts.
+- Real updater probes for signature rejection and installation into temporary app bundles.
+- Replaced the inherited upstream release workflow with the personal Shibu pipeline.
 
 ## 2.0.5-local.5 — 2026-10-20
 

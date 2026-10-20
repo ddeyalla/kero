@@ -484,7 +484,7 @@ func (a *App) generalPage(c *ui.Context, pal *palette) {
 
 func (a *App) updatesGroup(c *ui.Context, pal *palette) {
 	u := &a.ss.updates
-	version := "Kero " + mygo.App.Version()
+	version := mygo.App.Name() + " " + mygo.App.Version()
 	switch {
 	case !u.enabled:
 		version += locales.SetVersionNoUpdate()

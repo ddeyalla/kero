@@ -100,11 +100,11 @@ and `upstream` to the original repository:
 ```sh
 git fetch upstream
 git merge upstream/main
-# Resolve conflicts, retaining the local app identity and disabled updates.
+# Resolve conflicts, retaining the local app identity and Shibu-only updates.
 sh scripts/local-build.sh
 ```
 
 Run tests and lifecycle vet with the repository's Go toolchain before updating
 the local app. Source merges preserve custom features; upstream binary updates
-are disabled because they would replace them. Do not publish the upstream
-release workflow without configuring your own signing and release settings.
+are disabled because they would replace them. Shibu's signed update feed
+provides combined builds; see [Automatic updates](automatic-updates.md).

@@ -1,0 +1,102 @@
+name: Shibu updates
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Check upstream, or release current Shibu changes
+        type: choice
+        options: [check, release]
+        default: check
+      publish:
+        description: Publish after checks pass (false tests without changing the branch or feed)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shibu-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'ddeyalla/kero' && github.ref == 'refs/heads/shibu'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CGO_ENABLED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: shibu
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Prepare isolated candidate
+        id: candidate
+        env:
+          MODE: ${{ inputs.mode || 'check' }}
+        run: |
+          git config user.name 'Shibu release bot'
+          git config user.email 'shibu-release@users.noreply.github.com'
+          echo "SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          python3 scripts/shibu_release.py "$MODE"
+      - name: Verify identity, migrations and application
+        if: steps.candidate.outputs.changed == 'true'
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_shibu_*.py'
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" go test ./...
+          go tool mygo vet .
+          git diff --exit-code
+      - name: Build signed ARM64 update
+        if: steps.candidate.outputs.changed == 'true'
+        env:
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+        run: |
+          test -n "$MYGO_UPDATER_PRIVATE_KEY"
+          go tool mygo build -platform darwin/arm64 -sign - -skip-dmg -skip-notarize
+          codesign --verify --deep --strict 'build/darwin-arm64/Shibu Code.app'
+          test -f build/darwin-arm64/update-darwin-arm64.json
+      - uses: actions/upload-artifact@v6
+        if: steps.candidate.outputs.changed == 'true'
+        with:
+          name: shibu-candidate
+          path: |
+            build/darwin-arm64/*.tar.gz
+            build/darwin-arm64/*.delta
+            build/darwin-arm64/update-darwin-arm64.json
+            .release-notes.md
+          retention-days: 7
+      - name: Publish verified source and release
+        if: steps.candidate.outputs.changed == 'true' && (github.event_name == 'schedule' || inputs.publish)
+        env:
+          TAG: ${{ steps.candidate.outputs.tag }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          # Never force-push over new customizations made while this job ran.
+          git fetch origin shibu
+          test "$(git rev-parse origin/shibu)" = "$SOURCE_COMMIT"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo 'Release already exists; manual retry/review required.' >&2
+            exit 1
+          fi
+          git push origin HEAD:refs/heads/shibu
+          git tag -a "$TAG" -m "Shibu Code $VERSION"
+          git push origin "refs/tags/$TAG"
+          gh release create "$TAG" --draft --verify-tag --title "Shibu Code $VERSION" --notes-file .release-notes.md
+          gh release upload "$TAG" build/darwin-arm64/*.tar.gz build/darwin-arm64/update-darwin-arm64.json
+          for delta in build/darwin-arm64/*.delta; do
+            if [ -f "$delta" ]; then gh release upload "$TAG" "$delta"; fi
+          done
+          gh release edit "$TAG" --draft=false --prerelease=false --latest=false
+          echo "Published $TAG; clients apply it on their next launch." >> "$GITHUB_STEP_SUMMARY"
+      - name: Report safe pause
+        if: failure()
+        run: echo 'Shibu update stopped. No running Mac app or session was changed. Review the failed step before retrying.' >> "$GITHUB_STEP_SUMMARY"

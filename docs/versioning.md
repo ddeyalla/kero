@@ -6,8 +6,8 @@
 embeds it in the application bundle. Do not maintain a second VERSION file
 or change `go.mod` to bump the application version.
 
-The current installed release is **2.0.5-local.5**, based on upstream Kero
-**2.0.5**. Local releases currently use:
+Read the current release from `mygo.json` and its upstream base from
+`shibu-upstream.json`. Local releases use:
 
 ```text
 <upstream-major>.<upstream-minor>.<upstream-patch>-local.<revision>
@@ -17,7 +17,8 @@ The current installed release is **2.0.5-local.5**, based on upstream Kero
 - The first three numbers identify the upstream release base.
 - `local.N` is a positive integer, incremented for every newly shipped
   personal app build that changes runtime behavior, branding or assets.
-- The next app release from the current base is `2.0.5-local.6`.
+- For the same base, increment the current local revision, for example
+  `2.0.5-local.5` becomes `2.0.5-local.6`. The release workflow does this.
 - Documentation-only commits do not bump the app version. Record them under
   **Unreleased** until the next app release.
 - Once a newer upstream release is merged and verified, adopt its base and
@@ -28,7 +29,8 @@ The current installed release is **2.0.5-local.5**, based on upstream Kero
 
 This is SemVer-compatible prerelease notation; `2.0.5-local.3` sorts below
 upstream `2.0.5`. Keep upstream binary auto-updates disabled for the personal
-edition. Do not interpret upstream update ordering as Shibu release ordering.
+edition; Shibu binary updates use the separate signed `shibu-v` feed.
+Do not interpret upstream update ordering as Shibu release ordering.
 
 ## Release checklist
 
@@ -43,23 +45,24 @@ edition. Do not interpret upstream update ordering as Shibu release ordering.
    version/architecture/signature, install, and smoke-test the app. Record
    the results in [verification history](local-v1-verification.md). Keep
    credentials, local session IDs and private histories out of new reports.
-5. Update the current release/base in [docs README](README.md) and this file
-   after installation is verified. Preserve previous release entries.
+5. Keep the release/base in `mygo.json`/`shibu-upstream.json` accurate.
+   Preserve previous changelog and verification entries.
 6. Commit the release changes. When intentionally marking a verified release,
    use an annotated tag `shibu-v<version>`, such as
    `shibu-v2.0.5-local.4`, on that exact commit. Push the branch and tag only
    when publishing that release is part of the task.
 
-The `shibu-v` prefix distinguishes personal tags from upstream `v2.0.5` tags
-and avoids the inherited workflow's `v*` tag trigger. No personal release
-tags were created retroactively for local.1–local.3. A tag is a source marker;
-it does not publish or notarize a macOS build.
+The `shibu-v` prefix distinguishes personal tags from upstream `v2.0.5` tags.
+The inherited upstream release workflow is replaced by the Shibu workflow.
+No personal release tags were created retroactively for local.1–local.5.
+The [automatic update workflow](automatic-updates.md) publishes signed update
+archives after checks pass; a tag by itself does not notarize a macOS build.
 
 ## Incorporating upstream
 
 Keep `origin` as `ddeyalla/kero` and `upstream` as `egoist/kero`. Fetch and
 merge upstream on the feature branch, resolve conflicts, then verify the
-personal identity, disabled binary updates and all local features before
+personal identity, Shibu-only binary update feed and all local features before
 shipping. See [source update instructions](local-fork.md#incorporate-upstream-changes).
 Retain the root upstream changelog and add personal changes to
 `docs/changelog.md` to reduce merge conflicts.

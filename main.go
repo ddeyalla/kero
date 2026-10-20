@@ -77,7 +77,7 @@ func runApp() {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return
 	}
-	// Updates from Kero's GitHub releases, in a window of native UI.
+	// Updates use the signed Shibu release feed configured in mygo.json.
 	mygo.Use(native.Plugin)
 	a := newApp()
 	loadFonts()
