@@ -58,8 +58,10 @@ for repairs. Its origin must be `ddeyalla/kero`; upstream-origin checkouts are
 rejected before fetching or creating worktrees. The source repo's current branch
 and uncommitted work stay in place. Repair checkouts remain available for review;
 remove them with `git worktree remove` only after their agent has finished.
-Codex CLI must already be installed/authenticated; its terminal may ask for trust
-or command approval. There is no automatic publication of AI-written fixes.
+Codex CLI must already be installed/authenticated. Repair sessions explicitly
+use its `workspace-write` sandbox and `on-request` approval policy; its terminal
+may ask for trust, network access or command approval. There is no automatic
+publication of AI-written fixes.
 
 ## On the Mac
 

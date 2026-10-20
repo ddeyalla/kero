@@ -136,6 +136,10 @@ func PrepareRepair(ctx context.Context, repo string) (string, error) {
 	return dir, nil
 }
 
+func RepairCommand(runURL string) []string {
+	return []string{"codex", "--sandbox", "workspace-write", "--ask-for-approval", "on-request", RepairPrompt(runURL)}
+}
+
 func RepairPrompt(runURL string) string {
 	if runLink.FindString(runURL) != runURL || runURL == "" {
 		runURL = WorkflowURL

@@ -64,7 +64,7 @@ func (a *App) startSourceUpdate() {
 			if err == nil && cl != nil && ctx.Err() == nil {
 				var session proto.Session
 				err = cl.Call("create", proto.CreateParams{Name: "Shibu update repair", Dir: dir,
-					Command: []string{"codex", maintenance.RepairPrompt(result.URL)}}, &session)
+					Command: maintenance.RepairCommand(result.URL)}, &session)
 			} else if err == nil {
 				err = context.Canceled
 			}
