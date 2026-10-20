@@ -16,6 +16,9 @@ builds only. What each feature is and where it stands is tracked in the
   that shipped it, how to reach it and its status.
 - Noted the one-time service restart for 2.0.7-local.1 and the Files Find
   and Markdown heading links in its release notes.
+- Added test-daemon isolation and socket recovery guidance to
+  [Automatic updates](automatic-updates.md) and the socket guard's
+  verification record.
 
 ## [2.0.7-local.1] - 2026-10-20
 

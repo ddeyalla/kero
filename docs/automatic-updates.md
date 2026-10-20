@@ -121,6 +121,28 @@ archives. Public Mac distribution/notarization would require separate Apple
 signing configuration. Keep the private updater key backed up; future releases
 must use the same key trusted by installed apps.
 
+## Isolated test daemons and socket recovery
+
+Every test process must clear or isolate `KERO_HOME`, `KERO_CONFIG`,
+`KERO_SOCKET`, `KERO_PANE` and `KERO_SESSION`. Setting only `KERO_HOME` can
+still direct a test daemon to the daily app's inherited socket address.
+
+Daemon startup now takes a socket-level lock as well as the data-directory
+lock. It refuses to replace a live listener, including older daemons without
+that lock. Only an unchanged socket that refuses connections is reclaimed.
+Shutdown removes only the socket inode created by that listener. This guard
+needs a build containing the fix; already running binaries retain their old
+behavior, and older external test binaries can still unlink paths themselves.
+
+If an old test binary has already unlinked a live daemon's socket, its existing
+GUI and terminal connections can keep working, but new connections cannot
+reach that daemon. Stopping the test does not recreate the unlinked address.
+The app has no supported way to rebind that existing listener without restarting
+the terminal service. Keep the working window open, save/checkpoint running
+programs, back up saved state/history and schedule a controlled restart. The
+restart ends shell processes; restoring saved sessions is not process survival.
+Never use a successful build as evidence that this live recovery has happened.
+
 ## Fork-only publishing
 
 The commit history shown on `ddeyalla/kero` is your fork's history. Fetching or

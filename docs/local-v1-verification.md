@@ -191,3 +191,28 @@ record as successful reconnect validation or an enabled automatic window handoff
 
 Tests must isolate or unset **all** of KERO_HOME, KERO_CONFIG, KERO_SOCKET,
 KERO_PANE and KERO_SESSION. Isolating KERO_HOME alone is insufficient.
+
+## Socket startup guard — 2026-10-20
+
+After the other coding task was paused, its background test daemon still owned
+the replacement socket. The original GUI/daemon (95310/95322) and all six
+observed shell PIDs were alive. The saved state still contained three sessions
+and six panes; terminal settings and usage-credential hashes matched the earlier
+baseline. No process was stopped and the live listener was not restored.
+
+The fix was developed in a clean, separate worktree, leaving the paused Linear
+work untouched. Regression tests cover the real daemon entry point with an
+isolated data directory and an inherited live socket, live older listeners,
+socket locking, stale-address recovery, non-socket paths and shutdown after a
+socket replacement. Targeted race checks, the full Go suite, MyGo vet and all
+nine release-guard tests passed. The first full-suite attempt picked a different
+zsh from the developer PATH and failed two existing shell tests; the repository's
+system-first PATH passed. Tests never targeted the daily app's socket.
+
+This source fix has not been activated in the running app. Recovery remains
+pending the user's choice of a safe terminal-service restart time. Such a restart
+ends existing shell processes; histories and saved sessions are separate from
+those processes.
+
+The guard shipped in 2.0.7-local.1 and takes effect once the terminal service
+is restarted on that release.
