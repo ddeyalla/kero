@@ -3,8 +3,11 @@ package main
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"kero/locales"
 )
 
 // settingsTestApp is testApp with Settings' own asks kept from the daily
@@ -22,7 +25,8 @@ func settingsTestApp(t *testing.T) *App {
 // Settings opens over the main window, on the page asked for, a card
 // sized to the window that keeps inside it however small it is.
 func TestSettingsModalOpensOnPage(t *testing.T) {
-	for _, size := range [][2]int{{1100, 720}, {560, 400}} {
+	// The main window's default size, about, and its smallest.
+	for _, size := range [][2]int{{1100, 720}, {560, 360}} {
 		w, h := size[0], size[1]
 		for _, dark := range []bool{false, true} {
 			a := settingsTestApp(t)
@@ -37,9 +41,15 @@ func TestSettingsModalOpensOnPage(t *testing.T) {
 			if !tt.HasText("Line height") {
 				t.Fatalf("%dx%d: not on the terminal page; texts %q", w, h, tt.Texts())
 			}
-			r, ok := tt.Find("Close Settings (⌘,)")
-			if !ok || r.X < 0 || r.Y < 0 || r.X+r.W > float32(w) || r.Y+r.H > float32(h) {
-				t.Errorf("%dx%d: the close button at %+v, outside the window", w, h, r)
+			cw, ch := float32(min(900, w-48)), float32(min(640, h-48))
+			left, top := (float32(w)-cw)/2, (float32(h)-ch)/2
+			// The close button and the configuration's link are on the
+			// card, and the last page is in it, scrolled to in a short one.
+			for _, label := range []string{a.tip(locales.SettingsClose(), "settings.open"), "Advanced", "Open the config file"} {
+				r, ok := tt.Find(label)
+				if !ok || r.X < left || r.Y < top || r.X+r.W > left+cw+0.5 || r.Y+r.H > top+ch+0.5 {
+					t.Errorf("%dx%d: %q at %+v, off the card", w, h, label, r)
+				}
 			}
 			// The card is no wider than 900, centered with the window around it.
 			g, ok := tt.Find("General")
@@ -164,5 +174,33 @@ func TestSettingsModalShortcuts(t *testing.T) {
 	tt.Frame()
 	if a.ss.page != "linear" || !tt.HasText("Check for changes") {
 		t.Errorf("on page %q; texts %q", a.ss.page, tt.Texts())
+	}
+}
+
+// Escape closes a menu open in Settings, and Settings with the next.
+func TestSettingsModalMenuEscape(t *testing.T) {
+	a := settingsTestApp(t)
+	tt := ui.NewTester(a.view, 1100, 720)
+	tt.Frame()
+	a.openSettings("terminal")
+	tt.Frame()
+	if err := tt.Click("JetBrains Mono Nerd Font"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	if m := a.ss.menus["font"]; m == nil || !m.open {
+		t.Fatal("the font menu did not open")
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.ss.menus["font"].open || !a.ss.open {
+		t.Fatalf("Escape on the menu: menu open %v, Settings open %v; want the menu closed alone", a.ss.menus["font"].open, a.ss.open)
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.ss.open {
+		t.Error("the next Escape left Settings open")
 	}
 }

@@ -267,15 +267,20 @@ func (a *App) settingsView(c *ui.Context) {
 			if !narrow {
 				a.settingsSearch(c, pal, 0)
 			}
-			for _, p := range settingsPages {
-				if found == nil || found[p.id] != nil {
-					a.settingsNav(c, pal, p, narrow)
-				}
-			}
-			if found != nil && len(found) == 0 && !narrow {
-				ui.Text(c, locales.CommonNoResults()).FontSize(13).TextColor(pal.textFaint).Padding(8, 10)
-			}
-			ui.Spacer(c)
+			// The pages scroll in a window too short for them all, the
+			// configuration's link staying at the bottom.
+			ui.Scroll(c.Key("pages")).Grow(1).MinHeight(0).Children(func() {
+				ui.Column(c).Gap(2).Children(func() {
+					for _, p := range settingsPages {
+						if found == nil || found[p.id] != nil {
+							a.settingsNav(c, pal, p, narrow)
+						}
+					}
+					if found != nil && len(found) == 0 && !narrow {
+						ui.Text(c, locales.CommonNoResults()).FontSize(13).TextColor(pal.textFaint).Padding(8, 10)
+					}
+				})
+			})
 			link := ui.ButtonBase(c.Key("open-config")).Padding(6, 10).Gap(6).Radius(7).AlignItems(ui.Center).Label(locales.SettingsOpenConfigLabel())
 			fg := pal.textMuted
 			if link.Hovered() {
