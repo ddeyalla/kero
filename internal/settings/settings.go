@@ -63,6 +63,7 @@ type Settings struct {
 
 	// Agents
 	RemoteControl bool `json:"remoteControl"` // kero focus and kero do drive the app
+	AgentHooks    bool `json:"agentHooks"`    // agents' hooks report their turns (kero hook)
 
 	// Linear
 	LinearSidebar      bool   `json:"linearSidebar"`      // the workspace's row in the sidebar
@@ -104,6 +105,7 @@ func Default() Settings {
 		NotifyFailed:    true,
 		DockBadge:       true,
 		RemoteControl:   true,
+		AgentHooks:      true,
 
 		LinearSidebar:      true,
 		LinearRefresh:      30,

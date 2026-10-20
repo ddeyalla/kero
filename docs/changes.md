@@ -84,6 +84,68 @@ Code: [`pane_chooser.go`](../pane_chooser.go),
 [`browser_pane.go`](../browser_pane.go), [`tasks_pane.go`](../tasks_pane.go),
 [`panes.go`](../panes.go).
 
+## Agent-reported status
+
+Claude Code and Codex tell a pane's status from their own hooks, so it turns
+working, waiting or done the moment the agent does, and the screen
+detection (`internal/detect`) stays as the fallback.
+
+`kero skill setup` installs the one command, `'…/kero' hook claude` (or
+`codex`), for each event: Claude Code's `SessionStart`, `UserPromptSubmit`,
+`Notification`, `PostToolUse`, `Stop`, `StopFailure` and `SessionEnd`, and
+Codex's `SessionStart`, `UserPromptSubmit`, `PermissionRequest`,
+`PostToolUse` and `Stop`. The hook reads the event from its input.
+`SessionStart` does what it did; an install of `SessionStart` alone reads as
+outdated, and setup adds the other events without moving or changing it,
+since Codex trusts a hook by its place in `hooks.json`. The new events have
+a 2–3 second timeout, and the hook gives kerod one second.
+
+Every other event maps to a state (`eventReport` in
+[`internal/cli/hook_events.go`](../internal/cli/hook_events.go)):
+`UserPromptSubmit` and `PostToolUse` to working; a permission or elicitation
+`Notification`, or Codex's `PermissionRequest`, to blocked with the agent's
+words; `Stop` to done; `StopFailure` to error; `SessionEnd` to clear (not
+done: it also fires on `/clear`). Subagents' events, and `Stop`-like events
+with an `agent_id`, report nothing. Nothing goes to stdout: Claude Code
+would take it into its context. A hook without `$KERO_PANE`, or of a Codex
+whose `CODEX_THREAD_ID` isn't the event's session, does nothing, and so
+does one with `agent-hooks = false`, which it reads as it runs.
+
+The hook doesn't write OSC 7501 to `/dev/tty`: a hook has no terminal, and
+Codex's app server, which panes share, runs hooks for panes other than its
+own. It calls kerod's `report` method instead (`proto.ReportParams`), which
+an older kerod refuses, so the hook does nothing until kerod restarts; the
+protocol version stays 3. kerod gives the report to the pane whose agent's
+session, as `SessionStart` told it, is the event's, that of `$KERO_PANE`
+first; a nested `claude -p`, of a session of its own, reaches none
+(`hookReport` in [`internal/daemon/hooks.go`](../internal/daemon/hooks.go)).
+
+The report is a record of the agent's own id (`claude`, `codex`), beside
+those other programs report, with `app` the agent. It is soft: it sets the
+status at once but doesn't switch detection off as a program's own report
+does (`declared`). Claude Code fires no `Stop` when you press Esc, so once
+the screen shows the prompt for `idleHold` the pane goes idle and the
+record goes; a screen that shows the agent work again ends a stale wait, as
+after a granted permission (`overrule`). Claude Code also writes its own
+OSC 7501 reports, a root record of app `claude-code`: what it reports after
+its hooks stands, so its working ends a wait they told and its idle a turn
+they began. Messages are cut to one line of
+2 KB, without controls. Nothing of it is saved: records never were.
+
+Known limit: a nested `claude -p` (or Codex) whose own `SessionStart` runs
+Kero's hook in an agent's pane still points the pane at its session, as
+before. From then on its events are the pane's and the outer agent's reach
+no pane: the nested run's `Stop` can mark the pane done mid-turn, and
+notify, unless the outer agent reports for itself (Claude Code's own OSC
+7501). Only a nested run that fires no `SessionStart` reports nothing.
+Fixing it belongs in `SessionStart`, which this change leaves as it was.
+
+Code: [`internal/cli/hook_events.go`](../internal/cli/hook_events.go),
+[`internal/cli/hook.go`](../internal/cli/hook.go) (install),
+[`internal/daemon/hooks.go`](../internal/daemon/hooks.go),
+[`internal/daemon/session.go`](../internal/daemon/session.go) (`look`).
+Tests: `hook_events_test.go`, `internal/daemon/hooks_test.go`.
+
 ## Account usage
 
 Claude and Codex use existing CLI login credentials. OpenCode Go uses its

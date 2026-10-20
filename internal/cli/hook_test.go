@@ -89,7 +89,7 @@ func TestHookReplacesOutdated(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := read(t, h.file)
-	if strings.Contains(got, "/old/kero") || strings.Count(got, "hook claude") != 1 {
+	if strings.Contains(got, "/old/kero") || strings.Count(got, "hook claude") != len(hookEvents["claude"]) {
 		t.Fatalf("after install:\n%s", got)
 	}
 }

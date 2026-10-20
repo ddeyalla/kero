@@ -17,6 +17,7 @@ import (
 	"kero/internal/client"
 	"kero/internal/clilink"
 	"kero/internal/proto"
+	"kero/internal/settings"
 )
 
 // hookCmd is what an agent runs as its session starts (the hook `kero
@@ -33,15 +34,17 @@ func hookCmd(args []string) error {
 		return contextCmd(args[1], args[2], len(args) > 3 && args[3] == "wait")
 	}
 	pane := os.Getenv("KERO_PANE")
-	var in struct {
-		Event   string `json:"hook_event_name"`
-		AgentID string `json:"agent_id"`   // set for Claude Code's subagents
-		Session string `json:"session_id"` // the agent's own
-		Cwd     string `json:"cwd"`
-		Source  string `json:"source"` // "startup", "resume", "clear", "compact"
-	}
+	var in hookInput
 	json.NewDecoder(io.LimitReader(os.Stdin, 1<<20)).Decode(&in)
-	if pane == "" || in.Event != "SessionStart" || in.AgentID != "" {
+	if in.Event != "SessionStart" {
+		// Every other event the hook is installed for tells the agent's
+		// status, and says nothing to the agent.
+		if p, ok := eventReport(agent, in, os.Getenv); ok && settings.Load().AgentHooks {
+			sendReport(p)
+		}
+		return nil
+	}
+	if pane == "" || in.AgentID != "" {
 		return nil
 	}
 	if t := os.Getenv("CODEX_THREAD_ID"); t != "" && in.Session != "" && t != in.Session {
@@ -212,8 +215,9 @@ type integration interface {
 	remove() error
 }
 
-// agentHook is a hook kero installs in an agent's settings: a SessionStart
-// command running `kero hook <agent>`.
+// agentHook is a hook kero installs in an agent's settings: a command
+// running `kero hook <agent>` on each of its events (hookEvents), which
+// reads which from its input.
 type agentHook struct {
 	agent string // as `kero hook` takes it: "claude", "codex"
 	file  string // the JSON file holding the agent's hooks
@@ -246,8 +250,9 @@ func (h agentHook) ours(command string) bool {
 	return strings.Contains(command, "kero") && strings.HasSuffix(command, " hook "+h.agent)
 }
 
-// state is "current", "outdated" (kero's hook, of another command line)
-// or "missing".
+// state is "current" (kero's hook, of this command line, on each of its
+// events), "outdated" (of another command line, or on only some, as
+// before kero hooked more than SessionStart) or "missing".
 func (h agentHook) state() string {
 	b, err := os.ReadFile(h.file)
 	if err != nil {
@@ -257,28 +262,36 @@ func (h agentHook) state() string {
 	if err != nil {
 		return "missing"
 	}
-	state := "missing"
-	h.each(settings, func(command string) {
-		if command == h.command() {
-			state = "current"
-		} else if state == "missing" {
-			state = "outdated"
-		}
+	current, found := map[string]bool{}, false
+	h.each(settings, func(event, command string) {
+		found = true
+		current[event] = current[event] || command == h.command()
 	})
-	return state
+	if !found {
+		return "missing"
+	}
+	for _, ev := range hookEvents[h.agent] {
+		if !current[ev.name] {
+			return "outdated"
+		}
+	}
+	return "current"
 }
 
-// each calls fn with the command of each of kero's SessionStart hooks.
-func (h agentHook) each(settings object, fn func(command string)) {
+// each calls fn with the command of each of kero's hooks, on whichever
+// event, in the settings' order.
+func (h agentHook) each(settings object, fn func(event, command string)) {
 	hooks, _ := parseObject(settings.get("hooks"))
-	var groups []object
-	json.Unmarshal(hooks.get("SessionStart"), &groups)
-	for _, g := range groups {
-		var handlers []struct{ Type, Command string }
-		json.Unmarshal(g.get("hooks"), &handlers)
-		for _, hd := range handlers {
-			if hd.Type == "command" && h.ours(hd.Command) {
-				fn(hd.Command)
+	for _, m := range hooks {
+		var groups []object
+		json.Unmarshal(m.Val, &groups)
+		for _, g := range groups {
+			var handlers []struct{ Type, Command string }
+			json.Unmarshal(g.get("hooks"), &handlers)
+			for _, hd := range handlers {
+				if hd.Type == "command" && h.ours(hd.Command) {
+					fn(m.Key, hd.Command)
+				}
 			}
 		}
 	}
@@ -328,49 +341,78 @@ func (h agentHook) edit(add bool) error {
 	if err != nil {
 		return fmt.Errorf("%s: hooks: %w", proto.ShortDir(h.file), err)
 	}
-	var groups []object
-	if raw := hooks.get("SessionStart"); raw != nil {
-		if err := json.Unmarshal(raw, &groups); err != nil {
-			return fmt.Errorf("%s: hooks.SessionStart: %w", proto.ShortDir(h.file), err)
+	// Each event on its own: one that has kero's hook as it would be,
+	// alone, stays as it is, where it is, as Codex trusts a hook by its
+	// place (hooks.json:<event>:<group>:<handler>). Else kero's handlers
+	// go, with the groups they leave empty, and, to add, one comes last.
+	timeouts := map[string]int{}
+	events := []string{}
+	if add {
+		for _, ev := range hookEvents[h.agent] {
+			timeouts[ev.name] = ev.timeout
+			events = append(events, ev.name)
 		}
 	}
-	// Already there, alone: nothing to do. Else drop kero's handlers, and
-	// the groups they leave empty.
-	n, exact := 0, false
-	h.each(settings, func(command string) {
-		n++
-		exact = exact || command == h.command()
-	})
-	if add && n == 1 && exact || !add && n == 0 {
-		return nil
+	for _, m := range hooks {
+		if _, ok := timeouts[m.Key]; !ok {
+			events = append(events, m.Key) // kero's hooks of events it no longer hooks go
+		}
 	}
-	kept := groups[:0]
-	for _, g := range groups {
-		var handlers []json.RawMessage
-		json.Unmarshal(g.get("hooks"), &handlers)
-		n := len(handlers)
-		handlers = slices.DeleteFunc(handlers, func(raw json.RawMessage) bool {
-			var hd struct{ Type, Command string }
-			json.Unmarshal(raw, &hd)
-			return hd.Type == "command" && h.ours(hd.Command)
-		})
-		if n > 0 && len(handlers) == 0 {
+	changed := false
+	for _, event := range events {
+		var groups []object
+		if raw := hooks.get(event); raw != nil {
+			if err := json.Unmarshal(raw, &groups); err != nil {
+				return fmt.Errorf("%s: hooks.%s: %w", proto.ShortDir(h.file), event, err)
+			}
+		}
+		timeout, want := timeouts[event]
+		n, exact := 0, false
+		for _, g := range groups {
+			var handlers []struct{ Type, Command string }
+			json.Unmarshal(g.get("hooks"), &handlers)
+			for _, hd := range handlers {
+				if hd.Type == "command" && h.ours(hd.Command) {
+					n++
+					exact = exact || hd.Command == h.command()
+				}
+			}
+		}
+		if want && n == 1 && exact || !want && n == 0 {
 			continue
 		}
-		if len(handlers) != n {
-			g = g.set("hooks", marshal(handlers))
+		changed = true
+		kept := groups[:0]
+		for _, g := range groups {
+			var handlers []json.RawMessage
+			json.Unmarshal(g.get("hooks"), &handlers)
+			n := len(handlers)
+			handlers = slices.DeleteFunc(handlers, func(raw json.RawMessage) bool {
+				var hd struct{ Type, Command string }
+				json.Unmarshal(raw, &hd)
+				return hd.Type == "command" && h.ours(hd.Command)
+			})
+			if n > 0 && len(handlers) == 0 {
+				continue
+			}
+			if len(handlers) != n {
+				g = g.set("hooks", marshal(handlers))
+			}
+			kept = append(kept, g)
 		}
-		kept = append(kept, g)
+		groups = kept
+		if want {
+			handler := object{{"type", marshal("command")}, {"command", marshal(h.command())}, {"timeout", marshal(timeout)}}
+			groups = append(groups, object{{"hooks", marshal([]object{handler})}})
+		}
+		if len(groups) > 0 {
+			hooks = hooks.set(event, marshal(groups))
+		} else {
+			hooks = hooks.del(event)
+		}
 	}
-	groups = kept
-	if add {
-		handler := object{{"type", marshal("command")}, {"command", marshal(h.command())}, {"timeout", marshal(10)}}
-		groups = append(groups, object{{"hooks", marshal([]object{handler})}})
-	}
-	if len(groups) > 0 {
-		hooks = hooks.set("SessionStart", marshal(groups))
-	} else {
-		hooks = hooks.del("SessionStart")
+	if !changed {
+		return nil
 	}
 	if len(hooks) > 0 {
 		settings = settings.set("hooks", hooks.marshal())

@@ -10,6 +10,19 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
+### Added
+
+- Claude Code and Codex report their turns: Kero's hook now also runs as a
+  turn starts, asks for permission, runs a tool and ends, and the pane shows
+  working, waiting or done at once instead of waiting for the screen to
+  change. Esc and a granted permission are still read from the screen, so a
+  pane no longer sticks on working or waiting. Run `kero skill setup` (or
+  update from Settings) to add the new events; in Codex, approve them with
+  `/hooks`. `agent-hooks = false` turns it off. **Restart the terminal
+  service once** (when agents are idle) for the reports to reach the panes;
+  until then the hooks do nothing. No protocol change.
+- `agent-hooks` configuration key, `true` by default.
+
 ### Documentation
 
 - Added the [feature tracker](features.md): every Shibu feature, the release

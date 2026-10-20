@@ -19,7 +19,24 @@ Every pane has a status, shown in the sidebar:
 | `error`   | The program reported that it failed           |
 | `exited`  | The program ended; the pane keeps its output  |
 
-Kero tells a coding agent's status from what its screen shows: its spinner, a permission prompt, its prompt waiting for you. Redrawing the same screen, as when you resize a pane, changes nothing. Other programs are `working` while their title shows a spinner, or when they [report their status](#reporting-status-from-a-program).
+Kero tells a coding agent's status from what its screen shows: its spinner, a permission prompt, its prompt waiting for you. Redrawing the same screen, as when you resize a pane, changes nothing. Claude Code and Codex also [report their turns](#agents-that-report-their-turns) through Kero's hook, which is quicker and surer than the screen. Other programs are `working` while their title shows a spinner, or when they [report their status](#reporting-status-from-a-program).
+
+### Agents that report their turns
+
+With the hook `kero skill setup` installs, Claude Code and Codex tell Kero as a turn starts, asks for permission and ends, and the pane shows it at once:
+
+| Event                                       | Claude Code | Codex | The pane    |
+| ------------------------------------------- | ----------- | ----- | ----------- |
+| You send a prompt (`UserPromptSubmit`)      | yes         | yes   | `working`   |
+| It asks for permission or a choice          | `Notification` | `PermissionRequest` | `waiting`, with the agent's words |
+| A tool ran, as after you approved it (`PostToolUse`) | yes | yes | `working` |
+| The turn ends (`Stop`)                      | yes         | yes   | `idle`, as an agent that finished |
+| The turn fails on an API error (`StopFailure`) | yes      |       | `error`     |
+| The session ends (`SessionEnd`, also on `/clear`) | yes   |       | what it reported goes |
+
+The screen still counts. An agent says nothing when you stop a turn with <kbd>Esc</kbd>, so once its prompt has shown for a moment the pane goes `idle`; and once a permission you granted is gone from the screen, the pane is `working` again. What an agent reports stands beside what other programs in the pane report, by the same order: `blocked` over `working` over `error` over `done`.
+
+The hook reports only for the agent its pane runs: a `claude -p` an agent starts in its pane, or a subagent, reports nothing. Outside Kero it does nothing, and it never writes to the agent. Codex skips a hook until you trust it: approve Kero's new ones with `/hooks`. Set `agent-hooks = false` in the [configuration](./configuration.md#agents) to leave the status to the screen alone; it applies at once.
 
 A session shows the status of its panes, and sessions that need you stand out. Press <kbd>⌘</kbd> <kbd>J</kbd> to jump to the next one.
 

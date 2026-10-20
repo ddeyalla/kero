@@ -182,6 +182,8 @@ var keys = []key{
 	boolKey("dock-bounce", "once, when a session comes to need you", func(s *Settings) *bool { return &s.BounceDock }),
 
 	boolKey("remote-control", "kero do and kero focus drive the app", func(s *Settings) *bool { return &s.RemoteControl }),
+	boolKey("agent-hooks", "Claude Code's and Codex's hooks tell their status as a turn starts, asks for permission and ends; false leaves it to their screens",
+		func(s *Settings) *bool { return &s.AgentHooks }),
 
 	boolKey("linear-sidebar", "the Linear workspace's row in the sidebar", func(s *Settings) *bool { return &s.LinearSidebar }),
 	numberKey("linear-refresh-interval", "seconds between reads of what changed in Linear, 15 to 300: the whole workspace is read every five minutes anyway",
