@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the real MyGo updater in disposable app bundles, never the installed app."""
 
+import argparse
 import base64
 import json
 import os
@@ -9,6 +10,7 @@ import plistlib
 import shutil
 import subprocess
 import tempfile
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 GO = str(ROOT / ".toolchain/go/bin/go") if (ROOT / ".toolchain/go/bin/go").exists() else "go"
@@ -34,10 +36,17 @@ func main() {
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--loopback-feed", help="optional loopback HTTP fixture for offline testing")
+    args = parser.parse_args()
     config = json.loads((ROOT / "mygo.json").read_text())
     updates = config["updates"].copy()
     updates.pop("changelog", None)
     updates["deltas"] = 0
+    if args.loopback_feed:
+        url = urlparse(args.loopback_feed)
+        if url.scheme != "http" or url.hostname != "127.0.0.1" or url.username:
+            raise SystemExit("Fixture feed must use http://127.0.0.1")
     env = os.environ.copy()
     # The probe never gets the signing secret or a daily-coding daemon socket.
     for key in ["MYGO_UPDATER_PRIVATE_KEY", "KERO_HOME", "KERO_CONFIG", "KERO_SOCKET", "KERO_PANE", "KERO_SESSION"]:
@@ -61,11 +70,27 @@ def main():
             subprocess.run([GO, "tool", "mygo", "build", "-platform", "darwin/arm64", "-sign", "-",
                             "-skip-dmg", "-skip-notarize", str(project)], cwd=ROOT, env=env, check=True)
             app = project / "build/darwin-arm64/Shibu Update Probe.app"
+            if args.loopback_feed:
+                # MyGo's runtime supports loopback test feeds; production
+                # configuration deliberately accepts HTTPS only. Override
+                # linker metadata in this disposable probe, never the app.
+                flags = " ".join([
+                    "-X github.com/egoist/mygo.production=1",
+                    "-X github.com/egoist/mygo.packageName=ShibuUpdateProbe",
+                    "-X github.com/egoist/mygo.packageVersion=0.0.0",
+                    "-X github.com/egoist/mygo.packageIdentifier=dev.ddeyalla.shibu-update-probe",
+                    f"-X github.com/egoist/mygo.packageUpdateKey={feed['publicKey']}",
+                    f"-X github.com/egoist/mygo.packageUpdateFeed={args.loopback_feed}/update-darwin-arm64.json",
+                ])
+                subprocess.run([GO, "build", "-ldflags", flags, "-o",
+                                str(app / "Contents/MacOS/Shibu Update Probe"), "."],
+                               cwd=project, env=env, check=True)
+                subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(app)], check=True)
             result = subprocess.run([str(app / "Contents/MacOS/Shibu Update Probe")],
                                     capture_output=True, text=True, env=env, timeout=240)
             info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
             if invalid:
-                assert result.returncode == 2 and "signature" in result.stderr.lower(), result.stderr
+                assert result.returncode == 2 and "not signed with the app's key" in result.stderr, result.stderr
                 assert info["CFBundleShortVersionString"] == "0.0.0"
                 print("PASS: wrong signing key rejected; probe bundle was not replaced", flush=True)
             else:
