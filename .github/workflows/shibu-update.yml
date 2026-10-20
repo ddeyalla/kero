@@ -1,6 +1,9 @@
 name: Shibu updates
 
 on:
+  push:
+    branches: [shibu]
+    paths: ['.github/workflows/shibu-update.yml']
   schedule:
     - cron: '23 3 * * *'
   workflow_dispatch:
