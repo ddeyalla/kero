@@ -134,3 +134,28 @@ Running GUI/daemon PIDs 95310/95322 were retained; their runtime version remains
 unchanged until a normal restart. No shell restart or state migration occurred.
 Previous bundle backup: `app-20261020-200116/Shibu Code.app` in the personal data
 backup directory. This asset-only update was build-verified; tests were not rerun.
+
+## Signed update pipeline — 2026-10-20
+
+Published and installed `2.0.5-local.6` from the fork's signed GitHub release.
+The public-feed probe rejected an incorrect signing key without replacing its
+app, then downloaded/installed the correct release into a temporary app bundle.
+The archive signature, installed identity and strict native bundle signature
+were checked. Existing settings/provider-key fingerprints, GUI/daemon process
+IDs and all six observed shell PIDs were retained during bundle replacement.
+Three current sessions remained available. No active process was restarted.
+
+Hosted checks passed:
+
+- [No-change upstream check](https://github.com/ddeyalla/kero/actions/runs/39443674445).
+- [Non-publishing build trial](https://github.com/ddeyalla/kero/actions/runs/39443854019).
+- [Signed release publication](https://github.com/ddeyalla/kero/actions/runs/39444838453).
+
+Automatic checks/downloads are enabled in this Mac's updater preferences. The
+running older GUI does not gain updater code until the next normal launch.
+
+A separate accessory app with no coding window exercised MyGo's native
+`App.Relaunch` against a disposable Kero daemon and shell. The GUI process
+changed and daemon/shell PIDs stayed identical; the test daemon was then stopped.
+This does not establish full-window focus restoration or guarantee survival
+across arbitrary protocol/data changes. Automatic GUI relaunch remains off.

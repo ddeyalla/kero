@@ -8,7 +8,14 @@ they do not imply published GitHub releases or existing release tags.
 
 ## Unreleased
 
-No pending changes.
+### Added
+
+- Manual sidebar update control, command-palette action and `kero do updates.sync`.
+- Existing fork-owner GitHub CLI authentication and guarded workflow monitoring.
+- Background Codex repair sessions in isolated worktrees after failed update builds;
+  repair commits require review before release and never replace the daily checkout.
+- Tests for account/host isolation, credential error redaction, cancellation,
+  upstream-origin rejection, retained active selection and dirty-worktree preservation.
 
 ## [2.0.5-local.6] - 2026-10-20
 

@@ -70,6 +70,15 @@ Code: [`mygo.json`](../mygo.json),
 [`internal/proto/proto.go`](../internal/proto/proto.go),
 [`internal/proto/local_test.go`](../internal/proto/local_test.go).
 
+## Updating the personal edition
+
+Shibu consumes stable Kero releases through its own signed build pipeline.
+Use the sidebar's circular-arrow button to check Kero now; conflicts/failures
+can open an isolated background Codex repair session, with review before release.
+See [Automatic updates](automatic-updates.md) for credentials, controls, tests
+and the fork-only publishing boundary. No automatic window or daemon restart
+is enabled.
+
 ## Sessions and data continuity
 
 The official and personal editions have separate daemons and data:

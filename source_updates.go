@@ -89,7 +89,7 @@ func (a *App) startSourceUpdate() {
 				a.toast(err.Error())
 				return
 			}
-			a.maintenance.status = "Source check passed. Checking signed Shibu releases…"
+			a.maintenance.status = "Source check passed. Signed update check opened."
 			// Use the existing updater's single install session and restart
 			// controls rather than racing its bundle replacement from here.
 			updater.CheckForUpdates()

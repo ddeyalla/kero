@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,10 +79,47 @@ func TestCancelledMonitorDoesNotRequestRepair(t *testing.T) {
 }
 
 func TestRepairRefusesUpstreamCheckout(t *testing.T) {
-	// A non-checkout also fails closed before any fetch or worktree creation.
 	dir := t.TempDir()
+	for _, args := range [][]string{{"init", "-q", dir}, {"-C", dir, "remote", "add", "origin", "https://github.com/egoist/kero.git"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git fixture: %s %v", out, err)
+		}
+	}
 	if _, err := PrepareRepair(context.Background(), dir); err == nil {
-		t.Fatal("accepted a checkout without a verified fork origin")
+		t.Fatal("accepted an upstream checkout as the repair source")
+	}
+}
+
+func TestLiveRepairPreservesDirtyCheckout(t *testing.T) {
+	if os.Getenv("SHIBU_TEST_LIVE_UPDATE") != "1" {
+		t.Skip("explicit opt-in to fetch the public fork")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	dir := filepath.Join(t.TempDir(), "daily-checkout")
+	if out, err := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch=shibu", "https://github.com/ddeyalla/kero.git", dir).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %s %v", out, err)
+	}
+	sentinel := filepath.Join(dir, "uncommitted-daily-work.txt")
+	if err := os.WriteFile(sentinel, []byte("keep my work"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	repair, err := PrepareRepair(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(filepath.Dir(repair))
+	defer exec.Command("git", "-C", dir, "worktree", "remove", "--force", repair).Run()
+	if content, err := os.ReadFile(sentinel); err != nil || string(content) != "keep my work" {
+		t.Fatal("repair changed dirty daily work")
+	}
+	branch, err := exec.Command("git", "-C", dir, "branch", "--show-current").Output()
+	if err != nil || strings.TrimSpace(string(branch)) != "shibu" {
+		t.Fatal("repair changed daily checkout branch")
+	}
+	branch, err = exec.Command("git", "-C", repair, "branch", "--show-current").Output()
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(branch)), "repair/") {
+		t.Fatal("repair checkout was not isolated on its own branch")
 	}
 }
 
