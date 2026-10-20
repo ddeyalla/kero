@@ -30,6 +30,20 @@ func (a *App) run(id string, args map[string]string) {
 		}
 		return
 	}
+	// Settings holds the window while it shows: its shortcut and Close
+	// close it, Find finds a setting, and what would open under it waits.
+	if a.ss.open {
+		switch id {
+		case "settings.open", "pane.close", "session.close":
+			a.closeSettings()
+			return
+		case "find.open":
+			a.ss.searchRef.Focus()
+			return
+		case "palette.open", "pane.new", "usage.open", "session.rename":
+			return
+		}
+	}
 	s := a.session(a.selected)
 	// In a Browser pane, the text's size is the page's, and Command-R
 	// reloads it, as in Safari.
@@ -64,7 +78,7 @@ func (a *App) run(id string, args map[string]string) {
 	case "browser.location":
 		a.browserLocation(s)
 	case "settings.open":
-		a.openSettings("")
+		a.toggleSettings()
 	case "updates.sync":
 		a.startSourceUpdate()
 	case "usage.open":
@@ -158,11 +172,6 @@ func (a *App) item(id string) *mygo.MenuItem {
 		Label:       actionTitle(id),
 		Accelerator: a.accelerator(act),
 		Click: func(*mygo.MenuItem, *mygo.Window) {
-			// Closing is the window's in front: Settings closes itself.
-			if (id == "pane.close" || id == "session.close") && a.setWin != nil && mygo.FocusedWindow() == a.setWin {
-				a.setWin.Close()
-				return
-			}
 			a.update(func() { a.run(id, nil) })
 		},
 	}

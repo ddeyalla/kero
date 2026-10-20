@@ -1176,6 +1176,16 @@ func (msgs Messages) SettingsTitle() string {
 	return Catalog.Format(msgs.locale, "settingsTitle", nil)
 }
 
+// SettingsClose says "Close Settings"
+// in the language the app shows.
+func SettingsClose() string { return In(i18n.Locale()).SettingsClose() }
+
+// SettingsClose says "Close Settings"
+// in the language of msgs.
+func (msgs Messages) SettingsClose() string {
+	return Catalog.Format(msgs.locale, "settingsClose", nil)
+}
+
 // FooterNeedsYou says "{count, plural, one {# session needs you} other {# sessions need you}}"
 // in the language the app shows.
 func FooterNeedsYou(count int) string { return In(i18n.Locale()).FooterNeedsYou(count) }

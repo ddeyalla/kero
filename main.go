@@ -26,8 +26,6 @@ import (
 	"kero/internal/clilink"
 	"kero/internal/daemon"
 	"kero/internal/proto"
-
-	"kero/locales"
 )
 
 func main() {
@@ -84,15 +82,10 @@ func runApp() {
 	mygo.Theme.SetSource(mygo.ThemeSource(a.set.Appearance))
 	mygo.App.SetLocale(localeTag(a.set.Language))
 	mygo.App.SetMenu(a.menu())
-	// Windows draw anew in another language; the menu and the titles,
-	// set once, are made again in it.
+	// Windows draw anew in another language; the menu, set once, is made
+	// again in it.
 	mygo.App.OnLocaleChanged(func(string) {
-		a.update(func() {
-			mygo.App.SetMenu(a.menu())
-			if a.setWin != nil {
-				a.setWin.SetTitle(locales.SettingsTitle())
-			}
-		})
+		a.update(func() { mygo.App.SetMenu(a.menu()) })
 	})
 	mygo.App.OnSecondInstance(func([]string, string) {
 		if a.win != nil {

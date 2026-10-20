@@ -38,7 +38,7 @@ agent. An issue's badge shows the linked session and reported progress.
 
 In Settings → Agents, enter a Linear personal API key in the masked field,
 save it, or use **Remove Linear key**. The input clears after saving and when
-the Settings window closes. The key stays in `credentials.json` under the
+Settings closes. The key stays in `credentials.json` under the
 personal app data directory, written atomically with file mode `0600`.
 It is absent from preferences, session state and source control.
 

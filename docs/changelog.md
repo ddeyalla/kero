@@ -10,6 +10,13 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
+### Fixed
+
+- Settings opens over the main window as a modal, a card on a dimmed
+  backdrop, instead of in a window of its own. `Cmd+,` opens and closes it;
+  Esc, a click beside the card and `Cmd+W` close it. In a small window the
+  sidebar shows its pages' icons and the search moves into the page's header.
+
 ### Documentation
 
 - Added the [feature tracker](features.md): every Shibu feature, the release
