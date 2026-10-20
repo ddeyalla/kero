@@ -31,6 +31,20 @@ they do not imply published GitHub releases or existing release tags.
 - A Linear personal API key in Settings › Agents, kept at mode `0600` in
   the personal data directory, and read from `LINEAR_API_KEY` when set.
 - `kero linear status|board|issue|set-state|comment|auth` and `kero link`.
+- `kero task start`, and a project mapped to its Linear project, so a
+  session started from a task is linked to it.
+- Panes that show anything: a terminal, **Tasks** (the project's issues),
+  **Files** (tree, Markdown, code, images, a fuzzy Find box) or **Browser**
+  (the dev server in the system web view). A New Pane chooser
+  (`Cmd+Alt+N`, Shift for below), `Cmd+Alt+T/L/E/B`, Show in This Pane, and
+  `kero split --browser/--files/--tasks` for agents.
+- Files rows drag into a terminal as their paths; unfolded folders and the
+  page or file a view shows are kept across restarts.
+- In a focused Browser pane, `Cmd+L` selects the address, `Cmd+=`/`-`/`0`
+  zoom the page and `Cmd+R` reloads it.
+- A least pane size, double-click a divider (or `Cmd+Ctrl+=`) to make panes
+  even, and panes that glide in and out, with terminal sizes held until the
+  glide ends.
 - The `linear.open` and `linear.refresh` actions, and the `Cmd+Shift+L`
   shortcut for the workspace.
 - Local Gitleaks commit/push guards, a fork-only push destination allowlist,
@@ -38,6 +52,8 @@ they do not imply published GitHub releases or existing release tags.
 
 ### Fixed
 
+- Panes split downward no longer share their layout state with a stray
+  element, which warned and could misplace their divider.
 - Paginated Linear reads, dependency decoding, fractional state ordering,
   offline cache preservation, serialized refreshes and rate-limit backoff.
 - Linear navigation survives daemon broadcasts; stale detail responses are
