@@ -234,8 +234,8 @@ those candidate ports are not implemented.
 ## Title bar and traffic lights
 
 The title bar is macOS's compact title bar and toolbar, and the traffic
-lights stay in sight in full screen. Measurements below are from real
-windows on macOS 27.0.1.
+lights stay in sight in full screen, as the system's own buttons.
+Measurements below are from real windows on macOS 27.0.1.
 
 **Height.** MyGo's inset title bar (`TitleBarHiddenInset`, in
 [`platform.go`](../platform.go)) gives the window an empty `NSToolbar` in
@@ -243,63 +243,110 @@ the automatic style, which AppKit made a 52-point bar here (66 to the
 content while the window is key). MyGo does not set the toolbar's style,
 so Shibu does, natively, through purego's Objective-C runtime:
 `setCompactTitleBar` ([`title_bar_darwin.go`](../title_bar_darwin.go))
-sets `NSWindowToolbarStyleUnifiedCompact` on the main and Settings
-windows. AppKit then makes the bar 40 points, with the lights, 14 points
-and 23 apart, 12 from the left and centered 20 from the top. Shibu does
-not move them (no `TrafficLightPosition`). `topBar` is 40 and `barMid` 20
+sets `NSWindowToolbarStyleUnifiedCompact`. AppKit then makes the bar 40
+points, with the lights, 14 points and 23 apart, 12 from the left and
+centered 20 from the top. Shibu does not move them (no
+`TrafficLightPosition`). `topBar` is 40 and `barMid` 20
 ([`view.go`](../view.go)): the sidebar's title bar, and its buttons,
-center on the lights. The cards' headers no longer center on that line:
-`headerH` is its own 36, for a pane's title, 28, and its buttons, 26. While
-the sidebar hides, the buttons that come to the first header stay on the
-lights' line (`headerButtons`), a point of them under the card's edge.
+center on the lights. A card's header is its own 36 (`headerH`), for a
+pane's title, 28, and its buttons, 26.
+
+**Spacing.** The cards' column starts `chrome.topPad` down: 8 with the
+sidebar shown, and 2 with it hidden, where the first header has the title
+bar, so that the header, 36 tall, centers on the lights' line, 20, with
+its title and the sidebar's buttons it holds (`headerButtons`). It moves
+with the sidebar's animation, in whole points; on Windows and Linux,
+whose window controls are the header's own, it stays 8. Before, the
+header centered 6 points below the lights. In the sidebar, the sessions
+list starts 10 below the bar and its rows 12 in (it was 0 and 10): the
+first row starts 30 points below the lights' line, as it did under the
+60-point bar (line 30, first row at 60), rather than 20, 7 points under
+the buttons; the rows' left edge lines up with the close light's and the
+footer's, 12.
 
 **Full screen.** macOS moves the lights to a title bar in a window of its
 own, which slides down over the top of the window with the menu bar: with
 the automatic style, a 66-point strip with a second set of lights. MyGo
 reports an empty title bar there. Shibu follows the window natively
-(`followFullScreen`), observing `NSWindowWillEnterFullScreenNotification`,
-`...DidEnterFullScreen...` and `...DidExitFullScreen...` for the main
-window only:
+(`followFullScreen`), for the main window only:
 
-- Going full screen, while the lights are still in the window, it reads
-  where they are, then hides them and the title bar's container
-  (`NSTitlebarContainerView`), whose background is the strip's, and has
-  the strip's window ignore the mouse. Once there it does so again, as
-  the container has moved to that window; a window that opens in full
-  screen is caught there.
-- Kero draws the lights where they were read
-  ([`title_bar.go`](../title_bar.go), `fullScreenLights`; AppKit's place
-  in the compact bar if none were read): close closes the window, the
-  green light leaves full screen, minimize is greyed and does nothing, as
-  macOS has it in full screen. They grey out with the window behind, and
-  show their glyphs under the pointer.
-- `titleBar` keeps the bar from the window, so the sidebar's buttons do not
-  move. Back in the window, the system's lights and container come back,
-  and Kero's go.
+- Going full screen (`NSWindowWillEnterFullScreenNotification`), while the
+  lights are still in the window, it reads where they are, then hides
+  them and the title bar's container (`NSTitlebarContainerView`), whose
+  background is the strip's, and has the strip's window ignore the mouse.
+  Once there (`...DidEnterFullScreen...`) it does so again, as the
+  container has moved to that window; a window that opens in full screen
+  is caught there.
+- In their place it puts the system's buttons, made as NSWindow makes its
+  own (`+standardWindowButton:forStyleMask:`), in a view of their own
+  (`ShibuTrafficLights`) over MyGo's content view, where the window's
+  were, or where AppKit puts them in the compact bar if none were read.
+  Close sends `performClose:` to the window, the green light
+  `toggleFullScreen:`; minimize is disabled, and shown, as AppKit hides it
+  in full screen. Their colors, and their greying with the window behind,
+  are AppKit's.
+- Hover glyphs: AppKit's buttons ask their superview `_mouseInGroup:`, as
+  the title bar answers it, and look again on `mouseEnteredOrExited`. The
+  group tracks the pointer (`NSTrackingArea`), answers `_mouseInGroup:`,
+  and calls `mouseEnteredOrExited` on each button as the pointer comes
+  and goes, if the button responds to it. Both are private AppKit
+  methods; Electron answers `_mouseInGroup:` the same way. Should a later
+  macOS drop them, the lights still work, without their glyphs.
+- Should the group or the buttons not be made, Shibu leaves the window's
+  own lights and the strip as they are: macOS's own full screen, with
+  the lights in the bar that slides down with the menu bar, rather than
+  no lights at all. The drawn lights of the earlier version, the other
+  fallback, are gone; this case has not been seen.
+- `titleBar` ([`title_bar.go`](../title_bar.go)) keeps the bar from the
+  window, so the sidebar's buttons do not move. Back in the window
+  (`...DidExitFullScreen...`) the group goes, and the system's lights and
+  container come back.
+- The window's style, `NSWindowStyleMaskFullScreen`, decides again as the
+  window resizes or becomes key (`sync`): a change that went by unseen,
+  as when the window is restored into or out of full screen, can no
+  longer leave the window's lights hidden in the window, or the group up
+  outside full screen.
 
-Checked in a standalone probe with real windows: in full screen the three
-buttons and the container are hidden, the strip's window is clear, with
-nothing showing in it, and ignores the mouse, whether it is above the
-screen or down over the window's top 40 points; back in the window the
-lights are where they were. Closing the window in full screen posts the
-exit notification too, so the system's lights come back with it. The
-slide-down itself, with the pointer at the
-top of the screen, was not watched: screen capture is not available, and
-the probe could not move the pointer there.
+A report that hiding the sidebar took the lights away, and showing it
+brought them back, was not reproduced: in an isolated build of the app
+(its own binary name, data and socket), in the window and in full screen,
+with and without a session, and opened in full screen, the lights were
+there with the sidebar shown and hidden, by AppKit's state and by
+captures of the app's own window (`CGWindowListCreateImage`). The one
+fault seen was a window restored in a state where its own lights stayed
+hidden after a full-screen change went by unseen, which the `sync` above
+now repairs; the drawn lights of the earlier version are gone too.
 
-The Settings window has the compact bar, but keeps the system's behaviour
-in full screen. Windows and Linux are unchanged (`ownControls`), but their
+Checked with real windows in that build, driven by a probe rather than
+by hand: in full screen the group is the content view's last subview,
+over MyGo's surface, at 12, 13 from the top left, 60 by 14; close is
+enabled, minimize disabled and in sight, and the system's own buttons
+and container are hidden. Clicking the buttons with `performClick:`,
+the green light left full screen and close closed the window. Calling
+the group's hover handler showed the glyphs in a capture; the tracking
+area firing under a real pointer was not watched. Back in the window
+the system's lights are where they were, and going full screen again
+reads them again. The slide-down strip itself, with the pointer at the
+top of the screen, was not watched either: the probe could not move the
+pointer. The spacing was checked in the tester's frames, not in a real
+window.
+
+Windows and Linux are unchanged (`ownControls`), but their
 window controls, in the headers, are now 6 points below the sidebar's
 buttons.
 
 Earlier versions of this fix drew the lights with a 48-point bar
-(`f777a8c`), then followed macOS's own full screen with a 52-point bar
-(`09fae71`); the user rejected the reveal strip and the height.
+(`f777a8c`), followed macOS's own full screen with a 52-point bar
+(`09fae71`), and drew Kero's own lights in full screen under the compact
+bar (`09886fe`).
 
 Tests: [`title_bar_test.go`](../title_bar_test.go) (the compact bar, the
-sidebar's buttons on the lights' line and unmoved, with the sidebar shown
-and hidden, Kero's lights where the system's were read or where AppKit
-puts them, their colors, and a window that opens in full screen).
+sidebar's buttons on the lights' line and unmoved in and out of full
+screen, with the sidebar shown and hidden, the first header's title on
+the lights' line with the sidebar hidden, the sidebar's first row and its
+left edge, and a window that opens in full screen). The native lights
+are AppKit's and are not in MyGo's tester; they were checked in real
+windows as above.
 
 ## Identity and icon
 

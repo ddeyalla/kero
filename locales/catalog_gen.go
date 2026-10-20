@@ -704,16 +704,6 @@ func (msgs Messages) WindowRestore() string {
 	return Catalog.Format(msgs.locale, "windowRestore", nil)
 }
 
-// WindowExitFullScreen says "Exit Full Screen"
-// in the language the app shows.
-func WindowExitFullScreen() string { return In(i18n.Locale()).WindowExitFullScreen() }
-
-// WindowExitFullScreen says "Exit Full Screen"
-// in the language of msgs.
-func (msgs Messages) WindowExitFullScreen() string {
-	return Catalog.Format(msgs.locale, "windowExitFullScreen", nil)
-}
-
 // ToastCopied says "Copied"
 // in the language the app shows.
 func ToastCopied() string { return In(i18n.Locale()).ToastCopied() }

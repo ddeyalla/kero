@@ -28,14 +28,23 @@ builds only. What each feature is and where it stands is tracked in the
 - The title bar is lower: macOS's compact title bar and toolbar, 40 points
   (it was 60), with the traffic lights where macOS puts them in it and the
   sidebar's buttons centered on them. The panes' headers keep their own
-  height, 36, for their titles and buttons.
+  height, 36, for their titles and buttons. With the sidebar hidden, the
+  first header comes up so that its title centers on the traffic lights,
+  as the sidebar's buttons do, instead of sitting 6 points below them.
+- The sidebar's first row is no longer crowded under the shorter bar: it
+  starts 30 points below the traffic lights' line, as it did under the
+  taller bar, and the rows line up with the close light's left edge.
 - In full screen the traffic lights stay in sight, where they are in the
-  window: Shibu draws them there. Close closes the window, the green light
-  leaves full screen, and minimize is greyed, as macOS has it in full
-  screen. The bar that slides down over the top of the window with the
-  menu bar still comes, but empty, without a second set of lights or its
-  background, and clicks go through it. The sidebar's buttons no longer move going in or out of
-  full screen.
+  window. They are macOS's own buttons, with their hover glyphs: close
+  closes the window, the green light leaves full screen, and minimize is
+  greyed, as macOS has it in full screen. The bar that slides down over
+  the top of the window with the menu bar still comes, but empty, without
+  a second set of lights or its background, and clicks go through it.
+  The sidebar's buttons no longer move going in or out of full screen.
+- The traffic lights follow the window's actual state whenever it resizes
+  or comes to the front, so that a missed full-screen change can no
+  longer leave them hidden in the window, as reported once when hiding
+  the sidebar.
 - Settings opens over the main window as a modal, a card on a dimmed
   backdrop, instead of in a window of its own. `Cmd+,` opens and closes it;
   Esc, a click beside the card and `Cmd+W` close it. In a small window the

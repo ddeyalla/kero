@@ -25,9 +25,9 @@ func TestTitleBarHeight(t *testing.T) {
 	}
 }
 
-// fullScreenApp is the app on macOS, with the sidebar shown or not, and
-// the label of the sidebar's button that hides or shows it.
-func fullScreenApp(t *testing.T, hidden bool) (*App, *ui.Tester, string) {
+// macApp is the app on macOS in its window, with the sidebar shown or not,
+// and the label of the sidebar's button that hides or shows it.
+func macApp(t *testing.T, hidden bool) (*App, *ui.Tester, string) {
 	t.Helper()
 	if runtime.GOOS != "darwin" {
 		t.Skip("Kero draws its own window controls elsewhere")
@@ -46,139 +46,109 @@ func fullScreenApp(t *testing.T, hidden bool) (*App, *ui.Tester, string) {
 	return a, tt, label
 }
 
-// In full screen macOS takes the traffic lights away, and Kero draws its
-// own where they were in the window. The sidebar's buttons stay centered
-// on them, where they were, with the sidebar shown or hidden.
-func TestFullScreenLights(t *testing.T) {
+func mid(r ui.Rect) float32 { return r.Y + r.H/2 }
+
+// The sidebar's buttons sit after the traffic lights and center on them,
+// with the sidebar shown or hidden. In full screen the lights are still
+// the system's, put back where they were in the window
+// (followFullScreen), though MyGo reports no bar there: the buttons stay
+// where they were, and come back to it in the window.
+func TestSidebarButtonsOnTheLights(t *testing.T) {
 	for _, hidden := range []bool{false, true} {
-		a, tt, label := fullScreenApp(t, hidden)
+		_, tt, label := macApp(t, hidden)
 		inWindow, ok := tt.Find(label)
 		if !ok {
 			t.Fatalf("sidebar hidden %v: no button %q; texts %q", hidden, label, tt.Texts())
 		}
-		// Their bottom edge: in the header, the card's edge takes the top
-		// point of the button's 26, which starts a point above the card.
-		if bottom := inWindow.Y + inWindow.H; bottom != barMid+13 {
-			t.Errorf("sidebar hidden %v: the sidebar's buttons end at %v, not centered on the lights' %d", hidden, bottom, barMid)
+		if mid(inWindow) != barMid {
+			t.Errorf("sidebar hidden %v: the sidebar's buttons center on %v, not the lights' %d", hidden, mid(inWindow), barMid)
 		}
 		if inWindow.X < systemBar.Left {
 			t.Errorf("sidebar hidden %v: the sidebar's buttons at %v are under the lights, which end at %v", hidden, inWindow.X, systemBar.Left)
 		}
-		if _, ok := tt.Find(locales.WindowExitFullScreen()); ok {
-			t.Fatalf("sidebar hidden %v: Kero draws traffic lights in the window, over the system's", hidden)
-		}
 
-		// Full screen: where the system's were, as read in the window.
-		a.fullScreen = true
-		a.lights, a.lightsRead = windowLights, true
 		tt.SetTitleBar(ui.TitleBar{})
 		tt.Frame()
-		for i, l := range []string{locales.CommonClose(), locales.WindowMinimize(), locales.WindowExitFullScreen()} {
-			r, ok := tt.Find(l)
-			if !ok {
-				t.Fatalf("sidebar hidden %v: no light %q in full screen; texts %q", hidden, l, tt.Texts())
-			}
-			if r != windowLights[i] {
-				t.Errorf("sidebar hidden %v: light %q at %v, not where the system's was, %v", hidden, l, r, windowLights[i])
-			}
-		}
 		if inFull, _ := tt.Find(label); inFull != inWindow {
 			t.Errorf("sidebar hidden %v: the sidebar's buttons moved in full screen, from %v to %v", hidden, inWindow, inFull)
 		}
-		shot(t, tt, "full-screen-lights")
-
-		// Back in the window: the system's lights again, and none of Kero's.
-		a.fullScreen = false
 		tt.SetTitleBar(systemBar)
 		tt.Frame()
-		if _, ok := tt.Find(locales.WindowExitFullScreen()); ok {
-			t.Errorf("sidebar hidden %v: Kero's lights stayed after the window left full screen", hidden)
-		}
 		if back, _ := tt.Find(label); back != inWindow {
 			t.Errorf("sidebar hidden %v: the sidebar's buttons moved back in the window, from %v to %v", hidden, inWindow, back)
 		}
 	}
 }
 
-// Kero's lights go where the system's were, as read: on another macOS
-// they are elsewhere, and the bar kept from the window says so too.
-func TestFullScreenLightsWhereRead(t *testing.T) {
-	a, tt, label := fullScreenApp(t, true)
-	window := ui.TitleBar{Height: 52, Left: 20 + 2*20 + 14}
-	tt.SetTitleBar(window)
-	tt.Frame()
-	inWindow, _ := tt.Find(label)
-	read := [3]ui.Rect{{X: 20, Y: 19, W: 14, H: 14}, {X: 40, Y: 19, W: 14, H: 14}, {X: 60, Y: 19, W: 14, H: 14}}
-	a.fullScreen, a.lights, a.lightsRead = true, read, true
-	tt.SetTitleBar(ui.TitleBar{})
-	tt.Frame()
-	if zoom, _ := tt.Find(locales.WindowExitFullScreen()); zoom != read[2] {
-		t.Errorf("the green light is at %v, not where it was read, %v", zoom, read[2])
-	}
-	if inFull, _ := tt.Find(label); inFull != inWindow {
-		t.Errorf("the sidebar's buttons moved in full screen, from %v to %v", inWindow, inFull)
-	}
-}
-
-// The lights have their colors with the window in front, show what they do
-// under the pointer, and grey out behind; minimize, which full screen does
-// not allow, is grey.
-func TestFullScreenLightsColors(t *testing.T) {
-	a, tt, _ := fullScreenApp(t, false)
-	a.fullScreen = true
-	tt.SetTitleBar(ui.TitleBar{})
-	tt.Frame()
-	closeR, _ := tt.Find(locales.CommonClose())
-	mini, _ := tt.Find(locales.WindowMinimize())
-	at := func(r ui.Rect) [3]uint8 {
-		c := tt.Image().RGBAAt(int(r.X+r.W/2), int(r.Y+r.H/2))
-		return [3]uint8{c.R, c.G, c.B}
-	}
-	red := at(closeR)
-	if red[0] < 200 || red[1] > 140 {
-		t.Errorf("the close light is %v, not red", red)
-	}
-	if c := at(mini); c[0] > 200 && c[2] < 120 {
-		t.Errorf("the minimize light is %v, yellow, though full screen cannot minimize", c)
-	}
-	tt.Move(closeR.X+closeR.W/2, closeR.Y+closeR.H/2)
-	tt.Frame()
-	if c := at(closeR); c == red {
-		t.Errorf("the close light shows no glyph under the pointer: %v", c)
-	}
-	shot(t, tt, "full-screen-lights-over")
-	tt.Move(600, 400)
-	a.focused = false
-	tt.Frame()
-	if c := at(closeR); c[0] > 200 && c[1] < 140 {
-		t.Errorf("the close light is %v, red, with the window behind", c)
+// With the sidebar hidden, the first header has the title bar: it comes
+// up to center on the lights' line, and the pane's title with it, as the
+// sidebar's buttons do. With the sidebar shown the cards start cardGap
+// down, below the sidebar's title bar.
+func TestHeaderOnTheLights(t *testing.T) {
+	for _, hidden := range []bool{false, true} {
+		_, tt, _ := macApp(t, hidden)
+		title, ok := tt.Find("fish") // pane a's title
+		if !ok {
+			t.Fatalf("sidebar hidden %v: no title of pane a; texts %q", hidden, tt.Texts())
+		}
+		want := float32(cardGap + headerH/2)
+		name := "header-sidebar-shown"
+		if hidden {
+			want, name = barMid, "header-sidebar-hidden"
+		}
+		if mid(title) != want {
+			t.Errorf("sidebar hidden %v: the pane's title centers on %v, not %v", hidden, mid(title), want)
+		}
+		shot(t, tt, name)
 	}
 }
 
-// A window that opens in full screen has had no bar to keep, nor lights to
-// read: Kero's go where AppKit puts the system's, and the sidebar's
-// buttons after them.
-func TestFullScreenLightsAtLaunch(t *testing.T) {
+// The sidebar's first row starts as far below the lights' line as it did
+// under the taller bar, 30 down, and not up against the buttons; the
+// rows' pills start at the close light's left edge, 12 in.
+func TestSidebarTopSpacing(t *testing.T) {
+	a, tt, label := macApp(t, false)
+	if !a.set.LinearSidebar {
+		t.Fatal("the Linear row is off; the first row is another")
+	}
+	buttons, _ := tt.Find(label)
+	first, ok := tt.Find(locales.LinearGroup()) // the Linear row's, 30 tall
+	if !ok {
+		t.Fatalf("no Linear row; texts %q", tt.Texts())
+	}
+	top := mid(first) - 30/2
+	if top-barMid != 30 {
+		t.Errorf("the first row starts %v below the lights' line, not 30", top-barMid)
+	}
+	if gap := top - (buttons.Y + buttons.H); gap < 16 {
+		t.Errorf("the first row is %v below the sidebar's buttons, crowded", gap)
+	}
+	project, ok := tt.Find("demo") // a project's name, 10 into its row
+	if !ok {
+		t.Fatalf("no project row; texts %q", tt.Texts())
+	}
+	if x := project.X - 10; x != windowLights[0].X {
+		t.Errorf("the project's row starts %v in, not at the close light's %v", x, windowLights[0].X)
+	}
+}
+
+// A window that opens in full screen has had no bar to keep: the sidebar's
+// buttons go after the lights where AppKit puts them.
+func TestTitleBarAtLaunchInFullScreen(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Kero draws its own window controls elsewhere")
 	}
 	a := testApp(t)
 	a.prefs.SidebarHidden = true
-	a.fullScreen = true
 	tt := ui.NewTester(a.view, 1100, 640)
 	tt.Frame()
 	tt.Advance(time.Second)
 	tt.Frame()
-	zoom, ok := tt.Find(locales.WindowExitFullScreen())
+	show, ok := tt.Find(a.tip(locales.SidebarShow(), "sidebar.toggle"))
 	if !ok {
-		t.Fatalf("no button that leaves full screen; texts %q", tt.Texts())
+		t.Fatalf("no button that shows the sidebar; texts %q", tt.Texts())
 	}
-	if zoom != windowLights[2] {
-		t.Errorf("the green light is at %v, not where AppKit puts it, %v", zoom, windowLights[2])
+	if show.X < systemBar.Left || mid(show) != barMid {
+		t.Errorf("the sidebar's buttons at %v are not after the lights, up to %v, and on their line %d", show, systemBar.Left, barMid)
 	}
-	show, _ := tt.Find(a.tip(locales.SidebarShow(), "sidebar.toggle"))
-	if show.X < zoom.X+zoom.W {
-		t.Errorf("the sidebar's buttons at %v are under the lights, which end at %v", show.X, zoom.X+zoom.W)
-	}
-	shot(t, tt, "full-screen-lights-at-launch")
 }
