@@ -70,3 +70,17 @@ keyboard-to-display latency or guarantee that all reported lag is resolved.
 Kero Local 2.0.5-local.2 was built and installed as ARM64. Its daemon started
 from the installed app, restored its saved idle session, and accepted
 `kero do usage.open`. The original Kero was not replaced by this pass.
+# Shibu Code branding verification — 2026-10-20
+
+The personal app is installed at `~/Applications/Shibu Code.app`, with
+display name Shibu Code, bundle identifier `dev.ddeyalla.kero`, and the supplied
+terminal screenshot padded to a 1024px square as its icon. The installed binary
+is ARM64; strict code-signature verification passed. The embedded icon matches
+the built bundle. The version remains `2.0.5-local.2` for this branding change.
+
+The data identity remains `kero-local`; a regression test covers continuity
+from Kero Local to Shibu Code. All Go tests and MyGo vet passed. The existing
+session/pane IDs, settings location, and provider credential file persisted.
+Reopening the GUI also restarted the daemon and idle shell, so process IDs did
+not persist. The local `bin/kero` link now targets Shibu Code. The prior bundle
+was moved into a temporary rollback folder; the official app was untouched.

@@ -286,7 +286,7 @@ func (a *App) usageCard(c *ui.Context, pal *palette, r usage.Report) {
 					a.saveUsageKey(r.ID, *key)
 				}
 			})
-			ui.Text(c, "Saved on this Mac in Kero Local’s private app folder.").FontSize(10).TextColor(pal.textFaint)
+			ui.Text(c, "Saved on this Mac in Shibu Code’s private app folder.").FontSize(10).TextColor(pal.textFaint)
 		}
 	})
 }

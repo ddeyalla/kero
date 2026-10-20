@@ -372,7 +372,7 @@ func (a *App) updateTitle() {
 	if a.win == nil {
 		return
 	}
-	title := "Kero"
+	title := mygo.App.Name()
 	if s := a.session(a.selected); s != nil {
 		title = s.DisplayName()
 	}

@@ -420,7 +420,8 @@ func Home() string {
 // build, so that it runs a daemon, sessions and settings of its own beside
 // the installed Kero.
 func Name() string {
-	if strings.HasPrefix(mygo.App.Name(), "Kero Local") {
+	// Keep the personal edition's storage identity stable across its rename.
+	if strings.HasPrefix(mygo.App.Name(), "Kero Local") || strings.HasPrefix(mygo.App.Name(), "Shibu Code") {
 		if mygo.IsDev() {
 			return "kero-local-dev"
 		}

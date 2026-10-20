@@ -21,4 +21,9 @@ func TestLocalEditionHasSeparateData(t *testing.T) {
 	if Dir() == upstream || filepath.Base(Dir()) != want {
 		t.Fatalf("local edition shares upstream data: %s", Dir())
 	}
+	local := Dir()
+	mygo.App.SetName("Shibu Code")
+	if Dir() != local {
+		t.Fatalf("renamed edition lost existing data: got %s, want %s", Dir(), local)
+	}
 }
