@@ -194,6 +194,66 @@ func (msgs Messages) ActionSplitDown() string {
 	return Catalog.Format(msgs.locale, "actionSplitDown", nil)
 }
 
+// ActionNewPane says "New Pane…"
+// in the language the app shows.
+func ActionNewPane() string { return In(i18n.Locale()).ActionNewPane() }
+
+// ActionNewPane says "New Pane…"
+// in the language of msgs.
+func (msgs Messages) ActionNewPane() string {
+	return Catalog.Format(msgs.locale, "actionNewPane", nil)
+}
+
+// ActionNewTerminalPane says "New Terminal Pane"
+// in the language the app shows.
+func ActionNewTerminalPane() string { return In(i18n.Locale()).ActionNewTerminalPane() }
+
+// ActionNewTerminalPane says "New Terminal Pane"
+// in the language of msgs.
+func (msgs Messages) ActionNewTerminalPane() string {
+	return Catalog.Format(msgs.locale, "actionNewTerminalPane", nil)
+}
+
+// ActionNewTasksPane says "New Tasks Pane"
+// in the language the app shows.
+func ActionNewTasksPane() string { return In(i18n.Locale()).ActionNewTasksPane() }
+
+// ActionNewTasksPane says "New Tasks Pane"
+// in the language of msgs.
+func (msgs Messages) ActionNewTasksPane() string {
+	return Catalog.Format(msgs.locale, "actionNewTasksPane", nil)
+}
+
+// ActionNewFilesPane says "New Files Pane"
+// in the language the app shows.
+func ActionNewFilesPane() string { return In(i18n.Locale()).ActionNewFilesPane() }
+
+// ActionNewFilesPane says "New Files Pane"
+// in the language of msgs.
+func (msgs Messages) ActionNewFilesPane() string {
+	return Catalog.Format(msgs.locale, "actionNewFilesPane", nil)
+}
+
+// ActionNewBrowserPane says "New Browser Pane"
+// in the language the app shows.
+func ActionNewBrowserPane() string { return In(i18n.Locale()).ActionNewBrowserPane() }
+
+// ActionNewBrowserPane says "New Browser Pane"
+// in the language of msgs.
+func (msgs Messages) ActionNewBrowserPane() string {
+	return Catalog.Format(msgs.locale, "actionNewBrowserPane", nil)
+}
+
+// ActionEvenPanes says "Make Panes Even"
+// in the language the app shows.
+func ActionEvenPanes() string { return In(i18n.Locale()).ActionEvenPanes() }
+
+// ActionEvenPanes says "Make Panes Even"
+// in the language of msgs.
+func (msgs Messages) ActionEvenPanes() string {
+	return Catalog.Format(msgs.locale, "actionEvenPanes", nil)
+}
+
 // ActionZoomPane says "Zoom Pane"
 // in the language the app shows.
 func ActionZoomPane() string { return In(i18n.Locale()).ActionZoomPane() }
@@ -3654,4 +3714,1252 @@ func LinearUnlink() string { return In(i18n.Locale()).LinearUnlink() }
 // in the language of msgs.
 func (msgs Messages) LinearUnlink() string {
 	return Catalog.Format(msgs.locale, "linearUnlink", nil)
+}
+
+// LinearSynced says "Synced {ago}"
+// in the language the app shows.
+func LinearSynced(ago string) string { return In(i18n.Locale()).LinearSynced(ago) }
+
+// LinearSynced says "Synced {ago}"
+// in the language of msgs.
+func (msgs Messages) LinearSynced(ago string) string {
+	return Catalog.Format(msgs.locale, "linearSynced", map[string]any{"ago": ago})
+}
+
+// LinearSyncing says "Syncing…"
+// in the language the app shows.
+func LinearSyncing() string { return In(i18n.Locale()).LinearSyncing() }
+
+// LinearSyncing says "Syncing…"
+// in the language of msgs.
+func (msgs Messages) LinearSyncing() string {
+	return Catalog.Format(msgs.locale, "linearSyncing", nil)
+}
+
+// LinearHiddenColumns says "Hidden columns"
+// in the language the app shows.
+func LinearHiddenColumns() string { return In(i18n.Locale()).LinearHiddenColumns() }
+
+// LinearHiddenColumns says "Hidden columns"
+// in the language of msgs.
+func (msgs Messages) LinearHiddenColumns() string {
+	return Catalog.Format(msgs.locale, "linearHiddenColumns", nil)
+}
+
+// LinearUpdated says "Updated {ago}"
+// in the language the app shows.
+func LinearUpdated(ago string) string { return In(i18n.Locale()).LinearUpdated(ago) }
+
+// LinearUpdated says "Updated {ago}"
+// in the language of msgs.
+func (msgs Messages) LinearUpdated(ago string) string {
+	return Catalog.Format(msgs.locale, "linearUpdated", map[string]any{"ago": ago})
+}
+
+// LinearBlockedBy says "Blocked by {count}"
+// in the language the app shows.
+func LinearBlockedBy(count string) string { return In(i18n.Locale()).LinearBlockedBy(count) }
+
+// LinearBlockedBy says "Blocked by {count}"
+// in the language of msgs.
+func (msgs Messages) LinearBlockedBy(count string) string {
+	return Catalog.Format(msgs.locale, "linearBlockedBy", map[string]any{"count": count})
+}
+
+// LinearBlocking says "Blocking {count}"
+// in the language the app shows.
+func LinearBlocking(count string) string { return In(i18n.Locale()).LinearBlocking(count) }
+
+// LinearBlocking says "Blocking {count}"
+// in the language of msgs.
+func (msgs Messages) LinearBlocking(count string) string {
+	return Catalog.Format(msgs.locale, "linearBlocking", map[string]any{"count": count})
+}
+
+// LinearSubIssueCount says "{count} sub-issues"
+// in the language the app shows.
+func LinearSubIssueCount(count string) string { return In(i18n.Locale()).LinearSubIssueCount(count) }
+
+// LinearSubIssueCount says "{count} sub-issues"
+// in the language of msgs.
+func (msgs Messages) LinearSubIssueCount(count string) string {
+	return Catalog.Format(msgs.locale, "linearSubIssueCount", map[string]any{"count": count})
+}
+
+// LinearProperties says "Properties"
+// in the language the app shows.
+func LinearProperties() string { return In(i18n.Locale()).LinearProperties() }
+
+// LinearProperties says "Properties"
+// in the language of msgs.
+func (msgs Messages) LinearProperties() string {
+	return Catalog.Format(msgs.locale, "linearProperties", nil)
+}
+
+// LinearStatus says "Status"
+// in the language the app shows.
+func LinearStatus() string { return In(i18n.Locale()).LinearStatus() }
+
+// LinearStatus says "Status"
+// in the language of msgs.
+func (msgs Messages) LinearStatus() string {
+	return Catalog.Format(msgs.locale, "linearStatus", nil)
+}
+
+// LinearProject says "Project"
+// in the language the app shows.
+func LinearProject() string { return In(i18n.Locale()).LinearProject() }
+
+// LinearProject says "Project"
+// in the language of msgs.
+func (msgs Messages) LinearProject() string {
+	return Catalog.Format(msgs.locale, "linearProject", nil)
+}
+
+// LinearMilestone says "Milestone"
+// in the language the app shows.
+func LinearMilestone() string { return In(i18n.Locale()).LinearMilestone() }
+
+// LinearMilestone says "Milestone"
+// in the language of msgs.
+func (msgs Messages) LinearMilestone() string {
+	return Catalog.Format(msgs.locale, "linearMilestone", nil)
+}
+
+// LinearLabels says "Labels"
+// in the language the app shows.
+func LinearLabels() string { return In(i18n.Locale()).LinearLabels() }
+
+// LinearLabels says "Labels"
+// in the language of msgs.
+func (msgs Messages) LinearLabels() string {
+	return Catalog.Format(msgs.locale, "linearLabels", nil)
+}
+
+// LinearAssignee says "Assignee"
+// in the language the app shows.
+func LinearAssignee() string { return In(i18n.Locale()).LinearAssignee() }
+
+// LinearAssignee says "Assignee"
+// in the language of msgs.
+func (msgs Messages) LinearAssignee() string {
+	return Catalog.Format(msgs.locale, "linearAssignee", nil)
+}
+
+// LinearBranch says "Branch"
+// in the language the app shows.
+func LinearBranch() string { return In(i18n.Locale()).LinearBranch() }
+
+// LinearBranch says "Branch"
+// in the language of msgs.
+func (msgs Messages) LinearBranch() string {
+	return Catalog.Format(msgs.locale, "linearBranch", nil)
+}
+
+// LinearOpenInLinear says "Open in Linear"
+// in the language the app shows.
+func LinearOpenInLinear() string { return In(i18n.Locale()).LinearOpenInLinear() }
+
+// LinearOpenInLinear says "Open in Linear"
+// in the language of msgs.
+func (msgs Messages) LinearOpenInLinear() string {
+	return Catalog.Format(msgs.locale, "linearOpenInLinear", nil)
+}
+
+// LinearOpenIssue says "Open Issue"
+// in the language the app shows.
+func LinearOpenIssue() string { return In(i18n.Locale()).LinearOpenIssue() }
+
+// LinearOpenIssue says "Open Issue"
+// in the language of msgs.
+func (msgs Messages) LinearOpenIssue() string {
+	return Catalog.Format(msgs.locale, "linearOpenIssue", nil)
+}
+
+// LinearCopyId says "Copy ID"
+// in the language the app shows.
+func LinearCopyId() string { return In(i18n.Locale()).LinearCopyId() }
+
+// LinearCopyId says "Copy ID"
+// in the language of msgs.
+func (msgs Messages) LinearCopyId() string {
+	return Catalog.Format(msgs.locale, "linearCopyId", nil)
+}
+
+// LinearCopyLink says "Copy Link"
+// in the language the app shows.
+func LinearCopyLink() string { return In(i18n.Locale()).LinearCopyLink() }
+
+// LinearCopyLink says "Copy Link"
+// in the language of msgs.
+func (msgs Messages) LinearCopyLink() string {
+	return Catalog.Format(msgs.locale, "linearCopyLink", nil)
+}
+
+// LinearCopyBranch says "Copy Branch Name"
+// in the language the app shows.
+func LinearCopyBranch() string { return In(i18n.Locale()).LinearCopyBranch() }
+
+// LinearCopyBranch says "Copy Branch Name"
+// in the language of msgs.
+func (msgs Messages) LinearCopyBranch() string {
+	return Catalog.Format(msgs.locale, "linearCopyBranch", nil)
+}
+
+// LinearMoveTo says "Move To"
+// in the language the app shows.
+func LinearMoveTo() string { return In(i18n.Locale()).LinearMoveTo() }
+
+// LinearMoveTo says "Move To"
+// in the language of msgs.
+func (msgs Messages) LinearMoveTo() string {
+	return Catalog.Format(msgs.locale, "linearMoveTo", nil)
+}
+
+// LinearPrevIssue says "Previous Issue"
+// in the language the app shows.
+func LinearPrevIssue() string { return In(i18n.Locale()).LinearPrevIssue() }
+
+// LinearPrevIssue says "Previous Issue"
+// in the language of msgs.
+func (msgs Messages) LinearPrevIssue() string {
+	return Catalog.Format(msgs.locale, "linearPrevIssue", nil)
+}
+
+// LinearNextIssue says "Next Issue"
+// in the language the app shows.
+func LinearNextIssue() string { return In(i18n.Locale()).LinearNextIssue() }
+
+// LinearNextIssue says "Next Issue"
+// in the language of msgs.
+func (msgs Messages) LinearNextIssue() string {
+	return Catalog.Format(msgs.locale, "linearNextIssue", nil)
+}
+
+// LinearCloseIssue says "Close Issue"
+// in the language the app shows.
+func LinearCloseIssue() string { return In(i18n.Locale()).LinearCloseIssue() }
+
+// LinearCloseIssue says "Close Issue"
+// in the language of msgs.
+func (msgs Messages) LinearCloseIssue() string {
+	return Catalog.Format(msgs.locale, "linearCloseIssue", nil)
+}
+
+// LinearPosition says "{index} / {total}"
+// in the language the app shows.
+func LinearPosition(index string, total string) string {
+	return In(i18n.Locale()).LinearPosition(index, total)
+}
+
+// LinearPosition says "{index} / {total}"
+// in the language of msgs.
+func (msgs Messages) LinearPosition(index string, total string) string {
+	return Catalog.Format(msgs.locale, "linearPosition", map[string]any{"index": index, "total": total})
+}
+
+// LinearAllIssues says "All Issues"
+// in the language the app shows.
+func LinearAllIssues() string { return In(i18n.Locale()).LinearAllIssues() }
+
+// LinearAllIssues says "All Issues"
+// in the language of msgs.
+func (msgs Messages) LinearAllIssues() string {
+	return Catalog.Format(msgs.locale, "linearAllIssues", nil)
+}
+
+// LinearReading says "Reading the issue…"
+// in the language the app shows.
+func LinearReading() string { return In(i18n.Locale()).LinearReading() }
+
+// LinearReading says "Reading the issue…"
+// in the language of msgs.
+func (msgs Messages) LinearReading() string {
+	return Catalog.Format(msgs.locale, "linearReading", nil)
+}
+
+// LinearUnavailable says "Issue unavailable"
+// in the language the app shows.
+func LinearUnavailable() string { return In(i18n.Locale()).LinearUnavailable() }
+
+// LinearUnavailable says "Issue unavailable"
+// in the language of msgs.
+func (msgs Messages) LinearUnavailable() string {
+	return Catalog.Format(msgs.locale, "linearUnavailable", nil)
+}
+
+// LinearUnavailableDetail says "Could not read the issue. Check the connection and retry."
+// in the language the app shows.
+func LinearUnavailableDetail() string { return In(i18n.Locale()).LinearUnavailableDetail() }
+
+// LinearUnavailableDetail says "Could not read the issue. Check the connection and retry."
+// in the language of msgs.
+func (msgs Messages) LinearUnavailableDetail() string {
+	return Catalog.Format(msgs.locale, "linearUnavailableDetail", nil)
+}
+
+// LinearNeedsDaemon says "Connect to the updated Shibu daemon to read this issue."
+// in the language the app shows.
+func LinearNeedsDaemon() string { return In(i18n.Locale()).LinearNeedsDaemon() }
+
+// LinearNeedsDaemon says "Connect to the updated Shibu daemon to read this issue."
+// in the language of msgs.
+func (msgs Messages) LinearNeedsDaemon() string {
+	return Catalog.Format(msgs.locale, "linearNeedsDaemon", nil)
+}
+
+// LinearRetry says "Retry"
+// in the language the app shows.
+func LinearRetry() string { return In(i18n.Locale()).LinearRetry() }
+
+// LinearRetry says "Retry"
+// in the language of msgs.
+func (msgs Messages) LinearRetry() string {
+	return Catalog.Format(msgs.locale, "linearRetry", nil)
+}
+
+// LinearNoSession says "No session is working on this issue."
+// in the language the app shows.
+func LinearNoSession() string { return In(i18n.Locale()).LinearNoSession() }
+
+// LinearNoSession says "No session is working on this issue."
+// in the language of msgs.
+func (msgs Messages) LinearNoSession() string {
+	return Catalog.Format(msgs.locale, "linearNoSession", nil)
+}
+
+// LinearChooseSession says "Choose a session…"
+// in the language the app shows.
+func LinearChooseSession() string { return In(i18n.Locale()).LinearChooseSession() }
+
+// LinearChooseSession says "Choose a session…"
+// in the language of msgs.
+func (msgs Messages) LinearChooseSession() string {
+	return Catalog.Format(msgs.locale, "linearChooseSession", nil)
+}
+
+// LinearLinkSession says "Link"
+// in the language the app shows.
+func LinearLinkSession() string { return In(i18n.Locale()).LinearLinkSession() }
+
+// LinearLinkSession says "Link"
+// in the language of msgs.
+func (msgs Messages) LinearLinkSession() string {
+	return Catalog.Format(msgs.locale, "linearLinkSession", nil)
+}
+
+// LinearSubIssues says "Sub-issues"
+// in the language the app shows.
+func LinearSubIssues() string { return In(i18n.Locale()).LinearSubIssues() }
+
+// LinearSubIssues says "Sub-issues"
+// in the language of msgs.
+func (msgs Messages) LinearSubIssues() string {
+	return Catalog.Format(msgs.locale, "linearSubIssues", nil)
+}
+
+// LinearParent says "Parent"
+// in the language the app shows.
+func LinearParent() string { return In(i18n.Locale()).LinearParent() }
+
+// LinearParent says "Parent"
+// in the language of msgs.
+func (msgs Messages) LinearParent() string {
+	return Catalog.Format(msgs.locale, "linearParent", nil)
+}
+
+// LinearClearFilters says "Clear Filters"
+// in the language the app shows.
+func LinearClearFilters() string { return In(i18n.Locale()).LinearClearFilters() }
+
+// LinearClearFilters says "Clear Filters"
+// in the language of msgs.
+func (msgs Messages) LinearClearFilters() string {
+	return Catalog.Format(msgs.locale, "linearClearFilters", nil)
+}
+
+// LinearFiltersReset says "The saved project or milestone is gone; showing everything."
+// in the language the app shows.
+func LinearFiltersReset() string { return In(i18n.Locale()).LinearFiltersReset() }
+
+// LinearFiltersReset says "The saved project or milestone is gone; showing everything."
+// in the language of msgs.
+func (msgs Messages) LinearFiltersReset() string {
+	return Catalog.Format(msgs.locale, "linearFiltersReset", nil)
+}
+
+// LinearSessionTip says "The session working on this issue"
+// in the language the app shows.
+func LinearSessionTip() string { return In(i18n.Locale()).LinearSessionTip() }
+
+// LinearSessionTip says "The session working on this issue"
+// in the language of msgs.
+func (msgs Messages) LinearSessionTip() string {
+	return Catalog.Format(msgs.locale, "linearSessionTip", nil)
+}
+
+// LinearResumeCopied says "The resume id was copied"
+// in the language the app shows.
+func LinearResumeCopied() string { return In(i18n.Locale()).LinearResumeCopied() }
+
+// LinearResumeCopied says "The resume id was copied"
+// in the language of msgs.
+func (msgs Messages) LinearResumeCopied() string {
+	return Catalog.Format(msgs.locale, "linearResumeCopied", nil)
+}
+
+// LinearSessionCopied says "The session id was copied"
+// in the language the app shows.
+func LinearSessionCopied() string { return In(i18n.Locale()).LinearSessionCopied() }
+
+// LinearSessionCopied says "The session id was copied"
+// in the language of msgs.
+func (msgs Messages) LinearSessionCopied() string {
+	return Catalog.Format(msgs.locale, "linearSessionCopied", nil)
+}
+
+// LinearMoved says "{issue} moved to {state}"
+// in the language the app shows.
+func LinearMoved(issue string, state string) string {
+	return In(i18n.Locale()).LinearMoved(issue, state)
+}
+
+// LinearMoved says "{issue} moved to {state}"
+// in the language of msgs.
+func (msgs Messages) LinearMoved(issue string, state string) string {
+	return Catalog.Format(msgs.locale, "linearMoved", map[string]any{"issue": issue, "state": state})
+}
+
+// LinearShownColumns says "{count} empty"
+// in the language the app shows.
+func LinearShownColumns(count string) string { return In(i18n.Locale()).LinearShownColumns(count) }
+
+// LinearShownColumns says "{count} empty"
+// in the language of msgs.
+func (msgs Messages) LinearShownColumns(count string) string {
+	return Catalog.Format(msgs.locale, "linearShownColumns", map[string]any{"count": count})
+}
+
+// LinearPage says "Linear"
+// in the language the app shows.
+func LinearPage() string { return In(i18n.Locale()).LinearPage() }
+
+// LinearPage says "Linear"
+// in the language of msgs.
+func (msgs Messages) LinearPage() string {
+	return Catalog.Format(msgs.locale, "linearPage", nil)
+}
+
+// SetLinearWorkspace says "Workspace"
+// in the language the app shows.
+func SetLinearWorkspace() string { return In(i18n.Locale()).SetLinearWorkspace() }
+
+// SetLinearWorkspace says "Workspace"
+// in the language of msgs.
+func (msgs Messages) SetLinearWorkspace() string {
+	return Catalog.Format(msgs.locale, "setLinearWorkspace", nil)
+}
+
+// SetLinearKeySave says "Save Key"
+// in the language the app shows.
+func SetLinearKeySave() string { return In(i18n.Locale()).SetLinearKeySave() }
+
+// SetLinearKeySave says "Save Key"
+// in the language of msgs.
+func (msgs Messages) SetLinearKeySave() string {
+	return Catalog.Format(msgs.locale, "setLinearKeySave", nil)
+}
+
+// SetLinearKeyRemove says "Remove Key"
+// in the language the app shows.
+func SetLinearKeyRemove() string { return In(i18n.Locale()).SetLinearKeyRemove() }
+
+// SetLinearKeyRemove says "Remove Key"
+// in the language of msgs.
+func (msgs Messages) SetLinearKeyRemove() string {
+	return Catalog.Format(msgs.locale, "setLinearKeyRemove", nil)
+}
+
+// SetLinearBoard says "Board"
+// in the language the app shows.
+func SetLinearBoard() string { return In(i18n.Locale()).SetLinearBoard() }
+
+// SetLinearBoard says "Board"
+// in the language of msgs.
+func (msgs Messages) SetLinearBoard() string {
+	return Catalog.Format(msgs.locale, "setLinearBoard", nil)
+}
+
+// SetLinearSidebar says "Show in the sidebar"
+// in the language the app shows.
+func SetLinearSidebar() string { return In(i18n.Locale()).SetLinearSidebar() }
+
+// SetLinearSidebar says "Show in the sidebar"
+// in the language of msgs.
+func (msgs Messages) SetLinearSidebar() string {
+	return Catalog.Format(msgs.locale, "setLinearSidebar", nil)
+}
+
+// SetLinearSidebarDetail says "A row above the sessions that opens the workspace, with the number of issues a session is working on."
+// in the language the app shows.
+func SetLinearSidebarDetail() string { return In(i18n.Locale()).SetLinearSidebarDetail() }
+
+// SetLinearSidebarDetail says "A row above the sessions that opens the workspace, with the number of issues a session is working on."
+// in the language of msgs.
+func (msgs Messages) SetLinearSidebarDetail() string {
+	return Catalog.Format(msgs.locale, "setLinearSidebarDetail", nil)
+}
+
+// SetLinearRefresh says "Check for changes"
+// in the language the app shows.
+func SetLinearRefresh() string { return In(i18n.Locale()).SetLinearRefresh() }
+
+// SetLinearRefresh says "Check for changes"
+// in the language of msgs.
+func (msgs Messages) SetLinearRefresh() string {
+	return Catalog.Format(msgs.locale, "setLinearRefresh", nil)
+}
+
+// SetLinearRefreshDetail says "How often the service asks Linear what changed. Linear allows a key 2,500 requests an hour."
+// in the language the app shows.
+func SetLinearRefreshDetail() string { return In(i18n.Locale()).SetLinearRefreshDetail() }
+
+// SetLinearRefreshDetail says "How often the service asks Linear what changed. Linear allows a key 2,500 requests an hour."
+// in the language of msgs.
+func (msgs Messages) SetLinearRefreshDetail() string {
+	return Catalog.Format(msgs.locale, "setLinearRefreshDetail", nil)
+}
+
+// SetLinearRefreshEvery says "Every {interval}"
+// in the language the app shows.
+func SetLinearRefreshEvery(interval string) string {
+	return In(i18n.Locale()).SetLinearRefreshEvery(interval)
+}
+
+// SetLinearRefreshEvery says "Every {interval}"
+// in the language of msgs.
+func (msgs Messages) SetLinearRefreshEvery(interval string) string {
+	return Catalog.Format(msgs.locale, "setLinearRefreshEvery", map[string]any{"interval": interval})
+}
+
+// SetLinearEmptyColumns says "Empty columns"
+// in the language the app shows.
+func SetLinearEmptyColumns() string { return In(i18n.Locale()).SetLinearEmptyColumns() }
+
+// SetLinearEmptyColumns says "Empty columns"
+// in the language of msgs.
+func (msgs Messages) SetLinearEmptyColumns() string {
+	return Catalog.Format(msgs.locale, "setLinearEmptyColumns", nil)
+}
+
+// SetLinearEmptyColumnsDetail says "States with no issues, as Linear’s hidden columns."
+// in the language the app shows.
+func SetLinearEmptyColumnsDetail() string { return In(i18n.Locale()).SetLinearEmptyColumnsDetail() }
+
+// SetLinearEmptyColumnsDetail says "States with no issues, as Linear’s hidden columns."
+// in the language of msgs.
+func (msgs Messages) SetLinearEmptyColumnsDetail() string {
+	return Catalog.Format(msgs.locale, "setLinearEmptyColumnsDetail", nil)
+}
+
+// SetLinearEmptyCollapsed says "In a Rail"
+// in the language the app shows.
+func SetLinearEmptyCollapsed() string { return In(i18n.Locale()).SetLinearEmptyCollapsed() }
+
+// SetLinearEmptyCollapsed says "In a Rail"
+// in the language of msgs.
+func (msgs Messages) SetLinearEmptyCollapsed() string {
+	return Catalog.Format(msgs.locale, "setLinearEmptyCollapsed", nil)
+}
+
+// SetLinearEmptyShown says "As Columns"
+// in the language the app shows.
+func SetLinearEmptyShown() string { return In(i18n.Locale()).SetLinearEmptyShown() }
+
+// SetLinearEmptyShown says "As Columns"
+// in the language of msgs.
+func (msgs Messages) SetLinearEmptyShown() string {
+	return Catalog.Format(msgs.locale, "setLinearEmptyShown", nil)
+}
+
+// SetLinearEmptyHidden says "Hidden"
+// in the language the app shows.
+func SetLinearEmptyHidden() string { return In(i18n.Locale()).SetLinearEmptyHidden() }
+
+// SetLinearEmptyHidden says "Hidden"
+// in the language of msgs.
+func (msgs Messages) SetLinearEmptyHidden() string {
+	return Catalog.Format(msgs.locale, "setLinearEmptyHidden", nil)
+}
+
+// SetLinearDensity says "Cards"
+// in the language the app shows.
+func SetLinearDensity() string { return In(i18n.Locale()).SetLinearDensity() }
+
+// SetLinearDensity says "Cards"
+// in the language of msgs.
+func (msgs Messages) SetLinearDensity() string {
+	return Catalog.Format(msgs.locale, "setLinearDensity", nil)
+}
+
+// SetLinearDensityDetail says "Compact cards leave out the chips and the time, for long columns."
+// in the language the app shows.
+func SetLinearDensityDetail() string { return In(i18n.Locale()).SetLinearDensityDetail() }
+
+// SetLinearDensityDetail says "Compact cards leave out the chips and the time, for long columns."
+// in the language of msgs.
+func (msgs Messages) SetLinearDensityDetail() string {
+	return Catalog.Format(msgs.locale, "setLinearDensityDetail", nil)
+}
+
+// SetLinearComfortable says "Comfortable"
+// in the language the app shows.
+func SetLinearComfortable() string { return In(i18n.Locale()).SetLinearComfortable() }
+
+// SetLinearComfortable says "Comfortable"
+// in the language of msgs.
+func (msgs Messages) SetLinearComfortable() string {
+	return Catalog.Format(msgs.locale, "setLinearComfortable", nil)
+}
+
+// SetLinearCompact says "Compact"
+// in the language the app shows.
+func SetLinearCompact() string { return In(i18n.Locale()).SetLinearCompact() }
+
+// SetLinearCompact says "Compact"
+// in the language of msgs.
+func (msgs Messages) SetLinearCompact() string {
+	return Catalog.Format(msgs.locale, "setLinearCompact", nil)
+}
+
+// LinearSessions says "Sessions"
+// in the language the app shows.
+func LinearSessions() string { return In(i18n.Locale()).LinearSessions() }
+
+// LinearSessions says "Sessions"
+// in the language of msgs.
+func (msgs Messages) LinearSessions() string {
+	return Catalog.Format(msgs.locale, "linearSessions", nil)
+}
+
+// LinearRunStarted says "Started {ago}"
+// in the language the app shows.
+func LinearRunStarted(ago string) string { return In(i18n.Locale()).LinearRunStarted(ago) }
+
+// LinearRunStarted says "Started {ago}"
+// in the language of msgs.
+func (msgs Messages) LinearRunStarted(ago string) string {
+	return Catalog.Format(msgs.locale, "linearRunStarted", map[string]any{"ago": ago})
+}
+
+// LinearRunEnded says "Ended {ago}"
+// in the language the app shows.
+func LinearRunEnded(ago string) string { return In(i18n.Locale()).LinearRunEnded(ago) }
+
+// LinearRunEnded says "Ended {ago}"
+// in the language of msgs.
+func (msgs Messages) LinearRunEnded(ago string) string {
+	return Catalog.Format(msgs.locale, "linearRunEnded", map[string]any{"ago": ago})
+}
+
+// LinearViaAgent says "linked by the agent"
+// in the language the app shows.
+func LinearViaAgent() string { return In(i18n.Locale()).LinearViaAgent() }
+
+// LinearViaAgent says "linked by the agent"
+// in the language of msgs.
+func (msgs Messages) LinearViaAgent() string {
+	return Catalog.Format(msgs.locale, "linearViaAgent", nil)
+}
+
+// LinearViaBranch says "linked by branch"
+// in the language the app shows.
+func LinearViaBranch() string { return In(i18n.Locale()).LinearViaBranch() }
+
+// LinearViaBranch says "linked by branch"
+// in the language of msgs.
+func (msgs Messages) LinearViaBranch() string {
+	return Catalog.Format(msgs.locale, "linearViaBranch", nil)
+}
+
+// LinearNoAgent says "Shell"
+// in the language the app shows.
+func LinearNoAgent() string { return In(i18n.Locale()).LinearNoAgent() }
+
+// LinearNoAgent says "Shell"
+// in the language of msgs.
+func (msgs Messages) LinearNoAgent() string {
+	return Catalog.Format(msgs.locale, "linearNoAgent", nil)
+}
+
+// LinearOpenRun says "Open"
+// in the language the app shows.
+func LinearOpenRun() string { return In(i18n.Locale()).LinearOpenRun() }
+
+// LinearOpenRun says "Open"
+// in the language of msgs.
+func (msgs Messages) LinearOpenRun() string {
+	return Catalog.Format(msgs.locale, "linearOpenRun", nil)
+}
+
+// ProjectLinear says "Linear Project"
+// in the language the app shows.
+func ProjectLinear() string { return In(i18n.Locale()).ProjectLinear() }
+
+// ProjectLinear says "Linear Project"
+// in the language of msgs.
+func (msgs Messages) ProjectLinear() string {
+	return Catalog.Format(msgs.locale, "projectLinear", nil)
+}
+
+// ProjectLinearNone says "None"
+// in the language the app shows.
+func ProjectLinearNone() string { return In(i18n.Locale()).ProjectLinearNone() }
+
+// ProjectLinearNone says "None"
+// in the language of msgs.
+func (msgs Messages) ProjectLinearNone() string {
+	return Catalog.Format(msgs.locale, "projectLinearNone", nil)
+}
+
+// ProjectLinearSuggested says "{name} (Suggested)"
+// in the language the app shows.
+func ProjectLinearSuggested(name string) string {
+	return In(i18n.Locale()).ProjectLinearSuggested(name)
+}
+
+// ProjectLinearSuggested says "{name} (Suggested)"
+// in the language of msgs.
+func (msgs Messages) ProjectLinearSuggested(name string) string {
+	return Catalog.Format(msgs.locale, "projectLinearSuggested", map[string]any{"name": name})
+}
+
+// PaneTasks says "Tasks"
+// in the language the app shows.
+func PaneTasks() string { return In(i18n.Locale()).PaneTasks() }
+
+// PaneTasks says "Tasks"
+// in the language of msgs.
+func (msgs Messages) PaneTasks() string {
+	return Catalog.Format(msgs.locale, "paneTasks", nil)
+}
+
+// PaneFiles says "Files"
+// in the language the app shows.
+func PaneFiles() string { return In(i18n.Locale()).PaneFiles() }
+
+// PaneFiles says "Files"
+// in the language of msgs.
+func (msgs Messages) PaneFiles() string {
+	return Catalog.Format(msgs.locale, "paneFiles", nil)
+}
+
+// PaneBrowser says "Browser"
+// in the language the app shows.
+func PaneBrowser() string { return In(i18n.Locale()).PaneBrowser() }
+
+// PaneBrowser says "Browser"
+// in the language of msgs.
+func (msgs Messages) PaneBrowser() string {
+	return Catalog.Format(msgs.locale, "paneBrowser", nil)
+}
+
+// PaneTerminal says "Terminal"
+// in the language the app shows.
+func PaneTerminal() string { return In(i18n.Locale()).PaneTerminal() }
+
+// PaneTerminal says "Terminal"
+// in the language of msgs.
+func (msgs Messages) PaneTerminal() string {
+	return Catalog.Format(msgs.locale, "paneTerminal", nil)
+}
+
+// PaneNewTitle says "Open beside this pane"
+// in the language the app shows.
+func PaneNewTitle() string { return In(i18n.Locale()).PaneNewTitle() }
+
+// PaneNewTitle says "Open beside this pane"
+// in the language of msgs.
+func (msgs Messages) PaneNewTitle() string {
+	return Catalog.Format(msgs.locale, "paneNewTitle", nil)
+}
+
+// PaneTerminalDetail says "A shell in the session's folder"
+// in the language the app shows.
+func PaneTerminalDetail() string { return In(i18n.Locale()).PaneTerminalDetail() }
+
+// PaneTerminalDetail says "A shell in the session's folder"
+// in the language of msgs.
+func (msgs Messages) PaneTerminalDetail() string {
+	return Catalog.Format(msgs.locale, "paneTerminalDetail", nil)
+}
+
+// PaneTasksDetail says "The project's Linear issues"
+// in the language the app shows.
+func PaneTasksDetail() string { return In(i18n.Locale()).PaneTasksDetail() }
+
+// PaneTasksDetail says "The project's Linear issues"
+// in the language of msgs.
+func (msgs Messages) PaneTasksDetail() string {
+	return Catalog.Format(msgs.locale, "paneTasksDetail", nil)
+}
+
+// PaneFilesDetail says "Browse and read the project's files"
+// in the language the app shows.
+func PaneFilesDetail() string { return In(i18n.Locale()).PaneFilesDetail() }
+
+// PaneFilesDetail says "Browse and read the project's files"
+// in the language of msgs.
+func (msgs Messages) PaneFilesDetail() string {
+	return Catalog.Format(msgs.locale, "paneFilesDetail", nil)
+}
+
+// PaneBrowserDetail says "A web page, such as your dev server"
+// in the language the app shows.
+func PaneBrowserDetail() string { return In(i18n.Locale()).PaneBrowserDetail() }
+
+// PaneBrowserDetail says "A web page, such as your dev server"
+// in the language of msgs.
+func (msgs Messages) PaneBrowserDetail() string {
+	return Catalog.Format(msgs.locale, "paneBrowserDetail", nil)
+}
+
+// PaneShow says "Show in This Pane"
+// in the language the app shows.
+func PaneShow() string { return In(i18n.Locale()).PaneShow() }
+
+// PaneShow says "Show in This Pane"
+// in the language of msgs.
+func (msgs Messages) PaneShow() string {
+	return Catalog.Format(msgs.locale, "paneShow", nil)
+}
+
+// PaneNoRoom says "Not enough room for another pane here"
+// in the language the app shows.
+func PaneNoRoom() string { return In(i18n.Locale()).PaneNoRoom() }
+
+// PaneNoRoom says "Not enough room for another pane here"
+// in the language of msgs.
+func (msgs Messages) PaneNoRoom() string {
+	return Catalog.Format(msgs.locale, "paneNoRoom", nil)
+}
+
+// BrowserCantOpen says "Can't open this page"
+// in the language the app shows.
+func BrowserCantOpen() string { return In(i18n.Locale()).BrowserCantOpen() }
+
+// BrowserCantOpen says "Can't open this page"
+// in the language of msgs.
+func (msgs Messages) BrowserCantOpen() string {
+	return Catalog.Format(msgs.locale, "browserCantOpen", nil)
+}
+
+// BrowserBack says "Back"
+// in the language the app shows.
+func BrowserBack() string { return In(i18n.Locale()).BrowserBack() }
+
+// BrowserBack says "Back"
+// in the language of msgs.
+func (msgs Messages) BrowserBack() string {
+	return Catalog.Format(msgs.locale, "browserBack", nil)
+}
+
+// BrowserForward says "Forward"
+// in the language the app shows.
+func BrowserForward() string { return In(i18n.Locale()).BrowserForward() }
+
+// BrowserForward says "Forward"
+// in the language of msgs.
+func (msgs Messages) BrowserForward() string {
+	return Catalog.Format(msgs.locale, "browserForward", nil)
+}
+
+// BrowserReload says "Reload"
+// in the language the app shows.
+func BrowserReload() string { return In(i18n.Locale()).BrowserReload() }
+
+// BrowserReload says "Reload"
+// in the language of msgs.
+func (msgs Messages) BrowserReload() string {
+	return Catalog.Format(msgs.locale, "browserReload", nil)
+}
+
+// BrowserStop says "Stop Loading"
+// in the language the app shows.
+func BrowserStop() string { return In(i18n.Locale()).BrowserStop() }
+
+// BrowserStop says "Stop Loading"
+// in the language of msgs.
+func (msgs Messages) BrowserStop() string {
+	return Catalog.Format(msgs.locale, "browserStop", nil)
+}
+
+// BrowserPlaceholder says "Address, port or search"
+// in the language the app shows.
+func BrowserPlaceholder() string { return In(i18n.Locale()).BrowserPlaceholder() }
+
+// BrowserPlaceholder says "Address, port or search"
+// in the language of msgs.
+func (msgs Messages) BrowserPlaceholder() string {
+	return Catalog.Format(msgs.locale, "browserPlaceholder", nil)
+}
+
+// BrowserOpenDefault says "Open in Default Browser"
+// in the language the app shows.
+func BrowserOpenDefault() string { return In(i18n.Locale()).BrowserOpenDefault() }
+
+// BrowserOpenDefault says "Open in Default Browser"
+// in the language of msgs.
+func (msgs Messages) BrowserOpenDefault() string {
+	return Catalog.Format(msgs.locale, "browserOpenDefault", nil)
+}
+
+// BrowserServers says "Running on this Mac"
+// in the language the app shows.
+func BrowserServers() string { return In(i18n.Locale()).BrowserServers() }
+
+// BrowserServers says "Running on this Mac"
+// in the language of msgs.
+func (msgs Messages) BrowserServers() string {
+	return Catalog.Format(msgs.locale, "browserServers", nil)
+}
+
+// BrowserNoServers says "No servers are listening right now."
+// in the language the app shows.
+func BrowserNoServers() string { return In(i18n.Locale()).BrowserNoServers() }
+
+// BrowserNoServers says "No servers are listening right now."
+// in the language of msgs.
+func (msgs Messages) BrowserNoServers() string {
+	return Catalog.Format(msgs.locale, "browserNoServers", nil)
+}
+
+// BrowserFinding says "Looking for servers…"
+// in the language the app shows.
+func BrowserFinding() string { return In(i18n.Locale()).BrowserFinding() }
+
+// BrowserFinding says "Looking for servers…"
+// in the language of msgs.
+func (msgs Messages) BrowserFinding() string {
+	return Catalog.Format(msgs.locale, "browserFinding", nil)
+}
+
+// BrowserHint says "Type an address, a port such as 3000, or words to search for."
+// in the language the app shows.
+func BrowserHint() string { return In(i18n.Locale()).BrowserHint() }
+
+// BrowserHint says "Type an address, a port such as 3000, or words to search for."
+// in the language of msgs.
+func (msgs Messages) BrowserHint() string {
+	return Catalog.Format(msgs.locale, "browserHint", nil)
+}
+
+// FilesCantRead says "Can't read this"
+// in the language the app shows.
+func FilesCantRead() string { return In(i18n.Locale()).FilesCantRead() }
+
+// FilesCantRead says "Can't read this"
+// in the language of msgs.
+func (msgs Messages) FilesCantRead() string {
+	return Catalog.Format(msgs.locale, "filesCantRead", nil)
+}
+
+// FilesEmpty says "This folder is empty"
+// in the language the app shows.
+func FilesEmpty() string { return In(i18n.Locale()).FilesEmpty() }
+
+// FilesEmpty says "This folder is empty"
+// in the language of msgs.
+func (msgs Messages) FilesEmpty() string {
+	return Catalog.Format(msgs.locale, "filesEmpty", nil)
+}
+
+// FilesTooBig says "Too big to show here"
+// in the language the app shows.
+func FilesTooBig() string { return In(i18n.Locale()).FilesTooBig() }
+
+// FilesTooBig says "Too big to show here"
+// in the language of msgs.
+func (msgs Messages) FilesTooBig() string {
+	return Catalog.Format(msgs.locale, "filesTooBig", nil)
+}
+
+// FilesBinary says "Not a text file"
+// in the language the app shows.
+func FilesBinary() string { return In(i18n.Locale()).FilesBinary() }
+
+// FilesBinary says "Not a text file"
+// in the language of msgs.
+func (msgs Messages) FilesBinary() string {
+	return Catalog.Format(msgs.locale, "filesBinary", nil)
+}
+
+// FilesBack says "All Files"
+// in the language the app shows.
+func FilesBack() string { return In(i18n.Locale()).FilesBack() }
+
+// FilesBack says "All Files"
+// in the language of msgs.
+func (msgs Messages) FilesBack() string {
+	return Catalog.Format(msgs.locale, "filesBack", nil)
+}
+
+// FilesLines says "{n} lines"
+// in the language the app shows.
+func FilesLines(n string) string { return In(i18n.Locale()).FilesLines(n) }
+
+// FilesLines says "{n} lines"
+// in the language of msgs.
+func (msgs Messages) FilesLines(n string) string {
+	return Catalog.Format(msgs.locale, "filesLines", map[string]any{"n": n})
+}
+
+// FilesPreview says "Show as It Reads"
+// in the language the app shows.
+func FilesPreview() string { return In(i18n.Locale()).FilesPreview() }
+
+// FilesPreview says "Show as It Reads"
+// in the language of msgs.
+func (msgs Messages) FilesPreview() string {
+	return Catalog.Format(msgs.locale, "filesPreview", nil)
+}
+
+// FilesSource says "Show Source"
+// in the language the app shows.
+func FilesSource() string { return In(i18n.Locale()).FilesSource() }
+
+// FilesSource says "Show Source"
+// in the language of msgs.
+func (msgs Messages) FilesSource() string {
+	return Catalog.Format(msgs.locale, "filesSource", nil)
+}
+
+// FilesOpenDefault says "Open"
+// in the language the app shows.
+func FilesOpenDefault() string { return In(i18n.Locale()).FilesOpenDefault() }
+
+// FilesOpenDefault says "Open"
+// in the language of msgs.
+func (msgs Messages) FilesOpenDefault() string {
+	return Catalog.Format(msgs.locale, "filesOpenDefault", nil)
+}
+
+// FilesOpenEditor says "Open in VS Code"
+// in the language the app shows.
+func FilesOpenEditor() string { return In(i18n.Locale()).FilesOpenEditor() }
+
+// FilesOpenEditor says "Open in VS Code"
+// in the language of msgs.
+func (msgs Messages) FilesOpenEditor() string {
+	return Catalog.Format(msgs.locale, "filesOpenEditor", nil)
+}
+
+// FilesCopyPath says "Copy Path"
+// in the language the app shows.
+func FilesCopyPath() string { return In(i18n.Locale()).FilesCopyPath() }
+
+// FilesCopyPath says "Copy Path"
+// in the language of msgs.
+func (msgs Messages) FilesCopyPath() string {
+	return Catalog.Format(msgs.locale, "filesCopyPath", nil)
+}
+
+// FilesCopyRelative says "Copy Relative Path"
+// in the language the app shows.
+func FilesCopyRelative() string { return In(i18n.Locale()).FilesCopyRelative() }
+
+// FilesCopyRelative says "Copy Relative Path"
+// in the language of msgs.
+func (msgs Messages) FilesCopyRelative() string {
+	return Catalog.Format(msgs.locale, "filesCopyRelative", nil)
+}
+
+// PaneNewButton says "New Pane"
+// in the language the app shows.
+func PaneNewButton() string { return In(i18n.Locale()).PaneNewButton() }
+
+// PaneNewButton says "New Pane"
+// in the language of msgs.
+func (msgs Messages) PaneNewButton() string {
+	return Catalog.Format(msgs.locale, "paneNewButton", nil)
+}
+
+// ConfirmShowTitle says "Show {view} in this pane?"
+// in the language the app shows.
+func ConfirmShowTitle(view string) string { return In(i18n.Locale()).ConfirmShowTitle(view) }
+
+// ConfirmShowTitle says "Show {view} in this pane?"
+// in the language of msgs.
+func (msgs Messages) ConfirmShowTitle(view string) string {
+	return Catalog.Format(msgs.locale, "confirmShowTitle", map[string]any{"view": view})
+}
+
+// ConfirmShowDetail says "{process} is still running in it, and ends when the pane shows something else."
+// in the language the app shows.
+func ConfirmShowDetail(process string) string { return In(i18n.Locale()).ConfirmShowDetail(process) }
+
+// ConfirmShowDetail says "{process} is still running in it, and ends when the pane shows something else."
+// in the language of msgs.
+func (msgs Messages) ConfirmShowDetail(process string) string {
+	return Catalog.Format(msgs.locale, "confirmShowDetail", map[string]any{"process": process})
+}
+
+// ConfirmShowAction says "Replace"
+// in the language the app shows.
+func ConfirmShowAction() string { return In(i18n.Locale()).ConfirmShowAction() }
+
+// ConfirmShowAction says "Replace"
+// in the language of msgs.
+func (msgs Messages) ConfirmShowAction() string {
+	return Catalog.Format(msgs.locale, "confirmShowAction", nil)
+}
+
+// TasksShowDone says "Show Done"
+// in the language the app shows.
+func TasksShowDone() string { return In(i18n.Locale()).TasksShowDone() }
+
+// TasksShowDone says "Show Done"
+// in the language of msgs.
+func (msgs Messages) TasksShowDone() string {
+	return Catalog.Format(msgs.locale, "tasksShowDone", nil)
+}
+
+// TasksHideDone says "Hide Done"
+// in the language the app shows.
+func TasksHideDone() string { return In(i18n.Locale()).TasksHideDone() }
+
+// TasksHideDone says "Hide Done"
+// in the language of msgs.
+func (msgs Messages) TasksHideDone() string {
+	return Catalog.Format(msgs.locale, "tasksHideDone", nil)
+}
+
+// TasksCountTip says "Issues shown"
+// in the language the app shows.
+func TasksCountTip() string { return In(i18n.Locale()).TasksCountTip() }
+
+// TasksCountTip says "Issues shown"
+// in the language of msgs.
+func (msgs Messages) TasksCountTip() string {
+	return Catalog.Format(msgs.locale, "tasksCountTip", nil)
+}
+
+// TasksThisSession says "This session"
+// in the language the app shows.
+func TasksThisSession() string { return In(i18n.Locale()).TasksThisSession() }
+
+// TasksThisSession says "This session"
+// in the language of msgs.
+func (msgs Messages) TasksThisSession() string {
+	return Catalog.Format(msgs.locale, "tasksThisSession", nil)
+}
+
+// TasksChooseProject says "Choose a project…"
+// in the language the app shows.
+func TasksChooseProject() string { return In(i18n.Locale()).TasksChooseProject() }
+
+// TasksChooseProject says "Choose a project…"
+// in the language of msgs.
+func (msgs Messages) TasksChooseProject() string {
+	return Catalog.Format(msgs.locale, "tasksChooseProject", nil)
+}
+
+// TasksLinkTitle says "Which Linear project is {name}?"
+// in the language the app shows.
+func TasksLinkTitle(name string) string { return In(i18n.Locale()).TasksLinkTitle(name) }
+
+// TasksLinkTitle says "Which Linear project is {name}?"
+// in the language of msgs.
+func (msgs Messages) TasksLinkTitle(name string) string {
+	return Catalog.Format(msgs.locale, "tasksLinkTitle", map[string]any{"name": name})
+}
+
+// TasksLinkDetail says "The pane shows that project's issues, and agents in this project start their work from them."
+// in the language the app shows.
+func TasksLinkDetail() string { return In(i18n.Locale()).TasksLinkDetail() }
+
+// TasksLinkDetail says "The pane shows that project's issues, and agents in this project start their work from them."
+// in the language of msgs.
+func (msgs Messages) TasksLinkDetail() string {
+	return Catalog.Format(msgs.locale, "tasksLinkDetail", nil)
+}
+
+// TasksShowAll says "Show the whole team’s issues instead"
+// in the language the app shows.
+func TasksShowAll() string { return In(i18n.Locale()).TasksShowAll() }
+
+// TasksShowAll says "Show the whole team’s issues instead"
+// in the language of msgs.
+func (msgs Messages) TasksShowAll() string {
+	return Catalog.Format(msgs.locale, "tasksShowAll", nil)
+}
+
+// ActionBrowserLocation says "Open Location…"
+// in the language the app shows.
+func ActionBrowserLocation() string { return In(i18n.Locale()).ActionBrowserLocation() }
+
+// ActionBrowserLocation says "Open Location…"
+// in the language of msgs.
+func (msgs Messages) ActionBrowserLocation() string {
+	return Catalog.Format(msgs.locale, "actionBrowserLocation", nil)
+}
+
+// PaneNewBelowTitle says "Open below this pane"
+// in the language the app shows.
+func PaneNewBelowTitle() string { return In(i18n.Locale()).PaneNewBelowTitle() }
+
+// PaneNewBelowTitle says "Open below this pane"
+// in the language of msgs.
+func (msgs Messages) PaneNewBelowTitle() string {
+	return Catalog.Format(msgs.locale, "paneNewBelowTitle", nil)
+}
+
+// PaneNewBelowHint says "Hold to open it below"
+// in the language the app shows.
+func PaneNewBelowHint() string { return In(i18n.Locale()).PaneNewBelowHint() }
+
+// PaneNewBelowHint says "Hold to open it below"
+// in the language of msgs.
+func (msgs Messages) PaneNewBelowHint() string {
+	return Catalog.Format(msgs.locale, "paneNewBelowHint", nil)
+}
+
+// BrowserZoomReset says "Actual Size"
+// in the language the app shows.
+func BrowserZoomReset() string { return In(i18n.Locale()).BrowserZoomReset() }
+
+// BrowserZoomReset says "Actual Size"
+// in the language of msgs.
+func (msgs Messages) BrowserZoomReset() string {
+	return Catalog.Format(msgs.locale, "browserZoomReset", nil)
+}
+
+// FilesFind says "Find a file in {name}"
+// in the language the app shows.
+func FilesFind(name string) string { return In(i18n.Locale()).FilesFind(name) }
+
+// FilesFind says "Find a file in {name}"
+// in the language of msgs.
+func (msgs Messages) FilesFind(name string) string {
+	return Catalog.Format(msgs.locale, "filesFind", map[string]any{"name": name})
+}
+
+// FilesFindClear says "Clear"
+// in the language the app shows.
+func FilesFindClear() string { return In(i18n.Locale()).FilesFindClear() }
+
+// FilesFindClear says "Clear"
+// in the language of msgs.
+func (msgs Messages) FilesFindClear() string {
+	return Catalog.Format(msgs.locale, "filesFindClear", nil)
+}
+
+// FilesNoneFound says "No files match"
+// in the language the app shows.
+func FilesNoneFound() string { return In(i18n.Locale()).FilesNoneFound() }
+
+// FilesNoneFound says "No files match"
+// in the language of msgs.
+func (msgs Messages) FilesNoneFound() string {
+	return Catalog.Format(msgs.locale, "filesNoneFound", nil)
 }

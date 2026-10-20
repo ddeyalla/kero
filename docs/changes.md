@@ -51,6 +51,39 @@ Code: [`linear_view.go`](../linear_view.go),
 [`internal/daemon/linear.go`](../internal/daemon/linear.go).
 Automation: `kero linear status|board|issue|set-state|comment`, `kero link`.
 
+## Panes that show anything
+
+A pane is a terminal or a view: **Tasks** (the project's Linear issues, one
+per session), **Files** (the folder as a tree, with files read beside it) or
+**Browser** (a web page in the system's web view, most often the dev
+server). `Cmd+Alt+N` or the pane header's **+** opens a chooser; `T`, `L`,
+`E` and `B` pick, and Shift with any of them opens the pane below rather than
+beside. `Cmd+Alt+T/L/E/B` open each directly, and **Show in This Pane**
+turns an existing pane into another kind. What a view shows is the pane's
+Target, which kerod keeps, so it opens again after a restart. Agents open
+views with `kero split --browser 5173`, `--files --open docs/plan.md` or
+`--tasks`.
+
+- **Files**: folders are read off the main thread and refreshed with git's
+  changes every few seconds. Markdown renders, and links to its headings or
+  to other files of the folder open in the pane. The header's Find box
+  (`Cmd+F` in the pane) matches any file of the project loosely. A row
+  dragged to a terminal types its path. Unfolded folders are kept across
+  restarts.
+- **Browser**: a Safari user agent, no permissions granted, web addresses
+  only. In a focused Browser pane, `Cmd+L` selects the address, `Cmd+=`,
+  `Cmd+-` and `Cmd+0` zoom the page, and `Cmd+R` reloads it rather than
+  renaming the session.
+- **Layout**: panes keep at least 280×150 points, and a split without room
+  is refused. Double-clicking a divider, or `Cmd+Ctrl+=`, makes the panes
+  even. New panes grow in and closing ones give their room back; terminal
+  sizes wait until the glide ends, so a program redraws once.
+
+Code: [`pane_chooser.go`](../pane_chooser.go),
+[`pane_views.go`](../pane_views.go), [`files_pane.go`](../files_pane.go),
+[`browser_pane.go`](../browser_pane.go), [`tasks_pane.go`](../tasks_pane.go),
+[`panes.go`](../panes.go).
+
 ## Account usage
 
 Claude and Codex use existing CLI login credentials. OpenCode Go uses its

@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -51,6 +53,9 @@ type prefs struct {
 	// Linear is the Linear view's own state: what it showed, and the
 	// filters it showed it with.
 	Linear linearPrefs `json:"linear,omitempty"`
+	// Files are the folders Files panes unfolded, relative to theirs, by
+	// pane.
+	Files map[string][]string `json:"files,omitempty"`
 }
 
 // linearPrefs is what the Linear view keeps between runs.
@@ -59,6 +64,9 @@ type linearPrefs struct {
 	Project   string `json:"project,omitempty"`
 	Milestone string `json:"milestone,omitempty"`
 	State     string `json:"state,omitempty"`
+	// DetailWidth is the width of the issue's card, as the divider was
+	// dragged to; 0 for the default.
+	DetailWidth float32 `json:"detailWidth,omitempty"`
 }
 
 const (
@@ -120,9 +128,21 @@ type App struct {
 	show string
 	// lin is the Linear view's own state: the filters, the issue open
 	// beside the board, and what was read of it.
-	lin linearState
+	// lin is the Linear view being built: the root's (linRoot), or a
+	// Tasks pane's while that pane builds (withLin).
+	lin     *linearState
+	linRoot linearState
+	// tasks are the Tasks panes' own views, by pane.
+	tasks map[string]*linearState
+	// files are the Files panes' states, by pane.
+	files map[string]*filesState
+	// browsers are the Browser panes' states, with their web views.
+	browsers map[string]*browserState
+	// cardSize is how big each pane drew last.
+	cardSize map[string]ui.Rect
 
 	pal          paletteState
+	chooser      chooserState
 	find         findState
 	confirm      *confirmation
 	sideDrag     float32 // the width as a drag of the sidebar's edge began
@@ -143,6 +163,14 @@ type App struct {
 	usage        usageState
 	resources    resourceState
 	maintenance  maintenanceState
+
+	// growing are the panes just made, which grow from their edge;
+	// closing those giving their room back before they go.
+	growing map[string]bool
+	closing map[string]bool
+	// sizeHold is until when the terminals' sizes wait, as the panes
+	// glide (gated).
+	sizeHold atomic.Int64
 }
 
 // confirmation is a question the app asks before something it cannot undo.
@@ -158,6 +186,7 @@ type confirmation struct {
 func newApp() *App {
 	a := &App{terms: map[string]*termEntry{}, statuses: map[string]proto.Status{}, active: true, focused: true,
 		refs: map[string]*ui.Handle{}, focus: map[string]string{}, arrived: map[string]bool{}}
+	a.lin = &a.linRoot
 	a.loadPrefs()
 	a.set = settings.Load()
 	a.ss.problems = settings.Problems()
@@ -174,6 +203,7 @@ func newApp() *App {
 	a.lin.project = a.prefs.Linear.Project
 	a.lin.milestone = a.prefs.Linear.Milestone
 	a.lin.state = a.prefs.Linear.State
+	a.lin.detailW = a.prefs.Linear.DetailWidth
 	return a
 }
 
@@ -198,12 +228,7 @@ func (a *App) loadPrefs() {
 func (a *App) savePrefs() {
 	a.prefs.Selected = a.selected
 	a.prefs.Show = a.show
-	a.prefs.Linear = linearPrefs{
-		View:      a.lin.view,
-		Project:   a.lin.project,
-		Milestone: a.lin.milestone,
-		State:     a.lin.state,
-	}
+	a.prefs.Linear = a.linearPrefs()
 	b, err := json.MarshalIndent(a.prefs, "", "  ")
 	if err != nil {
 		return
@@ -557,10 +582,17 @@ func (a *App) dropTerm(id string) {
 }
 
 // gated holds back the stream's frames until the terminal takes the size
-// of the first, which then shows the session as it is.
+// of the first, which then shows the session as it is; and the sizes the
+// terminal asks for while the panes glide, but the last, which goes as
+// they stop: a program redraws once, not at each frame of the glide.
 type gated struct {
 	*client.Stream
 	ready chan struct{}
+	hold  *atomic.Int64 // until when sizes wait, in Unix nanoseconds
+
+	mu      sync.Mutex
+	pending [2]int // the size waiting, cols 0 none
+	timer   *time.Timer
 }
 
 func (g *gated) Read(p []byte) (int, error) {
@@ -568,9 +600,45 @@ func (g *gated) Read(p []byte) (int, error) {
 	return g.Stream.Read(p)
 }
 
+func (g *gated) Resize(cols, rows int) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if wait := g.wait(); wait > 0 {
+		g.pending = [2]int{cols, rows}
+		if g.timer == nil {
+			g.timer = time.AfterFunc(wait, g.flush)
+		}
+		return nil
+	}
+	g.pending = [2]int{}
+	return g.Stream.Resize(cols, rows)
+}
+
+func (g *gated) wait() time.Duration {
+	if g.hold == nil {
+		return 0
+	}
+	return time.Until(time.Unix(0, g.hold.Load()))
+}
+
+// flush sends the size that waited, once the panes stopped.
+func (g *gated) flush() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if wait := g.wait(); wait > 0 {
+		g.timer = time.AfterFunc(wait, g.flush)
+		return
+	}
+	g.timer = nil
+	if p := g.pending; p[0] > 0 {
+		g.pending = [2]int{}
+		g.Stream.Resize(p[0], p[1])
+	}
+}
+
 // ensureTerm attaches a terminal to a session, unless one is.
 func (a *App) ensureTerm(id string) {
-	if a.terms[id] != nil || a.conn != connReady {
+	if a.terms[id] != nil || a.conn != connReady || a.isViewPane(id) {
 		return
 	}
 	e := &termEntry{started: time.Now()}
@@ -585,7 +653,7 @@ func (a *App) ensureTerm(id string) {
 			})
 			return
 		}
-		g := &gated{Stream: stream, ready: make(chan struct{})}
+		g := &gated{Stream: stream, ready: make(chan struct{}), hold: &a.sizeHold}
 		o := a.termOptions(id, g)
 		// The terminal shows kerod's frames: kerod's terminal is the
 		// session's, ours shows what it shows, cell for cell, and lays out

@@ -30,6 +30,12 @@ prefix works), or a session's name; a session stands for its focused pane.
     kero new -n review -- claude              # a session of its own
     kero new -n tests -d ~/code/app -- go test ./...
 
+Show the user something beside you, in a pane of its own:
+
+    kero split --browser 5173                 # the dev server's page
+    kero split --files --open docs/plan.md    # a file, Markdown as it reads
+    kero split --tasks                        # the project's Linear tasks
+
 Name a session after its task (` + "`kero rename $KERO_SESSION fix-login-redirect`" + `)
 so the user finds it in the sidebar.
 
@@ -64,14 +70,26 @@ Reports are OSC 7501 sequences: Kero shows them in its sidebar, and
 notifies the user when you are blocked or done while they look elsewhere.
 Report blocked only when you truly cannot go on without them.
 
-When the work is on a task of the user's tracker, name the task, so the
-app can show it beside the work:
+## Work on a task
 
-    kero report working "Fixing the login redirect" --id BRU-25 --app linear --progress 40
+When the user tracks work in Linear, a task starts as an issue there.
+As soon as you know your task, find its issue (named in the prompt, or
+in the list) and start on it before anything else:
 
-The --id is the task's identifier, as BRU-25; the --app says what it is
-a task of, as linear. Report the id when you start, and again as the work
-moves.
+    kero task list                            # this project's open issues
+    kero task start <issue-id>                # link this session, move it to In Progress
+    kero task                                 # the issue this session works on
+
+` + "`kero task start`" + ` links your session to the issue, so the app shows the
+work beside the task and can resume your conversation later; it prints
+the branch to work on. If no issue matches the task, ask the user which
+one it is; don't create one. Move the issue on as the work does:
+
+    kero linear set-state <issue-id> "In Review"
+
+Report your progress on it, so the app shows it on the issue's card:
+
+    kero report working "Fixing the login redirect" --id <issue-id> --app linear --progress 40
 
 ## Etiquette
 

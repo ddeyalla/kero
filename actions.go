@@ -31,7 +31,38 @@ func (a *App) run(id string, args map[string]string) {
 		return
 	}
 	s := a.session(a.selected)
+	// In a Browser pane, the text's size is the page's, and Command-R
+	// reloads it, as in Safari.
+	if st := a.focusedBrowser(s); st != nil {
+		switch id {
+		case "text.bigger":
+			st.zoomPage(1)
+			return
+		case "text.smaller":
+			st.zoomPage(-1)
+			return
+		case "text.reset":
+			st.zoomPage(0)
+			return
+		case "session.rename":
+			// Rename Session as chosen in the palette renames.
+			if args["via"] != "palette" {
+				if st.wv != nil {
+					st.err, st.loading = "", true
+					st.wv.Page().Reload()
+				}
+				return
+			}
+		}
+	}
+	// In a Files pane, Find looks for a file.
+	if id == "find.open" && a.focusedFiles(s) != nil {
+		a.focusedFiles(s).find = true
+		return
+	}
 	switch id {
+	case "browser.location":
+		a.browserLocation(s)
 	case "settings.open":
 		a.openSettings("")
 	case "updates.sync":
@@ -86,6 +117,18 @@ func (a *App) run(id string, args map[string]string) {
 		a.splitPane(s, "", "right")
 	case "pane.split.down":
 		a.splitPane(s, "", "down")
+	case "pane.new":
+		a.openChooser("")
+	case "pane.new.terminal":
+		a.openView(s, "", "", false)
+	case "pane.new.tasks":
+		a.openView(s, "", proto.PaneTasks, false)
+	case "pane.new.files":
+		a.openView(s, "", proto.PaneFiles, false)
+	case "pane.new.browser":
+		a.openView(s, "", proto.PaneBrowser, false)
+	case "pane.even":
+		a.evenPanes(s)
 	case "pane.zoom":
 		a.zoomPane(s, "")
 	case "pane.next":
@@ -147,6 +190,8 @@ var actionTitles = map[string]func() string{
 	"find.previous":     locales.ActionFindPrevious,
 	"pane.split.right":  locales.ActionSplitRight,
 	"pane.split.down":   locales.ActionSplitDown,
+	"pane.even":         locales.ActionEvenPanes,
+	"browser.location":  locales.ActionBrowserLocation,
 	"pane.zoom":         locales.ActionZoomPane,
 	"pane.next":         locales.ActionNextPane,
 	"pane.previous":     locales.ActionPreviousPane,
@@ -219,13 +264,18 @@ func (a *App) menu() *mygo.Menu {
 		{Role: mygo.RoleEditMenu, Submenu: append([]*mygo.MenuItem{{Role: mygo.RoleUndo}, {Role: mygo.RoleRedo}, mygo.Separator(),
 			{Role: mygo.RoleCut}, {Role: mygo.RoleCopy}, {Role: mygo.RolePaste}, {Role: mygo.RoleSelectAll}, mygo.Separator()},
 			a.items("Edit", []string{"find.open", "find.next", "find.previous"})...)},
-		{Label: locales.MenuPane(), Submenu: a.items("Pane",
-			[]string{"pane.split.right", "pane.split.down"},
-			[]string{"pane.zoom"},
-			[]string{"pane.next", "pane.previous", "pane.left", "pane.right", "pane.up", "pane.down"})},
+		{Label: locales.MenuPane(), Submenu: a.paneMenuItems()},
 		{Label: locales.MenuView(), Submenu: view},
 		{Role: mygo.RoleWindowMenu},
 	})
+}
+
+func (a *App) paneMenuItems() []*mygo.MenuItem {
+	return a.items("Pane",
+		[]string{"pane.split.right", "pane.split.down"},
+		[]string{"pane.new", "pane.new.terminal", "pane.new.tasks", "pane.new.files", "pane.new.browser"},
+		[]string{"pane.even", "pane.zoom", "browser.location"},
+		[]string{"pane.next", "pane.previous", "pane.left", "pane.right", "pane.up", "pane.down"})
 }
 
 func (a *App) viewMenuItems() []*mygo.MenuItem {

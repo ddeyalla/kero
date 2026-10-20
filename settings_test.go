@@ -20,7 +20,7 @@ func TestSettingsPages(t *testing.T) {
 	want := map[string]string{
 		"general": "Restore sessions after a restart", "appearance": "Translucent window", "terminal": "Line height",
 		"shell": "Scrollback", "notifications": "A session needs me", "keyboard": "Split Right",
-		"agents": "Let commands drive this window", "advanced": "Background service",
+		"agents": "Let commands drive this window", "linear": "Check for changes", "advanced": "Background service",
 	}
 	for _, p := range settingsPages {
 		if p.id == "notifications" {
@@ -295,7 +295,7 @@ func TestSettingsSearch(t *testing.T) {
 	shot(t, tt, "settings-search-font-size")
 
 	// Not the notifications page: it asks the system, which needs the app.
-	for q, page := range map[string]string{"vibrancy": "appearance", "osc 52": "terminal", "split right": "keyboard", "kerod": "advanced", "remote-control": "agents", "fish": "shell"} {
+	for q, page := range map[string]string{"vibrancy": "appearance", "osc 52": "terminal", "split right": "keyboard", "kerod": "advanced", "remote-control": "agents", "fish": "shell", "linear-refresh": "linear", "lin_api": "linear"} {
 		a.ss.query = q
 		tt.Frame()
 		if a.ss.page != page {

@@ -22,6 +22,9 @@ type session struct {
 	panes             []*pane
 	layout            *proto.Layout
 	focus, zoomed     string
+	// unlinked are the issues the user unlinked the session from, by
+	// id, which its branch does not link it to again.
+	unlinked map[string]bool
 }
 
 // state returns what the subscribers see.
@@ -46,7 +49,8 @@ func (d *Daemon) state() proto.State {
 }
 
 // linearIssues is the workspace's issues, each with the session working
-// on it, when one is. d.mu is held.
+// on it, when one is, and the conversation that resumes it: the live
+// agent's, or, when none runs, the latest one logged. d.mu is held.
 func (d *Daemon) linearIssues() []proto.LinearIssue {
 	if d.linear == nil {
 		return nil
@@ -70,7 +74,25 @@ func (d *Daemon) linearIssues() []proto.LinearIssue {
 		out[at].ResumeID = link.ResumeID
 		out[at].Progress = link.Progress
 		out[at].SessionStatus = link.Status
+		out[at].Sessions = link.Sessions
 	}
+	d.taskMu.Lock()
+	for i := range out {
+		if out[i].ResumeID != "" {
+			continue
+		}
+		for _, key := range []string{out[i].ID, out[i].Identifier} {
+			if tl := d.tasks[key]; tl != nil {
+				for j := len(tl.Runs) - 1; j >= 0; j-- {
+					if r := tl.Runs[j]; proto.ResumeCommand(r.Agent, r.ID) != nil {
+						out[i].ResumeID = r.ID
+						break
+					}
+				}
+			}
+		}
+	}
+	d.taskMu.Unlock()
 	return out
 }
 
@@ -81,24 +103,62 @@ type taskLink struct {
 	ResumeID string
 	Progress int
 	Status   proto.Status
+	Since    int64
+	// rank is how much the pane tells of the work: an agent with its
+	// session over an agent over any other program.
+	rank int
+	// Sessions is how many sessions work on the task.
+	Sessions int
 }
 
-// taskLinks are the tasks a session works on, by the issue's id. d.mu is
-// held.
+// statusWeight orders sessions on one task: the one that needs the user
+// first, then one at work.
+func statusWeight(s proto.Status) int {
+	switch s {
+	case proto.Waiting:
+		return 4
+	case proto.Failed:
+		return 3
+	case proto.Working:
+		return 2
+	case proto.Idle:
+		return 1
+	}
+	return 0
+}
+
+// taskLinks are the tasks the sessions work on, by the issue's id. A
+// session speaks for a task through its agent's pane, not through the
+// shell split beside it; of two sessions on one task, the one that
+// most needs the user does. d.mu is held.
 func (d *Daemon) taskLinks() map[string]taskLink {
 	out := map[string]taskLink{}
 	for _, s := range d.sessions {
+		mine := map[string]taskLink{}
+		keep := func(task string, l taskLink) {
+			if cur, ok := mine[task]; !ok || l.rank > cur.rank {
+				mine[task] = l
+			}
+		}
 		for _, p := range s.panes {
 			p.mu.Lock()
 			info := p.info
 			records := slices.Clone(info.Records)
 			p.mu.Unlock()
-			link := taskLink{Session: s.id, Name: s.name, Progress: info.Progress, Status: info.Status}
-			if info.AgentSession != nil {
-				link.ResumeID = info.AgentSession.ID
+			link := taskLink{Session: s.id, Name: s.name, Progress: info.Progress, Status: info.Status, Since: info.Since}
+			if link.Name == "" {
+				link.Name = info.Agent
+			}
+			switch {
+			case info.AgentSession != nil:
+				link.ResumeID, link.rank = info.AgentSession.ID, 3
+			case info.Agent != "":
+				link.rank = 2
+			case info.Process != "":
+				link.rank = 1
 			}
 			if info.TaskID != "" {
-				out[info.TaskID] = link
+				keep(info.TaskID, link)
 			}
 			for _, r := range records {
 				if r.App != "linear" || r.ID == "" {
@@ -107,7 +167,19 @@ func (d *Daemon) taskLinks() map[string]taskLink {
 				issue, _, _ := strings.Cut(r.ID, "/")
 				report := link
 				report.Progress = r.Progress
-				out[issue] = report
+				report.rank++ // a program that reports on the task speaks for it
+				keep(issue, report)
+			}
+		}
+		for task, l := range mine {
+			cur, ok := out[task]
+			l.Sessions = cur.Sessions + 1
+			if !ok || statusWeight(l.Status) > statusWeight(cur.Status) ||
+				statusWeight(l.Status) == statusWeight(cur.Status) && (l.rank > cur.rank || l.rank == cur.rank && l.Since > cur.Since) {
+				out[task] = l
+			} else {
+				cur.Sessions = l.Sessions
+				out[task] = cur
 			}
 		}
 	}
@@ -267,6 +339,37 @@ func (d *Daemon) agentPane(pid int, agent, dir string) (found *pane, away bool) 
 
 // focusedLocked returns a session's focused pane, else its first; d.mu is
 // held.
+// findTermPane finds a terminal: a pane, which must be one, or a
+// session, which stands for its focused pane when that is a terminal,
+// else for its first in the layout. Views have no terminal to type
+// into, read or wait on.
+func (d *Daemon) findTermPane(ref string) (*pane, error) {
+	p := d.findPane(ref)
+	if p == nil {
+		return nil, fmt.Errorf("no session or pane %q", ref)
+	}
+	if !p.isView() {
+		return p, nil
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if s := d.findSessionLocked(ref); s != nil && d.panes[ref] == nil {
+		for _, id := range s.layout.Panes() {
+			for _, o := range s.panes {
+				if o.info.ID == id && !o.isView() {
+					return o, nil
+				}
+			}
+		}
+		for _, o := range s.panes {
+			if !o.isView() {
+				return o, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("pane %s is a %s view, not a terminal", p.info.ID, p.info.View)
+}
+
 func focusedLocked(s *session) *pane {
 	for _, p := range s.panes {
 		if p.info.ID == s.focus {
@@ -300,15 +403,25 @@ func (d *Daemon) cleanDir(dir string) (string, error) {
 	return dir, nil
 }
 
-// startPane makes a pane and starts its shell.
+// startPane makes a pane and starts its shell; a view's runs nothing.
 func (d *Daemon) startPane(sid string, p proto.CreateParams, dir string) (*pane, error) {
+	if p.View != "" && !slices.Contains(proto.PaneViews, p.View) {
+		return nil, fmt.Errorf("no view %q", p.View)
+	}
 	now := time.Now().UnixMilli()
-	pn, err := newPane(d, sid, proto.Pane{
-		ID: newID(), Dir: dir, Command: p.Command, Status: proto.Idle, Since: now, Created: now,
+	info := proto.Pane{
+		ID: newID(), View: p.View, Target: p.Target, Dir: dir, Command: p.Command, Status: proto.Idle, Since: now, Created: now,
 		Cols: p.Cols, Rows: p.Rows,
-	})
+	}
+	if p.View != "" {
+		info.Command = nil
+	}
+	pn, err := newPane(d, sid, info)
 	if err != nil {
 		return nil, err
+	}
+	if pn.isView() {
+		return pn, nil
 	}
 	if err := pn.start(p.Command, p.Env); err != nil {
 		pn.term.Close()
@@ -325,6 +438,12 @@ func (d *Daemon) create(p proto.CreateParams) (proto.Session, error) {
 	dir, err := d.cleanDir(p.Dir)
 	if err != nil {
 		return proto.Session{}, err
+	}
+	if p.Task != "" {
+		// An issue that is not one fails the session before it starts.
+		if p.Task, _, err = d.resolveIssue(p.Task); err != nil {
+			return proto.Session{}, err
+		}
 	}
 	d.mu.Lock()
 	project := d.projectFor(p.Project, dir)
@@ -353,6 +472,13 @@ func (d *Daemon) create(p proto.CreateParams) (proto.Session, error) {
 	d.panes[pn.info.ID] = pn
 	info := d.sessionInfo(s)
 	d.mu.Unlock()
+	if p.Task != "" {
+		if err := d.linkSession(s.id, p.Task, "link"); err == nil {
+			d.mu.Lock()
+			info = d.sessionInfo(s)
+			d.mu.Unlock()
+		}
+	}
 	d.changed()
 	d.log.Printf("session %s created in %s", s.id, dir)
 	return info, nil
@@ -372,7 +498,16 @@ func (d *Daemon) split(p proto.CreateParams) (proto.Session, error) {
 		d.mu.Unlock()
 		return proto.Session{}, fmt.Errorf("no session or pane %q", p.Split)
 	}
+	if err := s.oneTasksPane(p.View, ""); err != nil {
+		d.mu.Unlock()
+		return proto.Session{}, err
+	}
 	dir := at.info.Dir
+	if p.View != "" && at.info.ProcessDir != "" {
+		// A view of the files the agent beside it works on, in its
+		// worktree.
+		dir = at.info.ProcessDir
+	}
 	if p.Cols == 0 {
 		// Half of the pane split, as a start: the view sets the size.
 		p.Cols, p.Rows = at.info.Cols, at.info.Rows
@@ -419,6 +554,88 @@ func (d *Daemon) split(p proto.CreateParams) (proto.Session, error) {
 	return info, nil
 }
 
+// replacePane puts a new pane in a pane's place, of another kind, as a
+// terminal that becomes the project's tasks: p.Split is the pane, and
+// p.View, p.Target and p.Command the new one's. The old one closes, and
+// what ran in it ends.
+func (d *Daemon) replacePane(p proto.CreateParams) (proto.Session, error) {
+	d.mu.Lock()
+	at := d.panes[p.Split]
+	var s *session
+	if at != nil {
+		s = d.sessionOfLocked(at)
+	}
+	if s == nil {
+		d.mu.Unlock()
+		return proto.Session{}, fmt.Errorf("no pane %q", p.Split)
+	}
+	if err := s.oneTasksPane(p.View, at.info.ID); err != nil {
+		d.mu.Unlock()
+		return proto.Session{}, err
+	}
+	at.mu.Lock()
+	dir, task := at.info.Dir, at.info.TaskID
+	if at.info.ProcessDir != "" {
+		dir = at.info.ProcessDir
+	}
+	if p.Cols == 0 {
+		p.Cols, p.Rows = at.info.Cols, at.info.Rows
+	}
+	at.mu.Unlock()
+	sid, atID := s.id, at.info.ID
+	d.mu.Unlock()
+	pn, err := d.startPane(sid, p, dir)
+	if err != nil {
+		return proto.Session{}, err
+	}
+	pn.info.TaskID = task
+	d.mu.Lock()
+	if !slices.Contains(d.sessions, s) || d.panes[atID] == nil {
+		d.mu.Unlock()
+		pn.close()
+		return proto.Session{}, errors.New("the pane closed")
+	}
+	delete(d.panes, atID)
+	d.panes[pn.info.ID] = pn
+	for i, o := range s.panes {
+		if o == at {
+			s.panes[i] = pn
+		}
+	}
+	if s.layout != nil {
+		s.layout = s.layout.Replace(atID, pn.info.ID)
+	}
+	if s.focus == atID {
+		s.focus = pn.info.ID
+	}
+	if s.zoomed == atID {
+		s.zoomed = pn.info.ID
+	}
+	info := d.sessionInfo(s)
+	d.mu.Unlock()
+	at.close()
+	d.taskEnd(atID)
+	os.Remove(d.historyPath(atID))
+	d.changed()
+	d.log.Printf("pane %s replaced by %s", atID, pn.info.ID)
+	return info, nil
+}
+
+// oneTasksPane refuses a second Tasks pane in a session: view is what a
+// pane is to show, but the pane except, which it replaces. d.mu is held;
+// a pane's view is set as it starts, and stays.
+func (s *session) oneTasksPane(view, except string) error {
+	if view != proto.PaneTasks {
+		return nil
+	}
+	for _, o := range s.panes {
+		if o.info.View == proto.PaneTasks && o.info.ID != except {
+			return fmt.Errorf("the session has a Tasks pane already: %s", o.info.ID)
+		}
+	}
+	return nil
+}
+
 // removePane closes a pane; its session goes with its last pane.
 func (d *Daemon) removePane(id string) error {
 	d.mu.Lock()
@@ -457,6 +674,7 @@ func (d *Daemon) removePane(id string) error {
 	}
 	d.mu.Unlock()
 	p.close()
+	d.taskEnd(id)
 	os.Remove(d.historyPath(id))
 	d.changed()
 	d.log.Printf("pane %s closed", id)
@@ -481,6 +699,7 @@ func (d *Daemon) removeSession(ref string) error {
 		p.close()
 		os.Remove(d.historyPath(p.info.ID))
 	}
+	d.taskEndSession(s.id, "")
 	d.changed()
 	d.log.Printf("session %s closed", s.id)
 	return nil

@@ -203,3 +203,63 @@ func contains(ids []string, id string) bool {
 	}
 	return false
 }
+
+// Replace returns the layout with pane new in old's place.
+func (l *Layout) Replace(old, new string) *Layout {
+	if l == nil {
+		return nil
+	}
+	c := l.Clone()
+	var walk func(n *Layout)
+	walk = func(n *Layout) {
+		if n == nil {
+			return
+		}
+		if n.Leaf() {
+			if n.Pane == old {
+				n.Pane = new
+			}
+			return
+		}
+		walk(n.A)
+		walk(n.B)
+	}
+	walk(c)
+	return c
+}
+
+// Equalized returns the layout with its panes sharing the room evenly:
+// each split gives its sides room as they hold panes side by side (a row)
+// or one above the other.
+func (l *Layout) Equalized() *Layout {
+	c := l.Clone()
+	var walk func(n *Layout)
+	walk = func(n *Layout) {
+		if n == nil || n.Leaf() {
+			return
+		}
+		a, b := n.A.across(n.Row), n.B.across(n.Row)
+		n.Ratio = float64(a) / float64(a+b)
+		walk(n.A)
+		walk(n.B)
+	}
+	walk(c)
+	return c
+}
+
+// across is how many panes the layout holds side by side in a row, or
+// one above the other when not row: a split the other way holds as many
+// as its fuller side.
+func (l *Layout) across(row bool) int {
+	if l == nil {
+		return 0
+	}
+	if l.Leaf() {
+		return 1
+	}
+	a, b := l.A.across(row), l.B.across(row)
+	if l.Row == row {
+		return a + b
+	}
+	return max(a, b)
+}

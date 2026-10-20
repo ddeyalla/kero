@@ -15,6 +15,37 @@ import (
 
 const paneGap = 8 // between panes, where the divider is
 
+// The smallest a pane gets: a terminal of some 36 columns and a few rows
+// under its header. A divider stops there, a split that would make one
+// smaller is refused, and a window too small takes room from the others
+// first.
+const (
+	minPaneW = 280
+	minPaneH = 150
+)
+
+// layoutMotion is how the panes glide to the room they share, as when it
+// is made even: not as a divider is dragged, which they follow.
+var layoutMotion = ui.Animation{Duration: 220 * time.Millisecond, Ease: ui.CubicBezier(0.25, 1, 0.5, 1)}
+
+// minExtent is the least room a layout needs across (row) or down.
+func minExtent(l *proto.Layout, row bool) float32 {
+	if l == nil {
+		return 0
+	}
+	if l.Leaf() {
+		if row {
+			return minPaneW
+		}
+		return minPaneH
+	}
+	a, b := minExtent(l.A, row), minExtent(l.B, row)
+	if l.Row == row {
+		return a + b + paneGap
+	}
+	return max(a, b)
+}
+
 // paneRef returns the handle a pane's terminal binds, which its focus
 // follows.
 func (a *App) paneRef(id string) *ui.Handle {
@@ -95,17 +126,57 @@ func (a *App) layoutNode(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 		ratio = 0.5
 	}
 	key := "split-" + s.ID + path
-	box := ui.Row(c.Key(key))
-	if !l.Row {
+	var box ui.Element
+	if l.Row {
+		box = ui.Row(c.Key(key))
+	} else {
 		box = ui.Column(c.Key(key))
 	}
 	box.Grow(1).Basis(0).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch).Bind(a.paneRef(key))
+	// A pane opening grows from its edge, and one closing gives its room
+	// back, before it goes.
+	leaving := false
+	switch {
+	case a.closing[l.A.Pane] && l.A.Leaf():
+		ratio, leaving = 0, true
+	case a.closing[l.B.Pane] && l.B.Leaf():
+		ratio, leaving = 1, true
+	case a.growing[l.A.Pane] && l.A.Leaf():
+		box.Jump("ratio", 0)
+		delete(a.growing, l.A.Pane)
+	case a.growing[l.B.Pane] && l.B.Leaf():
+		box.Jump("ratio", 1)
+		delete(a.growing, l.B.Pane)
+	}
+	// A drag moves the panes with the pointer; anything else, as making
+	// them even or the layout kerod sends, glides.
+	target := ratio
+	if a.layoutDirty == s.ID {
+		ratio = box.Jump("ratio", ratio)
+	} else {
+		ratio = box.AnimateTo("ratio", ratio, layoutMotion)
+	}
+	// While they glide, and as one goes, the panes may be smaller than
+	// they can stay.
+	gliding := leaving || math.Abs(float64(ratio-target)) > 0.001
+	if gliding {
+		a.sizeHold.Store(time.Now().Add(80 * time.Millisecond).UnixNano())
+	}
+	side := func(e ui.Element, n *proto.Layout) ui.Element {
+		switch {
+		case gliding:
+			return e.MinWidth(0).MinHeight(0)
+		case l.Row:
+			return e.MinWidth(minExtent(n, true)).MinHeight(0)
+		}
+		return e.MinWidth(0).MinHeight(minExtent(n, false))
+	}
 	box.Children(func() {
-		ui.Column(c.Key("a")).Grow(ratio).Basis(0).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
+		side(ui.Column(c.Key("a")).Grow(ratio).Basis(0), l.A).AlignItems(ui.Stretch).Children(func() {
 			a.layoutNode(c, pal, bar, shown, s, l.A, path+"a", top, left, right && !l.Row)
 		})
 		a.divider(c, pal, s, l, key)
-		ui.Column(c.Key("b")).Grow(1 - ratio).Basis(0).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
+		side(ui.Column(c.Key("b")).Grow(1-ratio).Basis(0), l.B).AlignItems(ui.Stretch).Children(func() {
 			a.layoutNode(c, pal, bar, shown, s, l.B, path+"b", top && l.Row, left && !l.Row, right)
 		})
 	})
@@ -140,16 +211,22 @@ func (a *App) divider(c *ui.Context, pal *palette, s *proto.Session, l *proto.La
 			if r <= 0 || r >= 1 {
 				r = 0.5
 			}
-			l.Ratio = math.Min(math.Max(r+float64(delta/size), 0.12), 0.88)
+			// Neither side smaller than its panes can be.
+			lo := float64((minExtent(l.A, l.Row) + paneGap/2) / size)
+			hi := 1 - float64((minExtent(l.B, l.Row)+paneGap/2)/size)
+			if lo >= hi {
+				lo, hi = 0.5, 0.5
+			}
+			l.Ratio = math.Min(math.Max(r+float64(delta/size), lo), hi)
 			a.layoutDirty = s.ID
 		}
 	} else if a.layoutDirty == s.ID && !d.Pressed() {
 		a.layoutDirty = ""
 		a.call("layout", proto.LayoutParams{Session: s.ID, Layout: s.Layout.Clone()}, nil)
 	}
+	// A double click makes every pane of the session as big as the others.
 	if d.DoubleClicked() {
-		l.Ratio = 0.5
-		a.call("layout", proto.LayoutParams{Session: s.ID, Layout: s.Layout.Clone()}, nil)
+		a.evenPanes(s)
 	}
 }
 
@@ -164,6 +241,10 @@ func (a *App) paneCard(c *ui.Context, pal *palette, bar ui.TitleBar, shown float
 		bg = pal.cardDim
 	}
 	card := ui.Column(c.Key("pane-" + p.ID)).Grow(1).Basis(0).MinWidth(0).MinHeight(0).Radius(14).Clip().Bind(a.paneRef("card-" + p.ID))
+	if a.cardSize == nil {
+		a.cardSize = map[string]ui.Rect{}
+	}
+	a.cardSize[p.ID] = a.paneRef("card-" + p.ID).Bounds(c)
 	raised(card.Background(card.AnimateColor("bg", bg, ui.Animation{Duration: 140 * time.Millisecond})), pal)
 	hovered := card.Hovered()
 	// The card takes presses: one on its padding, beside the terminal,
@@ -195,7 +276,11 @@ func (a *App) paneCard(c *ui.Context, pal *palette, bar ui.TitleBar, shown float
 	dragging := false
 	card.Children(func() {
 		dragging = a.paneHeader(c, pal, bar, shown, s, p, top, left, right, multi, focused, hovered)
-		a.paneTerminal(c, pal, s, p)
+		if p.IsView() {
+			a.viewPane(c, pal, s, p)
+		} else {
+			a.paneTerminal(c, pal, s, p)
+		}
 		if multi {
 			// The panes the user is not in fade, text and all.
 			v := ui.Box(c.Key("veil")).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Background(pal.veil)
@@ -212,6 +297,8 @@ func (a *App) paneCard(c *ui.Context, pal *palette, bar ui.TitleBar, shown float
 	switch {
 	case dragging:
 		pose = ui.Pose{Scale: 0.985, Fade: 0.45}
+	case a.closing[p.ID]:
+		pose = ui.Pose{Scale: 0.96, Fade: 1}
 	case a.arrived[p.ID]:
 		pose = ui.Pose{Scale: 0.94, Fade: 0.7}
 		delete(a.arrived, p.ID)
@@ -343,6 +430,7 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 		a.setFocus(s, p.ID)
 		a.paneRef(p.ID).Focus()
 	}
+	h.ContextMenu(func(m *ui.Menu) { a.paneMenu(m, s, p) })
 	h.Children(func() {
 		if top && left && shown < 0.5 {
 			ui.Row(c).Absolute().Left(a.chrome.buttonsLeft(bar)).Top(0).Bottom(0).AlignItems(ui.Center).Gap(2).Opacity(1 - 2*shown).Children(func() {
@@ -365,18 +453,27 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 			}
 		}
 		grip.Children(func() {
-			if multi {
-				if p.Status != proto.Idle || p.Unread {
-					statusIconP(c, pal, p.Status, p.Unread, p.Progress, 13)
-				} else {
-					ui.Icon(c, terminalIcon).Size(14, 14).TextColor(pal.textFaint)
-				}
+			switch {
+			case p.IsView():
+				ui.Icon(c, paneViewIcon(p.View)).Size(14, 14).TextColor(pal.textMuted)
+			case multi && (p.Status != proto.Idle || p.Unread):
+				statusIconP(c, pal, p.Status, p.Unread, p.Progress, 13)
+			case multi:
+				ui.Icon(c, terminalIcon).Size(14, 14).TextColor(pal.textFaint)
 			}
 			title, size := p.PaneName(), float32(13.5)
 			if !multi {
 				title, size = s.DisplayName(), 14
 			}
+			if p.IsView() {
+				title, size = paneViewName(p.View), 13.5
+			}
 			name := ui.Text(c, title).FontSize(size).FontWeight(600).TextColor(pal.text).SingleLine().Ellipsis("…").Shrink(1).MinWidth(30)
+			if p.IsView() {
+				// A view's name is short, and says what the pane is: what
+				// it shows beside gives way first.
+				name.Shrink(0)
+			}
 			if multi && !focused && !dragging {
 				name.TextColor(pal.textMuted)
 			}
@@ -384,8 +481,12 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 				a.startRename(s.ID)
 			}
 			// The home directory names itself "~", which the title may
-			// already say.
-			if dir := proto.ShortDir(p.WorkDir()); dir != title {
+			// already say. A view says what it shows.
+			if p.IsView() {
+				if sub := a.viewSubtitle(s, p); sub != "" {
+					ui.Text(c, sub).FontSize(13).TextColor(pal.textFaint).SingleLine().Ellipsis("…").Shrink(2).MinWidth(0)
+				}
+			} else if dir := proto.ShortDir(p.WorkDir()); dir != title {
 				ui.Text(c, dir).FontSize(13).TextColor(pal.textFaint).SingleLine().Ellipsis("…").Shrink(2).MinWidth(0)
 			}
 		})
@@ -396,13 +497,16 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 		if top {
 			gap.DragWindow()
 		}
-		a.paneChips(c, pal, p)
+		if !p.IsView() {
+			a.paneChips(c, pal, p)
+		}
 		show := (hovered || focused && multi) && !dragging
 		ctl := ui.Row(c.Key("controls")).Gap(0).AlignItems(ui.Center)
 		ctl.Opacity(ctl.Animate("shown", b2f(show), 120*time.Millisecond)).Children(func() {
 			if !show {
 				return
 			}
+			iconButton(c, "new-pane", plusIcon, a.tip(locales.PaneNewButton(), "pane.new"), pal, func() { a.openChooser(p.ID) })
 			iconButton(c, "split-r", splitRightIcon, a.tip(locales.ActionSplitRight(), "pane.split.right"), pal, func() { a.splitPane(s, p.ID, "right") })
 			iconButton(c, "split-d", splitDownIcon, a.tip(locales.ActionSplitDown(), "pane.split.down"), pal, func() { a.splitPane(s, p.ID, "down") })
 			if multi {
@@ -421,6 +525,44 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 		}
 	})
 	return dragging
+}
+
+// paneMenu is a pane header's menu: another pane beside it, or another
+// view in it.
+func (a *App) paneMenu(m *ui.Menu, s *proto.Session, p *proto.Pane) {
+	sid, pid := s.ID, p.ID
+	later := func(fn func(s *proto.Session)) {
+		a.defer_(func() {
+			if s := a.session(sid); s != nil {
+				fn(s)
+			}
+		})
+	}
+	if a.menuShortcut(m.Item(locales.ActionNewPane()), "pane.new").Chosen() {
+		a.openChooser(pid)
+	}
+	if a.menuShortcut(m.Item(locales.ActionSplitRight()), "pane.split.right").Chosen() {
+		later(func(s *proto.Session) { a.splitPane(s, pid, "right") })
+	}
+	if a.menuShortcut(m.Item(locales.ActionSplitDown()), "pane.split.down").Chosen() {
+		later(func(s *proto.Session) { a.splitPane(s, pid, "down") })
+	}
+	m.Submenu(locales.PaneShow(), func(m *ui.Menu) {
+		other := tasksPaneOf(s)
+		for _, k := range paneKinds {
+			view := k.view
+			taken := view == proto.PaneTasks && other != nil && other.ID != pid
+			if m.Item(paneViewName(view)).Checked(p.View == view).Disabled(taken || p.View == view).Chosen() {
+				later(func(s *proto.Session) { a.showInPane(s, pid, view, true) })
+			}
+		}
+	})
+	if len(s.Panes) > 1 {
+		m.Separator()
+		if a.menuShortcut(m.Item(locales.PaneClose()), "pane.close").Chosen() {
+			later(func(s *proto.Session) { a.closePane(s, pid, true) })
+		}
+	}
 }
 
 func (a *App) paneChips(c *ui.Context, pal *palette, p *proto.Pane) {
@@ -524,13 +666,30 @@ func (a *App) paneTerminal(c *ui.Context, pal *palette, s *proto.Session, p *pro
 // --- pane actions ---
 
 func (a *App) splitPane(s *proto.Session, at, direction string) {
-	if a.cl == nil || s == nil {
+	a.splitView(s, at, direction, "")
+}
+
+// splitView splits the pane at, the focused one when "", with a pane
+// showing view: a terminal when "".
+func (a *App) splitView(s *proto.Session, at, direction, view string) {
+	if s == nil {
 		return
 	}
 	if at == "" {
 		at = a.focusOf(s)
 	}
-	p := proto.CreateParams{Split: at, Direction: direction}
+	// Two panes where one is must each be a pane still.
+	if b, ok := a.cardSize[at]; ok && b.W > 0 && s.Zoomed == "" {
+		across := direction == "right" || direction == "left"
+		if across && b.W < 2*minPaneW+paneGap || !across && b.H < 2*minPaneH+paneGap {
+			a.toast(locales.PaneNoRoom())
+			return
+		}
+	}
+	if a.cl == nil {
+		return
+	}
+	p := proto.CreateParams{Split: at, Direction: direction, View: view}
 	if pane := s.PaneByID(at); pane != nil {
 		p.Cols, p.Rows = pane.Cols, pane.Rows
 		if direction == "down" || direction == "up" {
@@ -548,18 +707,35 @@ func (a *App) splitPane(s *proto.Session, at, direction string) {
 				a.toast(err.Error())
 				return
 			}
-			a.replaceSession(ns)
-			if cur := a.session(ns.ID); cur != nil {
-				if a.focus == nil {
-					a.focus = map[string]string{}
-				}
-				a.focus[ns.ID] = ns.Focus
-				a.ensureTerm(ns.Focus)
-				a.touch(ns.Focus)
-				a.paneRef(ns.Focus).Focus()
-			}
+			a.focusNew(ns)
 		})
 	}()
+}
+
+// focusNew puts a session kerod answered with a new pane into the state,
+// and focuses the pane.
+func (a *App) focusNew(ns proto.Session) {
+	// The pane new to the layout springs in; one beside the others grows
+	// from its edge, where one in another's place does not.
+	if old := a.session(ns.ID); old != nil && old.PaneByID(ns.Focus) == nil {
+		a.arrived[ns.Focus] = true
+		if len(ns.Panes) > len(old.Panes) {
+			if a.growing == nil {
+				a.growing = map[string]bool{}
+			}
+			a.growing[ns.Focus] = true
+		}
+	}
+	a.replaceSession(ns)
+	if cur := a.session(ns.ID); cur != nil {
+		if a.focus == nil {
+			a.focus = map[string]string{}
+		}
+		a.focus[ns.ID] = ns.Focus
+		a.ensureTerm(ns.Focus)
+		a.touch(ns.Focus)
+		a.paneRef(ns.Focus).Focus()
+	}
 }
 
 // replaceSession puts a session as kerod answered into the state, before
@@ -602,6 +778,45 @@ func (a *App) closePane(s *proto.Session, pane string, ask bool) {
 		}
 		return
 	}
+	// A pane beside others gives its room back first, as they glide into
+	// it.
+	if a.win != nil && s.Layout != nil && s.Zoomed == "" && !a.closing[pane] {
+		if a.closing == nil {
+			a.closing = map[string]bool{}
+		}
+		a.closing[pane] = true
+		// The keyboard goes to the neighbor at once: not to what ends.
+		if a.focusOf(s) == pane {
+			for _, dir := range []string{"left", "up", "right", "down"} {
+				if n := s.Layout.Neighbor(pane, dir); n != "" && !a.closing[n] {
+					a.setFocus(s, n)
+					a.paneRef(n).Focus()
+					break
+				}
+			}
+		}
+		sid := s.ID
+		time.AfterFunc(layoutMotion.Duration, func() {
+			a.update(func() {
+				delete(a.closing, pane)
+				if s := a.session(sid); s != nil {
+					a.removePane(s, pane)
+				}
+			})
+		})
+		return
+	}
+	if a.closing[pane] {
+		return
+	}
+	a.removePane(s, pane)
+}
+
+// removePane takes a pane out of its session, and ends it.
+func (a *App) removePane(s *proto.Session, pane string) {
+	if s.PaneByID(pane) == nil {
+		return
+	}
 	// The neighbor taking the room takes the focus, as kerod does.
 	if a.focusOf(s) == pane && s.Layout != nil {
 		for _, dir := range []string{"left", "up", "right", "down"} {
@@ -627,6 +842,15 @@ func (a *App) closePane(s *proto.Session, pane string, ask bool) {
 	a.dropTerm(pane)
 	a.call("pane.close", proto.IDParams{ID: pane}, nil)
 	a.focusTerminal()
+}
+
+// evenPanes gives the panes of a session even room, gliding there.
+func (a *App) evenPanes(s *proto.Session) {
+	if s == nil || s.Layout == nil || s.Layout.Leaf() {
+		return
+	}
+	s.Layout = s.Layout.Equalized()
+	a.call("layout", proto.LayoutParams{Session: s.ID, Layout: s.Layout.Clone()}, nil)
 }
 
 func (a *App) zoomPane(s *proto.Session, pane string) {

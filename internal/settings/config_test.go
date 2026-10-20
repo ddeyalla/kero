@@ -136,3 +136,37 @@ func TestMigratesSettingsJSON(t *testing.T) {
 		t.Error("settings.json stayed")
 	}
 }
+
+// The Linear keys read back, a refresh shorter than Linear's quota allows
+// is raised to the floor, and a bad choice keeps the default.
+func TestLinearKeys(t *testing.T) {
+	s, probs := parse("linear-sidebar = false\nlinear-refresh-interval = 60\nlinear-empty-columns = shown\nlinear-card-density = compact\n")
+	if len(probs) != 0 {
+		t.Fatalf("problems %q", probs)
+	}
+	if s.LinearSidebar || s.LinearRefresh != 60 || s.LinearEmptyColumns != "shown" || s.LinearDensity != "compact" {
+		t.Fatalf("parsed %+v", s)
+	}
+	back, _ := parse(format(s, ""))
+	if !reflect.DeepEqual(back, s) {
+		t.Errorf("read back %+v, want %+v", back, s)
+	}
+
+	s, _ = parse("linear-refresh-interval = 2\n")
+	if s.LinearRefresh != LinearMinRefresh {
+		t.Errorf("refresh %d, want the floor %d", s.LinearRefresh, LinearMinRefresh)
+	}
+	s, _ = parse("linear-refresh-interval = 99999\n")
+	if s.LinearRefresh != 300 {
+		t.Errorf("refresh %d, want the ceiling 300", s.LinearRefresh)
+	}
+
+	d := Default()
+	s, probs = parse("linear-empty-columns = sideways\nlinear-card-density = tiny\nlinear-sidebar = sometimes\n")
+	if s.LinearEmptyColumns != d.LinearEmptyColumns || s.LinearDensity != d.LinearDensity || s.LinearSidebar != d.LinearSidebar {
+		t.Errorf("bad values changed settings: %+v", s)
+	}
+	if len(probs) != 3 {
+		t.Errorf("problems %q", probs)
+	}
+}

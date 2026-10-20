@@ -180,6 +180,13 @@ var keys = []key{
 	boolKey("dock-bounce", "once, when a session comes to need you", func(s *Settings) *bool { return &s.BounceDock }),
 
 	boolKey("remote-control", "kero do and kero focus drive the app", func(s *Settings) *bool { return &s.RemoteControl }),
+
+	boolKey("linear-sidebar", "the Linear workspace's row in the sidebar", func(s *Settings) *bool { return &s.LinearSidebar }),
+	numberKey("linear-refresh-interval", "seconds between reads of what changed in Linear, 15 to 300: the whole workspace is read every five minutes anyway",
+		func(s *Settings) float64 { return float64(s.LinearRefresh) },
+		func(s *Settings, n float64) { s.LinearRefresh = int(min(max(n, LinearMinRefresh), 300)) }),
+	choiceKey("linear-empty-columns", "the board's states with no issues", func(s *Settings) *string { return &s.LinearEmptyColumns }, "collapsed", "shown", "hidden"),
+	choiceKey("linear-card-density", "the board's cards", func(s *Settings) *string { return &s.LinearDensity }, "comfortable", "compact"),
 	{name: "keybind", doc: "<keys>=<action>, over the defaults, as cmd+shift+d=pane.split.down; <keys>=unbind frees keys; see kero actions", list: true,
 		get: func(s *Settings) []string {
 			var out []string

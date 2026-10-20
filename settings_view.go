@@ -45,6 +45,7 @@ var settingsPages = []settingsPage{
 	{"notifications", locales.PageNotifications, glyph("f7-bell")},
 	{"keyboard", locales.PageKeyboard, glyph("f7-keyboard")},
 	{"agents", locales.PageAgents, glyph("f7-sparkles")},
+	{"linear", locales.LinearPage, trayIcon},
 	{"advanced", locales.PageAdvanced, glyph("f7-slider-horizontal-3")},
 }
 
@@ -261,6 +262,8 @@ func (a *App) settingsView(c *ui.Context) {
 								a.keyboardPage(c, pal)
 							case "agents":
 								a.agentsPage(c, pal)
+							case "linear":
+								a.linearPage(c, pal)
 							case "advanced":
 								a.advancedPage(c, pal)
 							}
@@ -864,46 +867,86 @@ func (a *App) agentsPage(c *ui.Context, pal *palette) {
 	})
 	settingsGroup(c, pal, locales.SetProgramStatus(), locales.SetProgramStatusDetail(), nil)
 	codeBlock(c, pal, "kero report working \"Deploying\" --progress 40\nkero report blocked \"Approve the migration?\" --kind permission\nkero report done \"Deployed\"")
-	a.linearSettings(c, pal)
 }
 
-// linearSettings is the Linear workspace's own settings: the key, and
-// what the daemon made of it.
-func (a *App) linearSettings(c *ui.Context, pal *palette) {
-	lin := a.st.Linear
-	detail := locales.LinearApiKeyDetail()
-	switch {
-	case lin == nil:
-		detail = locales.LinearStatusNoToken()
-	case lin.Status == proto.LinearOK:
-		detail = fmt.Sprintf("%s · %d %s · %d %s",
-			locales.LinearStatusOk(), len(lin.Projects), locales.LinearProjects(), len(lin.Issues), locales.LinearIssues())
-	case lin.Status == proto.LinearAuthFailed:
-		detail = locales.LinearStatusAuthFailed()
-	case lin.Status == proto.LinearRateLimited:
-		detail = locales.LinearStatusRateLimited()
-	case lin.Status == proto.LinearNoToken:
-		detail = locales.LinearStatusNoToken()
-	default:
-		detail = locales.LinearStatusUnreachable()
-	}
-	settingsGroup(c, pal, locales.LinearGroup(), locales.LinearGroupDetail(), func() {
-		settingRow(c, pal, locales.LinearApiKey(), detail, func() {
-			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+// linearPage is the Linear workspace's own settings: the key, and what
+// the daemon made of it; then how the board shows the workspace.
+func (a *App) linearPage(c *ui.Context, pal *palette) {
+	s := &a.set
+	settingsGroup(c, pal, locales.SetLinearWorkspace(), locales.LinearGroupDetail(), func() {
+		settingRow(c, pal, locales.LinearApiKey(), a.linearKeyDetail(), func() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.TextInput(c.Key("linear-key"), &a.ss.linearKey).Password().Label(locales.LinearApiKey()).
-					Placeholder("lin_api_…").Grow(1).MinWidth(0)
-				if ui.Button(c, "Save Linear key").Disabled(a.ss.linearSaving || strings.TrimSpace(a.ss.linearKey) == "").Clicked() {
+					Placeholder("lin_api_…").Width(150)
+				if button(c, "linear-key-save", locales.SetLinearKeySave(), "", true, pal) &&
+					!a.ss.linearSaving && strings.TrimSpace(a.ss.linearKey) != "" {
 					a.saveLinearKey(a.ss.linearKey)
-				}
-				if ui.Button(c, "Remove Linear key").Disabled(a.ss.linearSaving).Clicked() {
-					a.saveLinearKey("")
 				}
 			})
 		})
-		if a.ss.linearNotice != "" {
-			ui.Text(c, a.ss.linearNotice).FontSize(11).TextColor(pal.textFaint)
+		if a.st.Linear != nil && a.st.Linear.Status != proto.LinearNoToken || a.ss.linearNotice != "" {
+			ui.Row(c).Padding(0, 0, 11, 0).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, a.ss.linearNotice).FontSize(12).TextColor(pal.textMuted).Grow(1).MinWidth(0)
+				if a.st.Linear != nil && a.st.Linear.Status != proto.LinearNoToken &&
+					button(c, "linear-key-remove", locales.SetLinearKeyRemove(), "", false, pal) && !a.ss.linearSaving {
+					a.saveLinearKey("")
+				}
+			})
 		}
 	})
+	settingsGroup(c, pal, locales.SetLinearBoard(), "", func() {
+		settingRow(c, pal, locales.SetLinearSidebar(), locales.SetLinearSidebarDetail(), func() {
+			toggle(c.Key("linear-sidebar"), &s.LinearSidebar, pal)
+		})
+		settingRow(c, pal, locales.SetLinearRefresh(), locales.SetLinearRefreshDetail(), func() {
+			intervals := []int{15, 30, 60, 300}
+			if !slices.Contains(intervals, s.LinearRefresh) {
+				intervals = append(intervals, s.LinearRefresh)
+				slices.Sort(intervals)
+			}
+			popup(c, "linear-refresh", &s.LinearRefresh, intervals, linearIntervalName, 140, pal)
+		})
+		settingRow(c, pal, locales.SetLinearEmptyColumns(), locales.SetLinearEmptyColumnsDetail(), func() {
+			popup(c, "linear-empty", &s.LinearEmptyColumns, []string{"collapsed", "shown", "hidden"}, func(id string) string {
+				return map[string]string{
+					"collapsed": locales.SetLinearEmptyCollapsed(),
+					"shown":     locales.SetLinearEmptyShown(),
+					"hidden":    locales.SetLinearEmptyHidden(),
+				}[id]
+			}, 140, pal)
+		})
+		settingRow(c, pal, locales.SetLinearDensity(), locales.SetLinearDensityDetail(), func() {
+			segmented(c, "linear-density", &s.LinearDensity, []string{"comfortable", "compact"},
+				[]string{locales.SetLinearComfortable(), locales.SetLinearCompact()})
+		})
+	})
+}
+
+// linearIntervalName is a wait between reads of the workspace, as the
+// pop-up names it: "Every 30s", "Every 5 min".
+func linearIntervalName(seconds int) string {
+	d := strconv.Itoa(seconds) + "s"
+	if seconds >= 60 && seconds%60 == 0 {
+		d = strconv.Itoa(seconds/60) + " min"
+	}
+	return locales.SetLinearRefreshEvery(d)
+}
+
+// linearKeyDetail is what the daemon made of the Linear key.
+func (a *App) linearKeyDetail() string {
+	lin := a.st.Linear
+	switch {
+	case lin == nil, lin.Status == proto.LinearNoToken:
+		return locales.LinearStatusNoToken()
+	case lin.Status == proto.LinearOK:
+		return fmt.Sprintf("%s · %d %s · %d %s",
+			locales.LinearStatusOk(), len(lin.Projects), locales.LinearProjects(), len(lin.Issues), locales.LinearIssues())
+	case lin.Status == proto.LinearAuthFailed:
+		return locales.LinearStatusAuthFailed()
+	case lin.Status == proto.LinearRateLimited:
+		return locales.LinearStatusRateLimited()
+	}
+	return locales.LinearStatusUnreachable()
 }
 
 // saveLinearKey keeps the Linear key, and asks the daemon to read the

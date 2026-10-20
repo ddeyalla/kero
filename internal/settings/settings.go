@@ -63,6 +63,12 @@ type Settings struct {
 	// Agents
 	RemoteControl bool `json:"remoteControl"` // kero focus and kero do drive the app
 
+	// Linear
+	LinearSidebar      bool   `json:"linearSidebar"`      // the workspace's row in the sidebar
+	LinearRefresh      int    `json:"linearRefresh"`      // seconds between reads of what changed, at least LinearMinRefresh
+	LinearEmptyColumns string `json:"linearEmptyColumns"` // states with no issues: "collapsed", "shown" or "hidden"
+	LinearDensity      string `json:"linearDensity"`      // the board's cards: "comfortable" or "compact"
+
 	// Keyboard: accelerators by action, over the defaults; "" unbinds.
 	Shortcuts map[string]string `json:"shortcuts,omitempty"`
 }
@@ -96,8 +102,17 @@ func Default() Settings {
 		NotifyFailed:    true,
 		DockBadge:       true,
 		RemoteControl:   true,
+
+		LinearSidebar:      true,
+		LinearRefresh:      30,
+		LinearEmptyColumns: "collapsed",
+		LinearDensity:      "comfortable",
 	}
 }
+
+// LinearMinRefresh is the shortest wait between two reads of the Linear
+// workspace, in seconds: Linear allows a key 2 500 requests an hour.
+const LinearMinRefresh = 15
 
 // Languages are the languages the app is written in, as the catalogs of
 // kero/locales name them.

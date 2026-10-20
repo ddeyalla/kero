@@ -26,7 +26,7 @@ const issueFields = `
 const boardQuery = `query Board($team: String!) {
   team(id: $team) {
     id key name
-    states(first: 250) { nodes { id name type position } }
+    states(first: 250) { nodes { id name type position color } }
   }
 }`
 

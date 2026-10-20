@@ -113,6 +113,8 @@ func (a *App) view(c *ui.Context) {
 		})
 	})
 	a.paletteView(c, pal)
+	a.chooserView(c, pal)
+	a.sweepViews()
 	a.usageModal(c, pal)
 	a.confirmView(c, pal)
 	// A preview that showed no more fades in anew next time.
@@ -281,6 +283,9 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 		}
 		if m.Item(locales.SessionRename()).Disabled(id == "").Chosen() {
 			a.startProjectRename(id)
+		}
+		if lin := a.st.Linear; id != "" && lin != nil && len(lin.Projects) > 0 {
+			m.Submenu(locales.ProjectLinear(), func(m *ui.Menu) { a.projectLinearMenu(m, g.project) })
 		}
 		m.Separator()
 		if m.Item(locales.SidebarCloseProjectMenu()).Disabled(id == "").Chosen() {
@@ -665,9 +670,9 @@ func statusIconP(c *ui.Context, pal *palette, st proto.Status, unread bool, prog
 func (a *App) card(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32) {
 	s := a.session(a.selected)
 	if a.show == "linear" && a.conn != connVersion && a.loaded {
-		// The workspace, in the card the app shows.
-		card := raised(ui.Column(c).Grow(1).MinHeight(0).Radius(14).Background(pal.card), pal).Clip()
-		card.Children(func() { a.linearView(c, pal, bar, shown) })
+		// The workspace, in cards of its own: the board, and the issue
+		// open beside it.
+		a.linearView(c, pal, bar, shown)
 		return
 	}
 	if s != nil && a.conn != connVersion && a.loaded {

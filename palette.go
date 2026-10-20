@@ -58,7 +58,7 @@ func (a *App) paletteItems() []paletteItem {
 	for _, act := range actions.All {
 		id := act.ID
 		cmds = append(cmds, paletteItem{title: strings.TrimSuffix(actionTitle(act.ID), "…"), keys: actions.Glyphs(actions.Keys(act, a.set.Shortcuts)),
-			run: func() { a.run(id, nil) }})
+			run: func() { a.run(id, map[string]string{"via": "palette"}) }})
 	}
 	for _, page := range settingsPages {
 		id := page.id
@@ -224,7 +224,7 @@ func (a *App) confirmView(c *ui.Context, pal *palette) {
 
 // shortcuts are the window's keys that no menu item has.
 func (a *App) shortcuts(c *ui.Context) {
-	if a.pal.open || a.confirm != nil || a.usage.open {
+	if a.pal.open || a.chooser.open || a.confirm != nil || a.usage.open {
 		return
 	}
 	keys := []ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5, ui.Key6, ui.Key7, ui.Key8, ui.Key9}

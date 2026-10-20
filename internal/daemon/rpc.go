@@ -84,7 +84,10 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		if p.Session == "" {
 			return nil, errors.New("session.link: which session?")
 		}
-		return true, d.linkSession(p.Session, p.Task)
+		if p.Via == "" {
+			p.Via = "link"
+		}
+		return true, d.linkSession(p.Session, p.Task, p.Via)
 
 	case "create", "split":
 		var p proto.CreateParams
@@ -119,7 +122,7 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		if err := decode(&p); err != nil {
 			return nil, err
 		}
-		pn, err := findPane(p.ID)
+		pn, err := d.findTermPane(p.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -223,7 +226,7 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		if err := decode(&p); err != nil {
 			return nil, err
 		}
-		pn, err := findPane(p.ID)
+		pn, err := d.findTermPane(p.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -235,7 +238,7 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		if err := decode(&p); err != nil {
 			return nil, err
 		}
-		pn, err := findPane(p.ID)
+		pn, err := d.findTermPane(p.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -306,7 +309,7 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		if err := decode(&p); err != nil {
 			return nil, err
 		}
-		pn, err := findPane(p.ID)
+		pn, err := d.findTermPane(p.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -320,7 +323,7 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		if err := decode(&p); err != nil {
 			return nil, err
 		}
-		pn, err := findPane(p.ID)
+		pn, err := d.findTermPane(p.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -341,12 +344,22 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		}
 		pn.mu.Lock()
 		pn.info.AgentSession = as
-		id := pn.info.ID
+		id, task := pn.info.ID, pn.info.TaskID
+		dir := pn.info.Dir
+		if pn.info.ProcessDir != "" {
+			dir = pn.info.ProcessDir
+		}
+		if p.Dir != "" {
+			dir = p.Dir
+		}
 		pn.mu.Unlock()
 		d.changed()
 		d.mu.Lock()
 		sid := pn.sid
 		d.mu.Unlock()
+		// A conversation that begins on a linked task, of any harness, is
+		// logged: one more run, or the one its pane began.
+		d.taskStart(task, proto.TaskRun{Agent: p.Agent, ID: p.Session, Session: sid, Pane: id, Dir: dir})
 		return proto.AgentSessionResult{Pane: id, Session: sid, Away: away}, nil
 
 	case "project.create":
@@ -393,6 +406,38 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		d.mu.Unlock()
 		d.changed()
 		return true, nil
+
+	case "pane.target":
+		var p proto.TargetParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		pn, err := findPane(p.Pane)
+		if err != nil {
+			return nil, err
+		}
+		if !pn.isView() {
+			return nil, fmt.Errorf("pane %s is a terminal", pn.info.ID)
+		}
+		pn.mu.Lock()
+		pn.info.Target = p.Target
+		pn.mu.Unlock()
+		d.changed()
+		return true, nil
+
+	case "pane.replace":
+		var p proto.CreateParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		return d.replacePane(p)
+
+	case "project.linear":
+		var p proto.ProjectLinearParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		return true, d.setProjectLinear(p.Project, p.LinearProject)
 
 	case "project.move":
 		var p proto.MoveProjectParams

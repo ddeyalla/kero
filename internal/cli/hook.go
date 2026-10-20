@@ -158,8 +158,48 @@ func hookContext(c *client.Client, pane, sid string, away bool) string {
 				"in a few words joined by dashes, so the user finds it in Kero's sidebar: `kero rename %s fix-login-redirect`. "+
 				"Do it once, without asking or mentioning it.", sid)
 		}
+		b.WriteString(taskContext(&st, s))
 	}
 	return b.String()
+}
+
+// taskContext is what the hook tells an agent of the user's tracker: the
+// issue its session works on, or, when none, that work starts from an
+// issue it links with kero task start. Any harness can run the command;
+// the hook only tells those that have one. "" when Linear is not read.
+func taskContext(st *proto.State, s proto.Session) string {
+	lin := st.Linear
+	if lin == nil || len(lin.Issues) == 0 {
+		return ""
+	}
+	for _, p := range s.Panes {
+		if p.TaskID == "" {
+			continue
+		}
+		for _, i := range lin.Issues {
+			if i.ID == p.TaskID || i.Identifier == p.TaskID {
+				return fmt.Sprintf(" This session works on the Linear issue %s (%q), now %s: leave the link alone. "+
+					"Move the issue on as the work does, as `kero linear set-state %s \"In Review\"`.",
+					i.Identifier, i.Title, i.State, i.Identifier)
+			}
+		}
+	}
+	where := "Linear"
+	if name := sessionLinearProject(st, s.ID); name != "" {
+		where = fmt.Sprintf("the Linear project %q", name)
+	}
+	shape := lin.Team + "-<number>"
+	if lin.Team == "" {
+		shape = "TEAM-<number>"
+	}
+	// The commands name no issue: an example of a real one is one an
+	// agent could run as it stands.
+	return fmt.Sprintf(" The user tracks work in %s: a task starts as an issue there. As soon as you know your task, find its issue, "+
+		"named in the prompt (issue ids look like %s) or in `kero task list`, and before you begin run `kero task start <issue-id> --session %s`: "+
+		"it links this session to the issue, moves it to In Progress and prints the branch to work on. "+
+		"If no issue matches the task, ask the user which one it is; don't create one. "+
+		"Move the issue on as the work does, as `kero linear set-state <issue-id> \"In Review\"`.",
+		where, shape, s.ID)
 }
 
 // integration is what kero installs in an agent, beside its skill, to

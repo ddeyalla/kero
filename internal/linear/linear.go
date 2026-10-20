@@ -80,6 +80,7 @@ type State struct {
 	Name     string  `json:"name"`
 	Type     string  `json:"type"`
 	Position float64 `json:"position"`
+	Color    string  `json:"color,omitempty"`
 }
 
 // User is a person of the workspace.

@@ -58,7 +58,7 @@ func TestLinearRealShot(t *testing.T) {
 	a.selected = ""
 	lin := &proto.LinearState{Status: proto.LinearOK, Team: snap.Team.Key, TeamName: snap.Team.Name}
 	for _, s := range snap.Team.States {
-		lin.States = append(lin.States, proto.LinearWorkflowState{ID: s.ID, Name: s.Name, Type: s.Type, Position: s.Position})
+		lin.States = append(lin.States, proto.LinearWorkflowState{ID: s.ID, Name: s.Name, Type: s.Type, Position: s.Position, Color: s.Color})
 	}
 	for _, p := range snap.Projects {
 		lp := proto.LinearProject{ID: p.ID, Name: p.Name, Status: p.Status.Type, Progress: p.Progress}
@@ -116,7 +116,9 @@ func TestLinearRealShot(t *testing.T) {
 					State: d.State.Name, StateType: d.State.Type,
 					Project:   projectName(d),
 					Milestone: milestoneName(d),
+					UpdatedAt: d.UpdatedAt.UnixMilli(),
 				},
+				BranchName:  d.BranchName,
 				Description: d.Description,
 			}
 			for _, cm := range d.Comments {

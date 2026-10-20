@@ -2,16 +2,23 @@ package daemon
 
 import (
 	"encoding/json"
+	"io"
 	"kero/internal/linear"
 	"kero/internal/proto"
+	"log"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func linearTestDaemon(t *testing.T) *Daemon {
 	t.Helper()
-	d := &Daemon{dir: t.TempDir(), panes: map[string]*pane{}, changeCh: make(chan struct{}, 1), saveCh: make(chan struct{}, 1)}
+	// No key, so that nothing reaches Linear: an issue not cached fails.
+	t.Setenv("KERO_HOME", t.TempDir())
+	t.Setenv("KERO_CONFIG", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("LINEAR_API_KEY", "")
+	d := &Daemon{log: log.New(io.Discard, "", 0), dir: t.TempDir(), panes: map[string]*pane{}, changeCh: make(chan struct{}, 1), saveCh: make(chan struct{}, 1)}
 	d.linear = &proto.LinearState{Status: proto.LinearOK, Team: "BRU", Issues: []proto.LinearIssue{{ID: "uuid", Identifier: "BRU-25", Title: "Task"}}}
 	p := &pane{info: proto.Pane{ID: "p", Status: proto.Working, Progress: 40, AgentSession: &proto.AgentSession{Agent: "codex", ID: "resume-id"}}}
 	d.panes["p"] = p
@@ -21,7 +28,7 @@ func linearTestDaemon(t *testing.T) *Daemon {
 
 func TestLinearLinkUnlinkAndPersistedIdentity(t *testing.T) {
 	d := linearTestDaemon(t)
-	if err := d.linkSession("s", "uuid"); err != nil {
+	if err := d.linkSession("s", "uuid", "link"); err != nil {
 		t.Fatal(err)
 	}
 	got := d.linearState().Issues[0]
@@ -37,19 +44,19 @@ func TestLinearLinkUnlinkAndPersistedIdentity(t *testing.T) {
 	if err := json.Unmarshal(b, &saved); err != nil {
 		t.Fatal(err)
 	}
-	if saved.Sessions[0].Panes[0].Task != "BRU-25" || saved.Linear == nil {
+	if saved.Sessions[0].Panes[0].Task != "uuid" || saved.Linear == nil {
 		t.Fatal("task link or offline cache not persisted")
 	}
-	if err := d.linkSession("s", ""); err != nil {
+	if err := d.linkSession("s", "", "link"); err != nil {
 		t.Fatal(err)
 	}
 	if got := d.linearState().Issues[0]; got.Session != "" {
 		t.Fatal("unlink retained session")
 	}
-	if err := d.linkSession("s", "BRU-9999"); err == nil {
+	if err := d.linkSession("s", "BRU-9999", "link"); err == nil {
 		t.Fatal("unknown issue accepted")
 	}
-	if err := d.linkSession("missing", "BRU-25"); err == nil {
+	if err := d.linkSession("missing", "BRU-25", "link"); err == nil {
 		t.Fatal("unknown session accepted")
 	}
 }
@@ -82,5 +89,20 @@ func TestLinearFailureRetainsOfflineCache(t *testing.T) {
 	d.linearFailed(prev, os.ErrDeadlineExceeded)
 	if d.linear.Status != proto.LinearUnreachable || len(d.linear.Issues) != 1 || d.linear.Issues[0].Identifier != "BRU-25" {
 		t.Fatal("failed request erased cache")
+	}
+}
+
+// The wait between reads follows the setting, within Linear's quota.
+func TestLinearIntervalFollowsTheSetting(t *testing.T) {
+	for seconds, want := range map[int]time.Duration{
+		0:     linearPoll,
+		5:     15 * time.Second,
+		60:    time.Minute,
+		300:   5 * time.Minute,
+		99999: linearSlow,
+	} {
+		if got := linearInterval(seconds); got != want {
+			t.Errorf("linearInterval(%d) = %v, want %v", seconds, got, want)
+		}
 	}
 }

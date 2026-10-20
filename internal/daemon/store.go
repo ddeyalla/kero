@@ -2,9 +2,10 @@ package daemon
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"time"
 
 	"kero/internal/proto"
@@ -22,6 +23,9 @@ type savedState struct {
 	Sessions []savedSession     `json:"sessions"`
 	Saved    int64              `json:"saved"`
 	Linear   *proto.LinearState `json:"linear,omitempty"`
+	// Tasks are the conversations that worked on each task, by the
+	// issue's id: what outlives the sessions, to resume.
+	Tasks map[string]*taskLog `json:"tasks,omitempty"`
 }
 
 type savedSession struct {
@@ -33,10 +37,16 @@ type savedSession struct {
 	Layout     *proto.Layout `json:"layout,omitempty"`
 	Focus      string        `json:"focus,omitempty"`
 	Panes      []savedPane   `json:"panes"`
+	// Unlinked are the issues the user unlinked the session from, which
+	// its branch does not link it to again.
+	Unlinked []string `json:"unlinked,omitempty"`
 }
 
 type savedPane struct {
-	ID      string   `json:"id"`
+	ID string `json:"id"`
+	// View and Target are a view's (proto.Pane.View).
+	View    string   `json:"view,omitempty"`
+	Target  string   `json:"target,omitempty"`
 	Dir     string   `json:"dir,omitempty"`
 	Command []string `json:"command,omitempty"`
 	// Agent is the agent's session that ran in it, to resume.
@@ -74,16 +84,20 @@ func (d *Daemon) saveState() {
 	d.mu.Lock()
 	st := savedState{Version: 2, Projects: d.projects, Saved: time.Now().UnixMilli(), Linear: d.linear}
 	for _, s := range d.sessions {
-		ss := savedSession{ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed, Created: s.created, Layout: s.layout, Focus: s.focus}
+		ss := savedSession{ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed, Created: s.created, Layout: s.layout, Focus: s.focus,
+			Unlinked: slices.Sorted(maps.Keys(s.unlinked))}
 		for _, p := range s.panes {
 			p.mu.Lock()
-			ss.Panes = append(ss.Panes, savedPane{ID: p.info.ID, Dir: p.info.Dir, Command: p.info.Command,
+			ss.Panes = append(ss.Panes, savedPane{ID: p.info.ID, View: p.info.View, Target: p.info.Target, Dir: p.info.Dir, Command: p.info.Command,
 				Agent: p.info.AgentSession, Task: p.info.TaskID, Created: p.info.Created, Cols: p.info.Cols, Rows: p.info.Rows})
 			p.mu.Unlock()
 		}
 		st.Sessions = append(st.Sessions, ss)
 	}
+	d.taskMu.Lock()
+	st.Tasks = d.tasks
 	data, err := json.MarshalIndent(st, "", "  ")
+	d.taskMu.Unlock()
 	d.mu.Unlock()
 	if err != nil {
 		return
@@ -100,6 +114,9 @@ func (d *Daemon) saveHistories(force bool) {
 	}
 	d.mu.Unlock()
 	for _, p := range panes {
+		if p.isView() {
+			continue
+		}
 		if h := p.history(force); h != nil {
 			writeAtomic(d.historyPath(p.info.ID), h)
 		}
@@ -126,7 +143,17 @@ func (d *Daemon) restore() {
 		return
 	}
 	d.linear = st.Linear
+	d.tasks = st.Tasks
 	set := settings.Load()
+	// The conversations of the last daemon end, but those of the panes
+	// restored with their agents resumed, and the stand-ins of the
+	// sessions restored: none runs any more.
+	resumed, sessions := map[string]bool{}, map[string]bool{}
+	defer func() {
+		d.taskEndWhere(func(r proto.TaskRun) bool {
+			return !(r.Pane != "" && resumed[r.Pane] || r.Pane == "" && sessions[r.Session])
+		})
+	}()
 	if !set.RestoreSessions {
 		// The projects stay; the sessions of the last daemon do not.
 		d.projects = st.Projects
@@ -136,6 +163,12 @@ func (d *Daemon) restore() {
 	when := time.UnixMilli(st.Saved).Format("Mon Jan 2 15:04")
 	for _, ss := range st.Sessions {
 		s := &session{id: ss.ID, project: ss.Project, name: ss.Name, agentNamed: ss.AgentNamed, created: ss.Created, restored: true, focus: ss.Focus}
+		for _, t := range ss.Unlinked {
+			if s.unlinked == nil {
+				s.unlinked = map[string]bool{}
+			}
+			s.unlinked[t] = true
+		}
 		for _, sp := range ss.Panes {
 			if !set.ResumeAgents {
 				sp.Agent = nil
@@ -143,6 +176,7 @@ func (d *Daemon) restore() {
 			if p := d.restorePane(s.id, sp, when); p != nil {
 				s.panes = append(s.panes, p)
 				d.panes[p.info.ID] = p
+				resumed[p.info.ID] = sp.Agent != nil
 			}
 		}
 		if len(s.panes) == 0 {
@@ -159,6 +193,7 @@ func (d *Daemon) restore() {
 			}
 		}
 		d.sessions = append(d.sessions, s)
+		sessions[s.id] = true
 		d.log.Printf("session %s restored, %d panes", s.id, len(s.panes))
 	}
 }
@@ -167,6 +202,16 @@ func (d *Daemon) restore() {
 // scrollback, in its directory, with the agent it ran resumed.
 func (d *Daemon) restorePane(sid string, sp savedPane, when string) *pane {
 	now := time.Now().UnixMilli()
+	if sp.View != "" {
+		// A view comes back as it was: nothing ran in it.
+		p, err := newPane(d, sid, proto.Pane{ID: sp.ID, View: sp.View, Target: sp.Target, Dir: sp.Dir, Status: proto.Idle, Since: now,
+			Created: sp.Created, Cols: sp.Cols, Rows: sp.Rows, TaskID: sp.Task})
+		if err != nil {
+			d.log.Printf("restoring %s: %v", sp.ID, err)
+			return nil
+		}
+		return p
+	}
 	p, err := newPane(d, sid, proto.Pane{
 		ID: sp.ID, Dir: sp.Dir, Command: sp.Command, Status: proto.Idle, Since: now,
 		Created: sp.Created, Cols: sp.Cols, Rows: sp.Rows, Restored: true, AgentSession: sp.Agent,
@@ -198,18 +243,8 @@ func (d *Daemon) restorePane(sid string, sp savedPane, when string) *pane {
 // resumeCommand is the command that resumes an agent's session, nil for
 // none.
 func resumeCommand(a *proto.AgentSession) []string {
-	if a == nil || !agentSessionRe.MatchString(a.ID) {
+	if a == nil {
 		return nil
 	}
-	switch a.Agent {
-	case "claude":
-		return []string{"claude", "--resume", a.ID}
-	case "codex":
-		return []string{"codex", "resume", a.ID}
-	case "pi", "opencode":
-		return []string{a.Agent, "--session", a.ID}
-	}
-	return nil
+	return proto.ResumeCommand(a.Agent, a.ID)
 }
-
-var agentSessionRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)

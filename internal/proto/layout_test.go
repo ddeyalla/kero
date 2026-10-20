@@ -66,3 +66,29 @@ func TestLayoutMoveSwap(t *testing.T) {
 		t.Error("a pane moved onto itself")
 	}
 }
+
+// Even panes: a | (b / c) | d gives a, the b-c column and d a third
+// each, and b and c half the column.
+func TestLayoutEqualized(t *testing.T) {
+	var l *Layout
+	l = l.Split("a", "b", "right", 0.8)
+	l = l.Split("b", "d", "right", 0.2)
+	l = l.Split("b", "c", "down", 0.9)
+	before := l.Ratio
+	e := l.Equalized()
+	if l.Ratio != before {
+		t.Fatal("Equalized changed the layout it was given")
+	}
+	if got := e.Ratio; got < 0.33 || got > 0.34 {
+		t.Errorf("a's share %v, want a third", got)
+	}
+	if got := e.B.Ratio; got != 0.5 {
+		t.Errorf("the b-c column's share of the rest %v, want a half", got)
+	}
+	if got := e.B.A.Ratio; got != 0.5 {
+		t.Errorf("b's share of its column %v, want a half", got)
+	}
+	if got := e.B.A.across(false); got != 2 {
+		t.Errorf("the column holds %d panes one above the other, want 2", got)
+	}
+}

@@ -52,6 +52,9 @@ type Daemon struct {
 	linearMu       sync.Mutex // serialize polls and manual refreshes
 	linearRetry    time.Time
 	linearIdentity string
+	// tasks are the conversations that worked on each task (tasks.go).
+	taskMu sync.Mutex
+	tasks  map[string]*taskLog
 
 	viewed   atomic.Pointer[string]
 	changeCh chan struct{}
@@ -126,6 +129,7 @@ func Run() error {
 	go d.saveLoop()
 	go d.tickLoop()
 	go d.linearLoop()
+	go d.branchLoop()
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -494,9 +498,9 @@ func (d *Daemon) serve(conn net.Conn) {
 }
 
 func (d *Daemon) serveAttach(conn net.Conn, r *bufio.Reader, hello proto.Hello, welcome proto.Welcome) {
-	s := d.findPane(hello.Session)
-	if s == nil {
-		welcome.Error = "no session " + hello.Session
+	s, err := d.findTermPane(hello.Session)
+	if err != nil {
+		welcome.Error = err.Error()
 		json.NewEncoder(conn).Encode(welcome)
 		return
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -37,6 +38,9 @@ Usage:
       -r, --ratio <0..1>          the new pane's share (default 0.5)
       -d, --dir <dir>             start it there (default: the pane's)
       -w, --wait                  wait for cmd to end, exit with its status
+      --tasks                     the project's Linear tasks, not a terminal
+      --files [--open <file>]     the project's files, with one open
+      --browser <url>             a web page, as a dev server's
   kero send <target> <text…>    type text into a pane
       -e                          interpret \n \r \t \e \xHH escapes
       --enter                     press Enter after it
@@ -77,7 +81,11 @@ Usage:
       --project <name>          the board of one project
       --milestone <name>        of one milestone
       --state <name>            in one state
-  kero link <session> [BRU-25]  link a session to a Linear issue
+  kero link <session> [issue-id] link a session to a Linear issue
+  kero task start <issue-id>    start on an issue: link this session to
+                                it, and move it to In Progress
+  kero task list [--all]        the open issues of this project's Linear
+                                project
   kero skill setup|status|show|remove
                                 teach coding agents to use kero
   kero daemon status|stop|restart
@@ -94,7 +102,7 @@ ambiguous one), 4 kerod unreachable.
 // Commands lists the subcommands, which main sends here.
 var Commands = []string{"ls", "list", "new", "split", "send", "key", "prompt", "read", "capture", "wait", "status",
 	"rename", "focus", "close", "kill", "restart", "notify", "report", "projects", "skill", "hook", "daemon", "do", "actions", "config",
-	"linear", "link", "usage", "resources", "help", "--help", "-h", "version", "--version"}
+	"linear", "link", "task", "usage", "resources", "help", "--help", "-h", "version", "--version"}
 
 // Errors of exit statuses other than 1.
 var (
@@ -209,6 +217,8 @@ func run(args []string) error {
 		return linearCmd(args)
 	case "link":
 		return linkCmd(args)
+	case "task":
+		return taskCmd(args)
 	case "usage":
 		return accountUsage(args)
 	case "resources":
@@ -298,8 +308,10 @@ func run(args []string) error {
 		return nil
 
 	case "split":
-		f, err := parse(args, map[string]string{"r": "ratio", "ratio": "ratio", "d": "dir", "dir": "dir", "timeout": "timeout", "t": "timeout"},
-			map[string]string{"right": "right", "down": "down", "left": "left", "up": "up", "json": "json", "f": "focus", "focus": "focus", "wait": "wait", "w": "wait"})
+		f, err := parse(args, map[string]string{"r": "ratio", "ratio": "ratio", "d": "dir", "dir": "dir", "timeout": "timeout", "t": "timeout",
+			"browser": "browser", "open": "open"},
+			map[string]string{"right": "right", "down": "down", "left": "left", "up": "up", "json": "json", "f": "focus", "focus": "focus", "wait": "wait", "w": "wait",
+				"tasks": "tasks", "files": "files"})
 		if err != nil {
 			return err
 		}
@@ -318,9 +330,28 @@ func run(args []string) error {
 		if f.set["wait"] && len(command) == 0 {
 			return usageErr("kero split --wait needs a command: kero split --wait -- cmd…")
 		}
+		// A view in place of a terminal: the project's tasks, its files
+		// (one open with --open), or a page.
+		view, target := "", ""
+		switch {
+		case f.set["tasks"]:
+			view = proto.PaneTasks
+		case f.set["files"]:
+			view, target = proto.PaneFiles, f.vals["open"]
+			if target != "" {
+				if abs, err := filepath.Abs(target); err == nil {
+					target = abs
+				}
+			}
+		case f.vals["browser"] != "":
+			view, target = proto.PaneBrowser, f.vals["browser"]
+		}
+		if view != "" && (len(command) > 0 || f.set["wait"]) {
+			return usageErr("a view runs no command")
+		}
 		var s proto.Session
 		if err := c.Call("split", proto.CreateParams{Split: t.ref(), Direction: dir, Ratio: ratio,
-			Dir: f.vals["dir"], Command: command}, &s); err != nil {
+			Dir: f.vals["dir"], Command: command, View: view, Target: target}, &s); err != nil {
 			return err
 		}
 		if f.set["focus"] {

@@ -13,6 +13,7 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -163,6 +164,9 @@ type LinearWorkflowState struct {
 	Name     string  `json:"name"`
 	Type     string  `json:"type"`
 	Position float64 `json:"position"`
+	// Color is the team's own color for the state, as "#f2c94c"; empty
+	// from a daemon that predates it, when the app picks one by Type.
+	Color string `json:"color,omitempty"`
 }
 
 // LinearMilestone is a phase of a project, as M1 Foundation is a phase
@@ -217,6 +221,9 @@ type LinearIssue struct {
 	SessionName   string `json:"sessionName,omitempty"`
 	ResumeID      string `json:"resumeId,omitempty"`
 	SessionStatus Status `json:"sessionStatus,omitempty"`
+	// Sessions is how many sessions work on the issue now; Session is
+	// the one that most needs the user.
+	Sessions int `json:"sessions,omitempty"`
 	// Progress is what a program reported of the work, 0-100, or -1.
 	Progress  int   `json:"progress,omitempty"`
 	CreatedAt int64 `json:"createdAt,omitempty"`
@@ -252,19 +259,73 @@ type LinearIssueDetail struct {
 	Comments    []LinearComment    `json:"comments,omitempty"`
 	Parent      string             `json:"parent,omitempty"`
 	SubIssues   []LinearIssue      `json:"subIssues,omitempty"`
+	// Runs are the conversations that worked on the issue, the latest
+	// first: what resumes each.
+	Runs []TaskRun `json:"runs,omitempty"`
 }
+
+// TaskRun is a conversation that worked on a task: an agent's, in a
+// session's pane, from when it started on the task to when it ended. A
+// session linked while no agent ran in it has a run of no agent.
+type TaskRun struct {
+	// Agent is the harness, as "claude" or "gemini"; ID its own session,
+	// told by its hook, which resumes it: none for a harness without one.
+	Agent       string `json:"agent,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Session     string `json:"session"`
+	SessionName string `json:"sessionName,omitempty"`
+	Pane        string `json:"pane,omitempty"`
+	// Dir is where the agent ran, where its conversation resumes: Claude
+	// Code finds a conversation only from the directory it began in.
+	Dir string `json:"dir,omitempty"`
+	// Via is how the task was linked: "link" by a person or kero link,
+	// "task" by an agent's kero task start, "branch" by the git branch.
+	Via     string `json:"via,omitempty"`
+	Started int64  `json:"started"`
+	Ended   int64  `json:"ended,omitempty"`
+}
+
+// ResumeCommand is the command that resumes an agent's session, nil for
+// none: an agent without a way to, or an id that is not one.
+func ResumeCommand(agent, id string) []string {
+	if !agentSessionRe.MatchString(id) {
+		return nil
+	}
+	switch agent {
+	case "claude":
+		return []string{"claude", "--resume", id}
+	case "codex":
+		return []string{"codex", "resume", id}
+	case "pi", "opencode":
+		return []string{agent, "--session", id}
+	}
+	return nil
+}
+
+var agentSessionRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // Project groups sessions, usually those of one repository.
 type Project struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Dir  string `json:"dir,omitempty"`
+	// LinearProject is the id of the Linear project the repository's
+	// work is tracked in, when one is: what its Tasks pane shows, and
+	// what its agents are told to look in.
+	LinearProject string `json:"linearProject,omitempty"`
 }
 
-// Pane is a terminal the daemon keeps running: a shell in a
-// pseudo-terminal, one of a session's.
+// Pane is a part of a session's layout: a terminal the daemon keeps
+// running, a shell in a pseudo-terminal, or a view of the app's (View),
+// which runs nothing and which the app draws.
 type Pane struct {
-	ID      string   `json:"id"`
+	ID string `json:"id"`
+	// View is what the pane shows: "" a terminal, else a view of the
+	// app's: PaneTasks, PaneFiles or PaneBrowser.
+	View string `json:"view,omitempty"`
+	// Target is what a view shows: the file or folder of a files pane,
+	// the address of a browser's page.
+	Target  string   `json:"target,omitempty"`
 	Title   string   `json:"title,omitempty"` // set by the program (OSC 0/2)
 	Dir     string   `json:"dir,omitempty"`   // the shell's working directory
 	Command []string `json:"command,omitempty"`
@@ -315,6 +376,19 @@ type Pane struct {
 	Rows     int  `json:"rows"`
 	PID      int  `json:"pid,omitempty"`
 }
+
+// The panes that are views of the app's, not terminals.
+const (
+	PaneTasks   = "tasks"   // the Linear issues of the session's project
+	PaneFiles   = "files"   // the project's files, and one file read
+	PaneBrowser = "browser" // a web page
+)
+
+// PaneViews are the views a pane can be.
+var PaneViews = []string{PaneTasks, PaneFiles, PaneBrowser}
+
+// IsView tells a pane that is a view of the app's, not a terminal.
+func (p *Pane) IsView() bool { return p.View != "" }
 
 // AgentSession is a coding agent's session: Claude Code's or Codex's,
 // by its id.
@@ -387,7 +461,16 @@ func urgency(p *Pane) int {
 // needs the user, the focused one among equals.
 func Lead(panes []Pane, focus string) int {
 	best := -1
+	views := true
 	for i := range panes {
+		views = views && panes[i].IsView()
+	}
+	for i := range panes {
+		// A view speaks for a session only of views: its status is no
+		// program's.
+		if panes[i].IsView() && !views {
+			continue
+		}
 		if best < 0 || urgency(&panes[i]) > urgency(&panes[best]) ||
 			urgency(&panes[i]) == urgency(&panes[best]) && panes[i].ID == focus {
 			best = i
@@ -655,14 +738,22 @@ type (
 		Direction string  `json:"direction,omitempty"`
 		Ratio     float64 `json:"ratio,omitempty"`
 
+		// View makes the pane a view of the app's, which runs nothing:
+		// PaneTasks, PaneFiles or PaneBrowser, showing Target.
+		View   string `json:"view,omitempty"`
+		Target string `json:"target,omitempty"`
+
 		Project string   `json:"project,omitempty"` // id or name; "" the first
 		Name    string   `json:"name,omitempty"`
 		Dir     string   `json:"dir,omitempty"` // "" the project's, else home
 		Command []string `json:"command,omitempty"`
 		Env     []string `json:"env,omitempty"`
 		After   string   `json:"after,omitempty"` // put it after this session
-		Cols    int      `json:"cols,omitempty"`
-		Rows    int      `json:"rows,omitempty"`
+		// Task links the new session to a Linear issue from the start,
+		// as BRU-25 or its id: what resuming a task's conversation does.
+		Task string `json:"task,omitempty"`
+		Cols int    `json:"cols,omitempty"`
+		Rows int    `json:"rows,omitempty"`
 	}
 	IDParams struct {
 		ID string `json:"id"`
@@ -740,6 +831,12 @@ type (
 		Name string `json:"name,omitempty"`
 		Dir  string `json:"dir,omitempty"`
 	}
+	// ProjectLinearParams sets the Linear project a project's work is
+	// tracked in, by its id; "" none.
+	ProjectLinearParams struct {
+		Project       string `json:"project"`
+		LinearProject string `json:"linearProject,omitempty"`
+	}
 	MoveProjectParams struct {
 		ID    string `json:"id"`
 		Index int    `json:"index"`
@@ -747,10 +844,18 @@ type (
 	ReadResult struct {
 		Text string `json:"text"`
 	}
+	// TargetParams sets what a view shows, as the page a browser went to.
+	TargetParams struct {
+		Pane   string `json:"pane"`
+		Target string `json:"target"`
+	}
 	// LinkParams binds a session to a Linear issue, or unbinds it.
 	LinkParams struct {
 		Session string `json:"session"`
 		Task    string `json:"task,omitempty"`
+		// Via is who links: "link" (the default) a person or kero link,
+		// "task" an agent's kero task start.
+		Via string `json:"via,omitempty"`
 	}
 	// LinearParams asks about a workspace, or about one issue of it.
 	LinearParams struct {

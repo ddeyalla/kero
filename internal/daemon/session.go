@@ -122,6 +122,10 @@ func newPane(d *Daemon, sid string, info proto.Pane) (*pane, error) {
 	return s, nil
 }
 
+// isView tells a pane that is a view of the app's, which runs nothing.
+// View is set as the pane is made and never changes.
+func (s *pane) isView() bool { return s.info.View != "" }
+
 // start starts the shell, running command first when set.
 func (s *pane) start(command []string, env []string) error {
 	shell := userShell()
@@ -299,11 +303,26 @@ func (s *pane) tick(now time.Time) bool {
 	}
 	if proc == "" && s.info.Process != "" {
 		// The program ended: its live reports go with it, and an agent's
-		// session is no more to resume.
+		// session is no more to resume here; the task's log keeps it.
 		s.dropLive()
 		if s.info.AgentSession != nil {
 			s.info.AgentSession = nil
 			s.d.save()
+		}
+	}
+	if agent != s.info.Agent && s.info.TaskID != "" {
+		// On a linked task, an agent that ends ends its run, and one that
+		// starts, of whatever harness, begins one: its hook, when it has
+		// one, tells its session after.
+		if s.info.Agent != "" {
+			s.d.taskEnd(s.info.ID)
+		}
+		if agent != "" {
+			dir := procCwd(pg)
+			if dir == "" {
+				dir = s.info.Dir
+			}
+			s.d.taskStart(s.info.TaskID, proto.TaskRun{Agent: agent, Session: s.sid, Pane: s.info.ID, Dir: dir})
 		}
 	}
 	if proc != s.info.Process || agent != s.info.Agent {
@@ -572,6 +591,9 @@ func (s *pane) exited(proc *ptyProc) {
 
 // restart starts a shell again in a session that exited.
 func (s *pane) restart() error {
+	if s.isView() {
+		return fmt.Errorf("pane %s is a %s view, not a terminal", s.info.ID, s.info.View)
+	}
 	s.mu.Lock()
 	if s.proc != nil {
 		s.mu.Unlock()

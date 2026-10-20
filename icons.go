@@ -45,4 +45,33 @@ var (
 	unzoomIcon      = glyph("f7-arrow-down-right-arrow-up-left")
 	closeIcon       = glyph("f7-xmark")
 	swapIcon        = glyph("f7-arrow-right-arrow-left")
+
+	// The Linear workspace's: the tray it is in the sidebar and Settings,
+	// and the marks of what an issue has and what can be done with it.
+	trayIcon      = glyph("f7-tray-fill")
+	refreshIcon   = glyph("f7-arrow-clockwise")
+	boardIcon     = glyph("f7-rectangle-split-3x1")
+	listIcon      = glyph("f7-list-bullet")
+	externalIcon  = glyph("f7-arrow-up-right-square")
+	copyIcon      = glyph("f7-doc-on-doc")
+	linkIcon      = glyph("f7-link")
+	milestoneIcon = glyph("f7-suit-diamond")
+	projectIcon   = glyph("f7-cube")
+	attachIcon    = glyph("f7-paperclip")
+	docIcon       = glyph("f7-doc-text")
+	filterIcon    = glyph("f7-line-horizontal-3-decrease")
+	blockingIcon  = glyph("f7-arrow-turn-down-right")
+	subIssueIcon  = glyph("f7-list-bullet-indent")
+	backIcon      = glyph("f7-chevron-left")
+
+	// The panes that are views: the project's files and a web page, and
+	// what they show and do.
+	filesIcon   = glyph("f7-folder-fill")
+	globeIcon   = glyph("f7-globe")
+	fileIcon    = glyph("f7-doc")
+	imageIcon   = glyph("f7-photo")
+	goBackIcon  = glyph("f7-arrow-left")
+	goFwdIcon   = glyph("f7-arrow-right")
+	previewIcon = glyph("f7-eye")
+	sourceIcon  = glyph("f7-chevron-left-slash-chevron-right")
 )

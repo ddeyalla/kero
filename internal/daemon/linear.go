@@ -3,13 +3,16 @@ package daemon
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"kero/internal/linear"
 	"kero/internal/proto"
+	"kero/internal/settings"
 )
 
 // The daemon reads the Linear workspace, so that the app can show the
@@ -38,8 +41,12 @@ func linearTeam() string {
 // linearLoop reads the workspace, and keeps the daemon's copy of it
 // fresh. It never fails the daemon: a workspace that cannot be read is
 // a state the app shows, not an error the daemon dies of.
+//
+// The wait between two reads of what changed is the user's setting,
+// read again after each read, so that a change in Settings applies at
+// the next one without a restart.
 func (d *Daemon) linearLoop() {
-	t := time.NewTicker(linearPoll)
+	t := time.NewTimer(linearInterval(settings.Load().LinearRefresh))
 	defer t.Stop()
 	slow := time.NewTicker(linearSlow)
 	defer slow.Stop()
@@ -50,10 +57,21 @@ func (d *Daemon) linearLoop() {
 			return
 		case <-t.C:
 			d.linearRead(false)
+			t.Reset(linearInterval(settings.Load().LinearRefresh))
 		case <-slow.C:
 			d.linearRead(true)
 		}
 	}
+}
+
+// linearInterval is the wait between two reads of what changed, from
+// the setting in seconds: linearPoll when it is not set, and never less
+// than Linear's quota allows nor more than the full read's period.
+func linearInterval(seconds int) time.Duration {
+	if seconds <= 0 {
+		return linearPoll
+	}
+	return min(max(time.Duration(seconds)*time.Second, settings.LinearMinRefresh*time.Second), linearSlow)
 }
 
 // linearRead reads the workspace: whole when full, and only what changed
@@ -163,7 +181,7 @@ func linearSnapshot(snap *linear.Snapshot) *proto.LinearState {
 	}
 	for _, s := range snap.Team.States {
 		st.States = append(st.States, proto.LinearWorkflowState{
-			ID: s.ID, Name: s.Name, Type: s.Type, Position: s.Position,
+			ID: s.ID, Name: s.Name, Type: s.Type, Position: s.Position, Color: s.Color,
 		})
 	}
 	for _, p := range snap.Projects {
@@ -330,36 +348,133 @@ func (d *Daemon) linearState() *proto.LinearState {
 
 // linkSession binds a session to a Linear issue, or unbinds it when the
 // task is empty. The task is the issue's identifier, as BRU-25, or its
-// id.
-func (d *Daemon) linkSession(ref, task string) error {
+// id; the panes keep the id, which stays when the issue moves to another
+// team and its identifier changes. via says who linked it, for the log:
+// "link", "task" or "branch".
+func (d *Daemon) linkSession(ref, task, via string) error {
+	id, identifier := "", ""
+	if task != "" {
+		var err error
+		if id, identifier, err = d.resolveIssue(task); err != nil {
+			return err
+		}
+	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	s := d.findSessionLocked(ref)
 	if s == nil {
+		d.mu.Unlock()
 		return fmt.Errorf("no session %q", ref)
 	}
-	if task != "" {
-		found := false
-		if d.linear != nil {
-			for _, i := range d.linear.Issues {
-				if i.ID == task || strings.EqualFold(i.Identifier, task) {
-					task = i.Identifier
-					found = true
-					break
+	sid, name := s.id, s.name
+	if via == "link" {
+		// A person's unlinking, or linking another, is not undone by
+		// the branch.
+		for _, p := range s.panes {
+			p.mu.Lock()
+			if t := p.info.TaskID; t != "" && t != id {
+				if s.unlinked == nil {
+					s.unlinked = map[string]bool{}
 				}
+				s.unlinked[t] = true
 			}
-		}
-		if !found {
-			return fmt.Errorf("no issue %q in the cached workspace", task)
+			p.mu.Unlock()
 		}
 	}
+	type agentRun struct{ agent, session, pane, dir string }
+	var runs []agentRun
+	old := map[string]bool{}
 	for _, p := range s.panes {
 		p.mu.Lock()
-		p.info.TaskID = task
+		if p.info.TaskID != "" && p.info.TaskID != id {
+			old[p.info.TaskID] = true
+		}
+		p.info.TaskID = id
+		if id != "" {
+			r := agentRun{agent: p.info.Agent, pane: p.info.ID, dir: p.info.Dir}
+			if p.info.ProcessDir != "" {
+				r.dir = p.info.ProcessDir
+			}
+			if as := p.info.AgentSession; as != nil {
+				r.agent, r.session = as.Agent, as.ID
+			}
+			if r.agent != "" {
+				runs = append(runs, r)
+			}
+		}
 		p.mu.Unlock()
+	}
+	d.mu.Unlock()
+	for t := range old {
+		d.taskEndSession(sid, t)
+	}
+	if id != "" {
+		for _, r := range runs {
+			d.taskStart(id, proto.TaskRun{Agent: r.agent, ID: r.session, Session: sid, SessionName: name, Pane: r.pane, Dir: r.dir, Via: via})
+		}
+		if len(runs) == 0 {
+			d.taskStart(id, proto.TaskRun{Session: sid, SessionName: name, Via: via})
+		}
+		d.nameTask(id, identifier)
 	}
 	d.changed()
 	return nil
+}
+
+// setProjectLinear sets the Linear project a project's work is tracked
+// in: by its id or its name, one of the workspace's; "" none.
+func (d *Daemon) setProjectLinear(project, linearProject string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	i := slices.IndexFunc(d.projects, func(pr proto.Project) bool {
+		return pr.ID == project || strings.EqualFold(pr.Name, project)
+	})
+	if i < 0 {
+		return fmt.Errorf("no project %q", project)
+	}
+	id := ""
+	if linearProject != "" {
+		if d.linear == nil {
+			return errors.New("the Linear workspace was not read")
+		}
+		for _, lp := range d.linear.Projects {
+			if lp.ID == linearProject || strings.EqualFold(lp.Name, linearProject) {
+				id = lp.ID
+			}
+		}
+		if id == "" {
+			return fmt.Errorf("no Linear project %q", linearProject)
+		}
+	}
+	d.projects[i].LinearProject = id
+	d.changed() // only signals: safe under d.mu
+	return nil
+}
+
+// resolveIssue finds an issue by its identifier or its id: in the
+// cached workspace, else from Linear, as one made since the last read.
+func (d *Daemon) resolveIssue(task string) (id, identifier string, err error) {
+	d.mu.Lock()
+	if d.linear != nil {
+		for _, i := range d.linear.Issues {
+			if i.ID == task || strings.EqualFold(i.Identifier, task) {
+				d.mu.Unlock()
+				return i.ID, i.Identifier, nil
+			}
+		}
+	}
+	d.mu.Unlock()
+	key := linear.Key()
+	if key == "" {
+		return "", "", fmt.Errorf("no issue %q in the cached workspace", task)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), linearLimit)
+	defer cancel()
+	iss, err := linear.New(key).Issue(ctx, task)
+	if err != nil || iss == nil || iss.ID == "" {
+		return "", "", fmt.Errorf("no issue %q", task)
+	}
+	go d.linearRead(false)
+	return iss.ID, iss.Identifier, nil
 }
 
 // linearSetState moves an issue to a workflow state, by its name.
@@ -451,8 +566,8 @@ func (d *Daemon) linearDetail(id string) (*proto.LinearIssueDetail, error) {
 			ID: sub.ID, Identifier: sub.Identifier, Title: sub.Title, State: sub.State.Name,
 		})
 	}
-	// The session working on the issue, when one is: what a person
-	// needs to open the work again.
+	// The session working on the issue, when one is, and every
+	// conversation that did: what a person needs to open the work again.
 	d.mu.Lock()
 	for task, link := range d.taskLinks() {
 		if task == iss.ID || task == iss.Identifier {
@@ -461,8 +576,19 @@ func (d *Daemon) linearDetail(id string) (*proto.LinearIssueDetail, error) {
 			out.ResumeID = link.ResumeID
 			out.Progress = link.Progress
 			out.SessionStatus = link.Status
+			out.Sessions = link.Sessions
 		}
 	}
+	names := make(map[string]string, len(d.sessions))
+	for _, s := range d.sessions {
+		names[s.id] = s.name
+	}
 	d.mu.Unlock()
+	out.Runs = d.taskRuns(iss.ID, iss.Identifier, names)
+	if out.ResumeID == "" {
+		if r, ok := lastResume(out.Runs); ok {
+			out.ResumeID = r.ID
+		}
+	}
 	return out, nil
 }
