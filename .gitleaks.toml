@@ -1,0 +1,24 @@
+title = "Shibu Code secret protection"
+
+[extend]
+useDefault = true
+
+# Restrict this exception to keyboard accelerator values, not files.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Native UI shortcut strings are not API keys"
+regexTarget = "secret"
+regexes = ['''^(?:CmdOrCtrl|Ctrl|Cmd|Alt|Shift|Super)(?:\+(?:[A-Za-z0-9]+|[-=+,./\\]))+$''']
+
+[[rules]]
+id = "shibu-linear-api-key"
+description = "Linear personal API token"
+regex = '''\blin_api_[A-Za-z0-9]{20,}\b'''
+keywords = ["lin_api_"]
+
+[[rules]]
+id = "shibu-provider-key"
+description = "AI provider secret keys"
+regex = '''\bsk-(?:ant-api\d+-|proj-)?[A-Za-z0-9_-]{24,}'''
+keywords = ["sk-"]

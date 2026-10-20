@@ -46,6 +46,12 @@ type Daemon struct {
 	conns    int
 	idleAt   time.Time
 	ending   bool
+	// linear is the Linear workspace, as last read. Nil when there is
+	// no key, or when it was never read.
+	linear         *proto.LinearState
+	linearMu       sync.Mutex // serialize polls and manual refreshes
+	linearRetry    time.Time
+	linearIdentity string
 
 	viewed   atomic.Pointer[string]
 	changeCh chan struct{}
@@ -82,13 +88,11 @@ func Run() error {
 	}
 
 	sock := proto.SocketPath()
-	os.Remove(sock)
-	ln, err := net.Listen("unix", sock)
+	ln, err := listenSocket(sock)
 	if err != nil {
 		return err
 	}
-	os.Chmod(sock, 0o600)
-	defer os.Remove(sock)
+	defer ln.Close()
 
 	exe, _ := os.Executable()
 	d := &Daemon{
@@ -121,6 +125,7 @@ func Run() error {
 	go d.broadcastLoop()
 	go d.saveLoop()
 	go d.tickLoop()
+	go d.linearLoop()
 	go func() {
 		for {
 			conn, err := ln.Accept()

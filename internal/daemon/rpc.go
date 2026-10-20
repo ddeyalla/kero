@@ -39,6 +39,53 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		c.event(proto.Message{Event: "state", State: &st})
 		return true, nil
 
+	case "linear.state":
+		return d.linearState(), nil
+
+	case "linear.refresh":
+		go d.linearRead(true)
+		return true, nil
+
+	case "linear.issue":
+		var p proto.LinearParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		if p.Issue == "" {
+			return nil, errors.New("linear.issue: which issue?")
+		}
+		return d.linearDetail(p.Issue)
+
+	case "linear.setState":
+		var p proto.LinearParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		if p.Issue == "" || p.State == "" {
+			return nil, errors.New("linear.setState: which issue, and which state?")
+		}
+		return true, d.linearSetState(p.Issue, p.State)
+
+	case "linear.comment":
+		var p proto.LinearParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		if p.Issue == "" || strings.TrimSpace(p.Body) == "" || len(p.Body) > 65536 {
+			return nil, errors.New("linear.comment: which issue, and what?")
+		}
+		return true, d.linearComment(p.Issue, p.Body)
+
+	case "session.link":
+		var p proto.LinkParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		if p.Session == "" {
+			return nil, errors.New("session.link: which session?")
+		}
+		return true, d.linkSession(p.Session, p.Task)
+
 	case "create", "split":
 		var p proto.CreateParams
 		if err := decode(&p); err != nil {

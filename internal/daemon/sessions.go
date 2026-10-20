@@ -37,7 +37,81 @@ func (d *Daemon) state() proto.State {
 	for _, s := range d.sessions {
 		st.Sessions = append(st.Sessions, d.sessionInfo(s))
 	}
+	if d.linear != nil {
+		lin := *d.linear
+		lin.Issues = d.linearIssues()
+		st.Linear = &lin
+	}
 	return st
+}
+
+// linearIssues is the workspace's issues, each with the session working
+// on it, when one is. d.mu is held.
+func (d *Daemon) linearIssues() []proto.LinearIssue {
+	if d.linear == nil {
+		return nil
+	}
+	out := make([]proto.LinearIssue, len(d.linear.Issues))
+	copy(out, d.linear.Issues)
+	// A task is named by the identifier a person reads, BRU-25, and by
+	// the id the API uses; both find the issue.
+	byTask := make(map[string]int, len(out)*2)
+	for i, is := range out {
+		byTask[is.ID] = i
+		byTask[is.Identifier] = i
+	}
+	for task, link := range d.taskLinks() {
+		at, ok := byTask[task]
+		if !ok {
+			continue
+		}
+		out[at].Session = link.Session
+		out[at].SessionName = link.Name
+		out[at].ResumeID = link.ResumeID
+		out[at].Progress = link.Progress
+		out[at].SessionStatus = link.Status
+	}
+	return out
+}
+
+// taskLink is a session working on a task.
+type taskLink struct {
+	Session  string
+	Name     string
+	ResumeID string
+	Progress int
+	Status   proto.Status
+}
+
+// taskLinks are the tasks a session works on, by the issue's id. d.mu is
+// held.
+func (d *Daemon) taskLinks() map[string]taskLink {
+	out := map[string]taskLink{}
+	for _, s := range d.sessions {
+		for _, p := range s.panes {
+			p.mu.Lock()
+			info := p.info
+			records := slices.Clone(info.Records)
+			p.mu.Unlock()
+			link := taskLink{Session: s.id, Name: s.name, Progress: info.Progress, Status: info.Status}
+			if info.AgentSession != nil {
+				link.ResumeID = info.AgentSession.ID
+			}
+			if info.TaskID != "" {
+				out[info.TaskID] = link
+			}
+			for _, r := range records {
+				if r.App != "linear" || r.ID == "" {
+					continue
+				}
+				issue, _, _ := strings.Cut(r.ID, "/")
+				report := link
+				report.Progress = r.Progress
+				out[issue] = report
+			}
+		}
+	}
+	return out
 }
 
 // sessionInfo describes a session; d.mu is held.
@@ -329,6 +403,11 @@ func (d *Daemon) split(p proto.CreateParams) (proto.Session, error) {
 	if s.layout == nil {
 		s.layout = &proto.Layout{Pane: s.panes[0].info.ID}
 	}
+	at.mu.Lock()
+	pn.mu.Lock()
+	pn.info.TaskID = at.info.TaskID
+	pn.mu.Unlock()
+	at.mu.Unlock()
 	s.layout = s.layout.Split(atID, pn.info.ID, p.Direction, p.Ratio)
 	s.panes = append(s.panes, pn)
 	s.focus, s.zoomed = pn.info.ID, ""

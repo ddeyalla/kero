@@ -64,6 +64,15 @@ Reports are OSC 7501 sequences: Kero shows them in its sidebar, and
 notifies the user when you are blocked or done while they look elsewhere.
 Report blocked only when you truly cannot go on without them.
 
+When the work is on a task of the user's tracker, name the task, so the
+app can show it beside the work:
+
+    kero report working "Fixing the login redirect" --id BRU-25 --app linear --progress 40
+
+The --id is the task's identifier, as BRU-25; the --app says what it is
+a task of, as linear. Report the id when you start, and again as the work
+moves.
+
 ## Etiquette
 
 - Close what you started when it is done: ` + "`kero close <target>`" + `.

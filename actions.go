@@ -40,6 +40,10 @@ func (a *App) run(id string, args map[string]string) {
 		a.openUsage()
 	case "usage.refresh":
 		a.refreshUsage()
+	case "linear.open":
+		a.openLinear()
+	case "linear.refresh":
+		a.call("linear.refresh", nil, nil)
 	case "cli.install":
 		a.installCLI()
 	case "app.quitAll":
@@ -203,8 +207,7 @@ func (a *App) menu() *mygo.Menu {
 			{Label: locales.MenuQuit(), Accelerator: quitKeys, ToolTip: locales.MenuQuitTip(), Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
 			a.item("app.quitAll")}}
 	}
-	view := append(a.items("View", []string{"sidebar.toggle", "usage.open", "usage.refresh"}, []string{"text.bigger", "text.smaller", "text.reset"}),
-		mygo.Separator(), &mygo.MenuItem{Role: mygo.RoleToggleFullScreen}, &mygo.MenuItem{Role: mygo.RoleToggleDevTools})
+	view := a.viewMenuItems()
 	return mygo.NewMenu([]*mygo.MenuItem{
 		kero,
 		{Label: locales.MenuSession(), Submenu: a.items("Session",
@@ -223,6 +226,11 @@ func (a *App) menu() *mygo.Menu {
 		{Label: locales.MenuView(), Submenu: view},
 		{Role: mygo.RoleWindowMenu},
 	})
+}
+
+func (a *App) viewMenuItems() []*mygo.MenuItem {
+	return append(a.items("View", []string{"sidebar.toggle", "linear.open", "linear.refresh", "usage.open", "usage.refresh"}, []string{"text.bigger", "text.smaller", "text.reset"}),
+		mygo.Separator(), &mygo.MenuItem{Role: mygo.RoleToggleFullScreen}, &mygo.MenuItem{Role: mygo.RoleToggleDevTools})
 }
 
 // keys is an action's shortcut as the menus show it, "" when it has none.

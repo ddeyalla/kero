@@ -1,6 +1,21 @@
 /build/
 /.mygo/
+/.toolchain/
 mygo_windows_*.syso
 node_modules/
 .DS_Store
 /kero
+
+# Private credentials and runtime data belong outside source control.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+usage-credentials.json
+auth.json
+*secret-scan*.json
+/plans/research/probes/out/
+__pycache__/
+*.py[cod]

@@ -1,0 +1,24 @@
+name: Secret protection
+on:
+  push:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install pinned scanner
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+      - name: Scan reachable history and test the guards
+        run: |
+          python3 scripts/secret_guard.py history
+          python3 -m unittest discover -s scripts -p 'test_secret_guard.py'

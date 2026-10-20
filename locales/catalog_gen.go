@@ -3265,3 +3265,393 @@ func FindClose() string { return In(i18n.Locale()).FindClose() }
 func (msgs Messages) FindClose() string {
 	return Catalog.Format(msgs.locale, "findClose", nil)
 }
+
+// LinearGroup says "Linear"
+// in the language the app shows.
+func LinearGroup() string { return In(i18n.Locale()).LinearGroup() }
+
+// LinearGroup says "Linear"
+// in the language of msgs.
+func (msgs Messages) LinearGroup() string {
+	return Catalog.Format(msgs.locale, "linearGroup", nil)
+}
+
+// LinearGroupDetail says "The workspace's issues, in a board or a list, with the session working on one beside them."
+// in the language the app shows.
+func LinearGroupDetail() string { return In(i18n.Locale()).LinearGroupDetail() }
+
+// LinearGroupDetail says "The workspace's issues, in a board or a list, with the session working on one beside them."
+// in the language of msgs.
+func (msgs Messages) LinearGroupDetail() string {
+	return Catalog.Format(msgs.locale, "linearGroupDetail", nil)
+}
+
+// LinearApiKey says "API key"
+// in the language the app shows.
+func LinearApiKey() string { return In(i18n.Locale()).LinearApiKey() }
+
+// LinearApiKey says "API key"
+// in the language of msgs.
+func (msgs Messages) LinearApiKey() string {
+	return Catalog.Format(msgs.locale, "linearApiKey", nil)
+}
+
+// LinearApiKeyDetail says "A Linear personal API key, with read and write. It is kept in Shibu Code's private app folder, and read from LINEAR_A…"
+// in the language the app shows.
+func LinearApiKeyDetail() string { return In(i18n.Locale()).LinearApiKeyDetail() }
+
+// LinearApiKeyDetail says "A Linear personal API key, with read and write. It is kept in Shibu Code's private app folder, and read from LINEAR_A…"
+// in the language of msgs.
+func (msgs Messages) LinearApiKeyDetail() string {
+	return Catalog.Format(msgs.locale, "linearApiKeyDetail", nil)
+}
+
+// LinearKeySaved says "The Linear key was saved."
+// in the language the app shows.
+func LinearKeySaved() string { return In(i18n.Locale()).LinearKeySaved() }
+
+// LinearKeySaved says "The Linear key was saved."
+// in the language of msgs.
+func (msgs Messages) LinearKeySaved() string {
+	return Catalog.Format(msgs.locale, "linearKeySaved", nil)
+}
+
+// LinearKeyEmpty says "The Linear key was removed."
+// in the language the app shows.
+func LinearKeyEmpty() string { return In(i18n.Locale()).LinearKeyEmpty() }
+
+// LinearKeyEmpty says "The Linear key was removed."
+// in the language of msgs.
+func (msgs Messages) LinearKeyEmpty() string {
+	return Catalog.Format(msgs.locale, "linearKeyEmpty", nil)
+}
+
+// LinearStatusOk says "The workspace was read."
+// in the language the app shows.
+func LinearStatusOk() string { return In(i18n.Locale()).LinearStatusOk() }
+
+// LinearStatusOk says "The workspace was read."
+// in the language of msgs.
+func (msgs Messages) LinearStatusOk() string {
+	return Catalog.Format(msgs.locale, "linearStatusOk", nil)
+}
+
+// LinearStatusNoToken says "No API key yet."
+// in the language the app shows.
+func LinearStatusNoToken() string { return In(i18n.Locale()).LinearStatusNoToken() }
+
+// LinearStatusNoToken says "No API key yet."
+// in the language of msgs.
+func (msgs Messages) LinearStatusNoToken() string {
+	return Catalog.Format(msgs.locale, "linearStatusNoToken", nil)
+}
+
+// LinearStatusAuthFailed says "Linear refused the API key."
+// in the language the app shows.
+func LinearStatusAuthFailed() string { return In(i18n.Locale()).LinearStatusAuthFailed() }
+
+// LinearStatusAuthFailed says "Linear refused the API key."
+// in the language of msgs.
+func (msgs Messages) LinearStatusAuthFailed() string {
+	return Catalog.Format(msgs.locale, "linearStatusAuthFailed", nil)
+}
+
+// LinearStatusRateLimited says "Linear is rate limiting the reads; the next one is later."
+// in the language the app shows.
+func LinearStatusRateLimited() string { return In(i18n.Locale()).LinearStatusRateLimited() }
+
+// LinearStatusRateLimited says "Linear is rate limiting the reads; the next one is later."
+// in the language of msgs.
+func (msgs Messages) LinearStatusRateLimited() string {
+	return Catalog.Format(msgs.locale, "linearStatusRateLimited", nil)
+}
+
+// LinearStatusUnreachable says "Linear could not be reached; the last read is shown."
+// in the language the app shows.
+func LinearStatusUnreachable() string { return In(i18n.Locale()).LinearStatusUnreachable() }
+
+// LinearStatusUnreachable says "Linear could not be reached; the last read is shown."
+// in the language of msgs.
+func (msgs Messages) LinearStatusUnreachable() string {
+	return Catalog.Format(msgs.locale, "linearStatusUnreachable", nil)
+}
+
+// LinearStatusDisabled says "Linear is off."
+// in the language the app shows.
+func LinearStatusDisabled() string { return In(i18n.Locale()).LinearStatusDisabled() }
+
+// LinearStatusDisabled says "Linear is off."
+// in the language of msgs.
+func (msgs Messages) LinearStatusDisabled() string {
+	return Catalog.Format(msgs.locale, "linearStatusDisabled", nil)
+}
+
+// LinearTeam says "Team"
+// in the language the app shows.
+func LinearTeam() string { return In(i18n.Locale()).LinearTeam() }
+
+// LinearTeam says "Team"
+// in the language of msgs.
+func (msgs Messages) LinearTeam() string {
+	return Catalog.Format(msgs.locale, "linearTeam", nil)
+}
+
+// LinearLastRead says "Last read"
+// in the language the app shows.
+func LinearLastRead() string { return In(i18n.Locale()).LinearLastRead() }
+
+// LinearLastRead says "Last read"
+// in the language of msgs.
+func (msgs Messages) LinearLastRead() string {
+	return Catalog.Format(msgs.locale, "linearLastRead", nil)
+}
+
+// LinearIssues says "issues"
+// in the language the app shows.
+func LinearIssues() string { return In(i18n.Locale()).LinearIssues() }
+
+// LinearIssues says "issues"
+// in the language of msgs.
+func (msgs Messages) LinearIssues() string {
+	return Catalog.Format(msgs.locale, "linearIssues", nil)
+}
+
+// LinearProjects says "projects"
+// in the language the app shows.
+func LinearProjects() string { return In(i18n.Locale()).LinearProjects() }
+
+// LinearProjects says "projects"
+// in the language of msgs.
+func (msgs Messages) LinearProjects() string {
+	return Catalog.Format(msgs.locale, "linearProjects", nil)
+}
+
+// LinearOpen says "Open Linear"
+// in the language the app shows.
+func LinearOpen() string { return In(i18n.Locale()).LinearOpen() }
+
+// LinearOpen says "Open Linear"
+// in the language of msgs.
+func (msgs Messages) LinearOpen() string {
+	return Catalog.Format(msgs.locale, "linearOpen", nil)
+}
+
+// LinearRefresh says "Refresh Linear"
+// in the language the app shows.
+func LinearRefresh() string { return In(i18n.Locale()).LinearRefresh() }
+
+// LinearRefresh says "Refresh Linear"
+// in the language of msgs.
+func (msgs Messages) LinearRefresh() string {
+	return Catalog.Format(msgs.locale, "linearRefresh", nil)
+}
+
+// LinearBoard says "Board"
+// in the language the app shows.
+func LinearBoard() string { return In(i18n.Locale()).LinearBoard() }
+
+// LinearBoard says "Board"
+// in the language of msgs.
+func (msgs Messages) LinearBoard() string {
+	return Catalog.Format(msgs.locale, "linearBoard", nil)
+}
+
+// LinearList says "List"
+// in the language the app shows.
+func LinearList() string { return In(i18n.Locale()).LinearList() }
+
+// LinearList says "List"
+// in the language of msgs.
+func (msgs Messages) LinearList() string {
+	return Catalog.Format(msgs.locale, "linearList", nil)
+}
+
+// LinearSearch says "Search issues"
+// in the language the app shows.
+func LinearSearch() string { return In(i18n.Locale()).LinearSearch() }
+
+// LinearSearch says "Search issues"
+// in the language of msgs.
+func (msgs Messages) LinearSearch() string {
+	return Catalog.Format(msgs.locale, "linearSearch", nil)
+}
+
+// LinearAllProjects says "All projects"
+// in the language the app shows.
+func LinearAllProjects() string { return In(i18n.Locale()).LinearAllProjects() }
+
+// LinearAllProjects says "All projects"
+// in the language of msgs.
+func (msgs Messages) LinearAllProjects() string {
+	return Catalog.Format(msgs.locale, "linearAllProjects", nil)
+}
+
+// LinearAllMilestones says "All milestones"
+// in the language the app shows.
+func LinearAllMilestones() string { return In(i18n.Locale()).LinearAllMilestones() }
+
+// LinearAllMilestones says "All milestones"
+// in the language of msgs.
+func (msgs Messages) LinearAllMilestones() string {
+	return Catalog.Format(msgs.locale, "linearAllMilestones", nil)
+}
+
+// LinearAllStates says "All states"
+// in the language the app shows.
+func LinearAllStates() string { return In(i18n.Locale()).LinearAllStates() }
+
+// LinearAllStates says "All states"
+// in the language of msgs.
+func (msgs Messages) LinearAllStates() string {
+	return Catalog.Format(msgs.locale, "linearAllStates", nil)
+}
+
+// LinearSession says "Session"
+// in the language the app shows.
+func LinearSession() string { return In(i18n.Locale()).LinearSession() }
+
+// LinearSession says "Session"
+// in the language of msgs.
+func (msgs Messages) LinearSession() string {
+	return Catalog.Format(msgs.locale, "linearSession", nil)
+}
+
+// LinearResume says "Resume"
+// in the language the app shows.
+func LinearResume() string { return In(i18n.Locale()).LinearResume() }
+
+// LinearResume says "Resume"
+// in the language of msgs.
+func (msgs Messages) LinearResume() string {
+	return Catalog.Format(msgs.locale, "linearResume", nil)
+}
+
+// LinearOpenSession says "Open the session"
+// in the language the app shows.
+func LinearOpenSession() string { return In(i18n.Locale()).LinearOpenSession() }
+
+// LinearOpenSession says "Open the session"
+// in the language of msgs.
+func (msgs Messages) LinearOpenSession() string {
+	return Catalog.Format(msgs.locale, "linearOpenSession", nil)
+}
+
+// LinearCopySession says "Copy the session id"
+// in the language the app shows.
+func LinearCopySession() string { return In(i18n.Locale()).LinearCopySession() }
+
+// LinearCopySession says "Copy the session id"
+// in the language of msgs.
+func (msgs Messages) LinearCopySession() string {
+	return Catalog.Format(msgs.locale, "linearCopySession", nil)
+}
+
+// LinearCopyResume says "Copy the resume id"
+// in the language the app shows.
+func LinearCopyResume() string { return In(i18n.Locale()).LinearCopyResume() }
+
+// LinearCopyResume says "Copy the resume id"
+// in the language of msgs.
+func (msgs Messages) LinearCopyResume() string {
+	return Catalog.Format(msgs.locale, "linearCopyResume", nil)
+}
+
+// LinearResources says "Resources"
+// in the language the app shows.
+func LinearResources() string { return In(i18n.Locale()).LinearResources() }
+
+// LinearResources says "Resources"
+// in the language of msgs.
+func (msgs Messages) LinearResources() string {
+	return Catalog.Format(msgs.locale, "linearResources", nil)
+}
+
+// LinearRelated says "Related"
+// in the language the app shows.
+func LinearRelated() string { return In(i18n.Locale()).LinearRelated() }
+
+// LinearRelated says "Related"
+// in the language of msgs.
+func (msgs Messages) LinearRelated() string {
+	return Catalog.Format(msgs.locale, "linearRelated", nil)
+}
+
+// LinearActivity says "Activity"
+// in the language the app shows.
+func LinearActivity() string { return In(i18n.Locale()).LinearActivity() }
+
+// LinearActivity says "Activity"
+// in the language of msgs.
+func (msgs Messages) LinearActivity() string {
+	return Catalog.Format(msgs.locale, "linearActivity", nil)
+}
+
+// LinearIssue says "Issue"
+// in the language the app shows.
+func LinearIssue() string { return In(i18n.Locale()).LinearIssue() }
+
+// LinearIssue says "Issue"
+// in the language of msgs.
+func (msgs Messages) LinearIssue() string {
+	return Catalog.Format(msgs.locale, "linearIssue", nil)
+}
+
+// LinearNone says "No issues"
+// in the language the app shows.
+func LinearNone() string { return In(i18n.Locale()).LinearNone() }
+
+// LinearNone says "No issues"
+// in the language of msgs.
+func (msgs Messages) LinearNone() string {
+	return Catalog.Format(msgs.locale, "linearNone", nil)
+}
+
+// LinearNoneFiltered says "Nothing matches what is filtered."
+// in the language the app shows.
+func LinearNoneFiltered() string { return In(i18n.Locale()).LinearNoneFiltered() }
+
+// LinearNoneFiltered says "Nothing matches what is filtered."
+// in the language of msgs.
+func (msgs Messages) LinearNoneFiltered() string {
+	return Catalog.Format(msgs.locale, "linearNoneFiltered", nil)
+}
+
+// LinearNotRead says "The workspace was not read"
+// in the language the app shows.
+func LinearNotRead() string { return In(i18n.Locale()).LinearNotRead() }
+
+// LinearNotRead says "The workspace was not read"
+// in the language of msgs.
+func (msgs Messages) LinearNotRead() string {
+	return Catalog.Format(msgs.locale, "linearNotRead", nil)
+}
+
+// LinearNotReadDetail says "Set a Linear API key in Settings, and the daemon will read the workspace."
+// in the language the app shows.
+func LinearNotReadDetail() string { return In(i18n.Locale()).LinearNotReadDetail() }
+
+// LinearNotReadDetail says "Set a Linear API key in Settings, and the daemon will read the workspace."
+// in the language of msgs.
+func (msgs Messages) LinearNotReadDetail() string {
+	return Catalog.Format(msgs.locale, "linearNotReadDetail", nil)
+}
+
+// LinearLink says "Link this session to the issue"
+// in the language the app shows.
+func LinearLink() string { return In(i18n.Locale()).LinearLink() }
+
+// LinearLink says "Link this session to the issue"
+// in the language of msgs.
+func (msgs Messages) LinearLink() string {
+	return Catalog.Format(msgs.locale, "linearLink", nil)
+}
+
+// LinearUnlink says "Unlink the session"
+// in the language the app shows.
+func LinearUnlink() string { return In(i18n.Locale()).LinearUnlink() }
+
+// LinearUnlink says "Unlink the session"
+// in the language of msgs.
+func (msgs Messages) LinearUnlink() string {
+	return Catalog.Format(msgs.locale, "linearUnlink", nil)
+}

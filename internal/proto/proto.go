@@ -121,6 +121,137 @@ type State struct {
 	// Viewed is the session a client shows in a focused window.
 	Viewed  string `json:"viewed,omitempty"`
 	Started int64  `json:"started"` // unix ms, the daemon's start
+	// Linear is the workspace the daemon reads for Linear: its issues,
+	// projects and milestones, as last read. Nil when there is no key,
+	// or when the workspace was never read.
+	Linear *LinearState `json:"linear,omitempty"`
+}
+
+// LinearStatus is what a Linear workspace is to the daemon: whether it
+// was read, and why not when it was not.
+const (
+	LinearOK          = "ok"
+	LinearNoToken     = "no_token"
+	LinearAuthFailed  = "auth_failed"
+	LinearRateLimited = "rate_limited"
+	LinearUnreachable = "unreachable"
+	LinearDisabled    = "disabled"
+)
+
+// LinearState is a Linear workspace as the daemon last read it: the
+// team's states, its projects with their milestones, and the issues.
+type LinearState struct {
+	// Status is one of the LinearStatus constants.
+	Status string `json:"status"`
+	// Message says what went wrong, when something did.
+	Message  string `json:"message,omitempty"`
+	Team     string `json:"team,omitempty"`
+	TeamName string `json:"teamName,omitempty"`
+	// States are the team's workflow states, in the order the team
+	// puts them in.
+	States   []LinearWorkflowState `json:"states,omitempty"`
+	Projects []LinearProject       `json:"projects,omitempty"`
+	Issues   []LinearIssue         `json:"issues,omitempty"`
+	// FetchedAt is when the workspace was read (unix ms).
+	FetchedAt int64 `json:"fetchedAt,omitempty"`
+}
+
+// LinearWorkflowState is a state of a team's workflow: Todo, In
+// Progress, Done. Type is what the state means, not what it is called.
+type LinearWorkflowState struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Type     string  `json:"type"`
+	Position float64 `json:"position"`
+}
+
+// LinearMilestone is a phase of a project, as M1 Foundation is a phase
+// of Rig.
+type LinearMilestone struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Status   string  `json:"status"`
+	Progress float64 `json:"progress"`
+}
+
+// LinearProject is a project of the workspace.
+type LinearProject struct {
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Status     string            `json:"status"`
+	Progress   float64           `json:"progress"`
+	Milestones []LinearMilestone `json:"milestones,omitempty"`
+}
+
+// LinearRelation is a relation between two issues.
+type LinearRelation struct {
+	Type       string `json:"type"` // blocks, blockedBy, related, duplicate
+	Identifier string `json:"identifier"`
+	Title      string `json:"title"`
+	State      string `json:"state"`
+}
+
+// LinearIssue is an issue, as the board shows it.
+type LinearIssue struct {
+	ID         string           `json:"id"`
+	Identifier string           `json:"identifier"`
+	Title      string           `json:"title"`
+	URL        string           `json:"url,omitempty"`
+	State      string           `json:"state"`
+	StateType  string           `json:"stateType,omitempty"`
+	Project    string           `json:"project,omitempty"`
+	Milestone  string           `json:"milestone,omitempty"`
+	Labels     []string         `json:"labels,omitempty"`
+	Relations  []LinearRelation `json:"relations,omitempty"`
+	// Blocked and Blocking count the relations of each way, which the
+	// card shows as two numbers.
+	Blocked  int `json:"blocked,omitempty"`
+	Blocking int `json:"blocking,omitempty"`
+	// Children is how many sub-issues the issue has.
+	Children int `json:"children,omitempty"`
+	// Session is the id of the session working on the issue, when one
+	// is: the task and the session are linked.
+	Session string `json:"session,omitempty"`
+	// SessionName is that session's name, and ResumeID the agent's own
+	// session, which resumes it.
+	SessionName   string `json:"sessionName,omitempty"`
+	ResumeID      string `json:"resumeId,omitempty"`
+	SessionStatus Status `json:"sessionStatus,omitempty"`
+	// Progress is what a program reported of the work, 0-100, or -1.
+	Progress  int   `json:"progress,omitempty"`
+	CreatedAt int64 `json:"createdAt,omitempty"`
+	UpdatedAt int64 `json:"updatedAt,omitempty"`
+}
+
+// LinearAttachment is a file or a link on an issue.
+type LinearAttachment struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	URL      string `json:"url"`
+	Subtitle string `json:"subtitle,omitempty"`
+}
+
+// LinearComment is a comment on an issue: what an agent wrote when it
+// finished, or what a person wrote.
+type LinearComment struct {
+	ID        string `json:"id"`
+	Body      string `json:"body"`
+	Author    string `json:"author,omitempty"`
+	CreatedAt int64  `json:"createdAt,omitempty"`
+}
+
+// LinearIssueDetail is one issue, whole: its description, the files on
+// it, and the comments under it.
+type LinearIssueDetail struct {
+	LinearIssue
+	Description string             `json:"description,omitempty"`
+	BranchName  string             `json:"branchName,omitempty"`
+	Assignee    string             `json:"assignee,omitempty"`
+	Creator     string             `json:"creator,omitempty"`
+	Attachments []LinearAttachment `json:"attachments,omitempty"`
+	Comments    []LinearComment    `json:"comments,omitempty"`
+	Parent      string             `json:"parent,omitempty"`
+	SubIssues   []LinearIssue      `json:"subIssues,omitempty"`
 }
 
 // Project groups sessions, usually those of one repository.
@@ -174,6 +305,9 @@ type Pane struct {
 	// AgentSession is the coding agent's own session, as its hook told
 	// (kero hook), while the agent runs: what a restore resumes.
 	AgentSession *AgentSession `json:"agentSession,omitempty"`
+	// TaskID is the Linear issue the work is on, as "BRU-25": what
+	// links a session to a task.
+	TaskID string `json:"taskId,omitempty"`
 	// Restored: the daemon restarted (as after a reboot) and this pane's
 	// shell was started again in its directory, under its old scrollback.
 	Restored bool `json:"restored,omitempty"`
@@ -612,5 +746,16 @@ type (
 	}
 	ReadResult struct {
 		Text string `json:"text"`
+	}
+	// LinkParams binds a session to a Linear issue, or unbinds it.
+	LinkParams struct {
+		Session string `json:"session"`
+		Task    string `json:"task,omitempty"`
+	}
+	// LinearParams asks about a workspace, or about one issue of it.
+	LinearParams struct {
+		Issue string `json:"issue,omitempty"`
+		State string `json:"state,omitempty"`
+		Body  string `json:"body,omitempty"`
 	}
 )

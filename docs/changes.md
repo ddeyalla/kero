@@ -3,6 +3,54 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Linear workspace
+
+The completed v1 scope, setup and activation limits are recorded in
+[Linear board and session links](linear-workspace.md). Secret guards and their
+verification are documented in [Security checks](security.md). Home/composer
+work remains separate. The installed app is not restarted by this feature's
+test or build workflow.
+
+The app shows a Linear workspace: the issues of the team, as a board or a
+list, with the issue open beside them. The sidebar has a **Linear** row that
+opens it, and `Cmd+Shift+L` does the same from anywhere.
+
+The board's columns are the team's workflow states, in the order the team
+puts them in — a state is data, not a constant, so a team that renames or
+reorders its states is followed. The list is the same issues, one under
+another. Both are narrowed by a search, a project, a milestone and a state;
+the filters are kept between runs.
+
+An issue opens beside the board with its description, its properties, its
+relations and its comments. The description and the comments are rendered as
+markdown, with a line break read as a break, as Linear's editor reads it.
+The attachments are listed: a task prompt is a link to the file in the
+repository.
+
+**A session and the task it works on are one thing.** `kero link <session>
+<BRU-25>` binds a session to an issue; the link is kept with the session
+across restarts. A bound issue shows the session's name on its card, and its
+detail shows the session, the agent's own session id — the one that resumes
+it — with a button that copies it, and a button that opens the session. The
+sidebar's Linear row counts the issues a session is working on.
+
+The daemon reads the workspace, so the app and the CLI see the same one.
+Linear's webhooks want a public address, which a desktop app does not have,
+so the daemon polls: every thirty seconds it asks what changed, and every
+five minutes it reads the projects and the milestones whole. A request is
+bounded at two seconds, and a workspace that cannot be read is a state the
+app shows, never a failure the daemon dies of. The last good read is kept.
+
+The key is a Linear personal API key, kept at mode `0600` in the personal
+data directory, and read from `LINEAR_API_KEY` when that is set. It is read
+per request, so replacing it takes effect at once, which is what rotating a
+key is. Set it in Settings › Agents, or with `kero linear auth <key>`.
+
+Code: [`linear_view.go`](../linear_view.go),
+[`internal/linear/`](../internal/linear/),
+[`internal/daemon/linear.go`](../internal/daemon/linear.go).
+Automation: `kero linear status|board|issue|set-state|comment`, `kero link`.
+
 ## Account usage
 
 Claude and Codex use existing CLI login credentials. OpenCode Go uses its

@@ -13,6 +13,8 @@ These docs describe the local macOS edition.
 | [Changelog](changelog.md) | Shibu release history and unreleased work |
 | [Keep your changes on your fork](keeping-your-fork.md) | Local commits, fork-only pushes, private settings and app releases |
 | [Changes and implementation](changes.md) | Features, code locations, behavior and remaining limits |
+| [Linear board and session links](linear-workspace.md) | Scope, setup, use, reliability and activation |
+| [Security checks](security.md) | Secret scanning, fork-only push hooks and verification |
 | [Build and install](build.md) | Toolchain, checks, local installation and rollback |
 | [Versioning and releases](versioning.md) | Version source, numbering rules and release checklist |
 | [Automatic updates](automatic-updates.md) | Daily upstream synchronization, signed releases, client behavior and recovery |

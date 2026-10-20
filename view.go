@@ -233,6 +233,7 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 		if !a.loaded {
 			return
 		}
+		a.linearNav(c, pal)
 		n := 0 // the rows shown, for ⌘1–9 (Ctrl+1–9 elsewhere)
 		for gi, g := range a.groups() {
 			a.groupView(c, pal, g, gi, &n)
@@ -663,6 +664,12 @@ func statusIconP(c *ui.Context, pal *palette, st proto.Status, unread bool, prog
 
 func (a *App) card(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32) {
 	s := a.session(a.selected)
+	if a.show == "linear" && a.conn != connVersion && a.loaded {
+		// The workspace, in the card the app shows.
+		card := raised(ui.Column(c).Grow(1).MinHeight(0).Radius(14).Background(pal.card), pal).Clip()
+		card.Children(func() { a.linearView(c, pal, bar, shown) })
+		return
+	}
 	if s != nil && a.conn != connVersion && a.loaded {
 		a.panes(c, pal, bar, shown, s)
 		return

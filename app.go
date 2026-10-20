@@ -45,6 +45,20 @@ type prefs struct {
 	SidebarHidden bool            `json:"sidebarHidden,omitempty"`
 	Collapsed     map[string]bool `json:"collapsed,omitempty"`
 	FontSize      float32         `json:"fontSize,omitempty"`
+	// Show is what the main card showed last: a session's panes, or
+	// the Linear workspace.
+	Show string `json:"show,omitempty"`
+	// Linear is the Linear view's own state: what it showed, and the
+	// filters it showed it with.
+	Linear linearPrefs `json:"linear,omitempty"`
+}
+
+// linearPrefs is what the Linear view keeps between runs.
+type linearPrefs struct {
+	View      string `json:"view,omitempty"`
+	Project   string `json:"project,omitempty"`
+	Milestone string `json:"milestone,omitempty"`
+	State     string `json:"state,omitempty"`
 }
 
 const (
@@ -101,6 +115,13 @@ type App struct {
 	renameFrames int
 	chrome       chrome // where the sidebar's animation puts things
 
+	// show is what the main card shows: a session's panes, or the
+	// Linear workspace.
+	show string
+	// lin is the Linear view's own state: the filters, the issue open
+	// beside the board, and what was read of it.
+	lin linearState
+
 	pal          paletteState
 	find         findState
 	confirm      *confirmation
@@ -142,6 +163,17 @@ func newApp() *App {
 	a.ss.problems = settings.Problems()
 	a.applied = a.set.Clone()
 	a.selected = a.prefs.Selected
+	a.show = a.prefs.Show
+	if a.show == "" {
+		a.show = "session"
+	}
+	a.lin.view = a.prefs.Linear.View
+	if a.lin.view == "" {
+		a.lin.view = "board"
+	}
+	a.lin.project = a.prefs.Linear.Project
+	a.lin.milestone = a.prefs.Linear.Milestone
+	a.lin.state = a.prefs.Linear.State
 	return a
 }
 
@@ -165,6 +197,13 @@ func (a *App) loadPrefs() {
 
 func (a *App) savePrefs() {
 	a.prefs.Selected = a.selected
+	a.prefs.Show = a.show
+	a.prefs.Linear = linearPrefs{
+		View:      a.lin.view,
+		Project:   a.lin.project,
+		Milestone: a.lin.milestone,
+		State:     a.lin.state,
+	}
 	b, err := json.MarshalIndent(a.prefs, "", "  ")
 	if err != nil {
 		return
@@ -287,18 +326,24 @@ func (a *App) setState(st proto.State) {
 			a.dropTerm(id)
 		}
 	}
-	if a.session(a.selected) == nil {
+	a.reconcileSelection(first)
+	a.notify(first)
+	a.updateTitle()
+}
+
+// reconcileSelection keeps a background state update from navigating away
+// from the Linear workspace.
+func (a *App) reconcileSelection(first bool) {
+	if a.show != "linear" && a.session(a.selected) == nil {
 		ids := a.visibleOrder()
 		if len(ids) == 0 {
 			a.selected = ""
 		} else {
 			a.selectSession(ids[0])
 		}
-	} else if first {
+	} else if first && a.show != "linear" {
 		a.selectSession(a.selected)
 	}
-	a.notify(first)
-	a.updateTitle()
 }
 
 // showNotification shows a notification about a session, which a click
@@ -452,6 +497,7 @@ func (a *App) selectSession(id string) {
 	}
 	changed := a.selected != id
 	a.selected = id
+	a.show = "session"
 	s := a.session(id)
 	for _, p := range s.Panes {
 		a.ensureTerm(p.ID)

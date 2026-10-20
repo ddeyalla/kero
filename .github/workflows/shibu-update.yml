@@ -23,6 +23,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  secrets:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
   check:
     if: github.repository == 'ddeyalla/kero' && github.ref == 'refs/heads/shibu'
     runs-on: ubuntu-latest
@@ -58,7 +62,7 @@ jobs:
           release.output(changed=str(changed).lower())
           PY
   release:
-    needs: check
+    needs: [check, secrets]
     if: needs.check.outputs.changed == 'true'
     # Intel hosted capacity can cross-build/sign the ARM64 app; the output
     # architecture is explicitly pinned below, independent of this runner.

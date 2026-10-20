@@ -71,6 +71,13 @@ Usage:
                                 key with its value (--defaults: as kero
                                 comes), open it in $EDITOR, check it
   kero projects [--json]
+  kero linear status|board|issue|set-state|comment|auth
+                                the Linear workspace: its issues, and the
+                                session working on one
+      --project <name>          the board of one project
+      --milestone <name>        of one milestone
+      --state <name>            in one state
+  kero link <session> [BRU-25]  link a session to a Linear issue
   kero skill setup|status|show|remove
                                 teach coding agents to use kero
   kero daemon status|stop|restart
@@ -87,7 +94,7 @@ ambiguous one), 4 kerod unreachable.
 // Commands lists the subcommands, which main sends here.
 var Commands = []string{"ls", "list", "new", "split", "send", "key", "prompt", "read", "capture", "wait", "status",
 	"rename", "focus", "close", "kill", "restart", "notify", "report", "projects", "skill", "hook", "daemon", "do", "actions", "config",
-	"usage", "resources", "help", "--help", "-h", "version", "--version"}
+	"linear", "link", "usage", "resources", "help", "--help", "-h", "version", "--version"}
 
 // Errors of exit statuses other than 1.
 var (
@@ -198,6 +205,10 @@ func run(args []string) error {
 		return hookCmd(args)
 	case "config":
 		return configCmd(args)
+	case "linear":
+		return linearCmd(args)
+	case "link":
+		return linkCmd(args)
 	case "usage":
 		return accountUsage(args)
 	case "resources":

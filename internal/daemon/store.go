@@ -17,10 +17,11 @@ import (
 // session again where it was, with what it showed.
 
 type savedState struct {
-	Version  int             `json:"version"`
-	Projects []proto.Project `json:"projects"`
-	Sessions []savedSession  `json:"sessions"`
-	Saved    int64           `json:"saved"`
+	Version  int                `json:"version"`
+	Projects []proto.Project    `json:"projects"`
+	Sessions []savedSession     `json:"sessions"`
+	Saved    int64              `json:"saved"`
+	Linear   *proto.LinearState `json:"linear,omitempty"`
 }
 
 type savedSession struct {
@@ -39,10 +40,13 @@ type savedPane struct {
 	Dir     string   `json:"dir,omitempty"`
 	Command []string `json:"command,omitempty"`
 	// Agent is the agent's session that ran in it, to resume.
-	Agent   *proto.AgentSession `json:"agent,omitempty"`
-	Created int64               `json:"created"`
-	Cols    int                 `json:"cols"`
-	Rows    int                 `json:"rows"`
+	Agent *proto.AgentSession `json:"agent,omitempty"`
+	// Task is the Linear issue the work was on, so that a restored
+	// session is still linked to its task.
+	Task    string `json:"task,omitempty"`
+	Created int64  `json:"created"`
+	Cols    int    `json:"cols"`
+	Rows    int    `json:"rows"`
 }
 
 func (d *Daemon) statePath() string { return filepath.Join(d.dir, "state.json") }
@@ -68,13 +72,13 @@ func (d *Daemon) saveLoop() {
 
 func (d *Daemon) saveState() {
 	d.mu.Lock()
-	st := savedState{Version: 2, Projects: d.projects, Saved: time.Now().UnixMilli()}
+	st := savedState{Version: 2, Projects: d.projects, Saved: time.Now().UnixMilli(), Linear: d.linear}
 	for _, s := range d.sessions {
 		ss := savedSession{ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed, Created: s.created, Layout: s.layout, Focus: s.focus}
 		for _, p := range s.panes {
 			p.mu.Lock()
 			ss.Panes = append(ss.Panes, savedPane{ID: p.info.ID, Dir: p.info.Dir, Command: p.info.Command,
-				Agent: p.info.AgentSession, Created: p.info.Created, Cols: p.info.Cols, Rows: p.info.Rows})
+				Agent: p.info.AgentSession, Task: p.info.TaskID, Created: p.info.Created, Cols: p.info.Cols, Rows: p.info.Rows})
 			p.mu.Unlock()
 		}
 		st.Sessions = append(st.Sessions, ss)
@@ -121,6 +125,7 @@ func (d *Daemon) restore() {
 	if json.Unmarshal(data, &st) != nil {
 		return
 	}
+	d.linear = st.Linear
 	set := settings.Load()
 	if !set.RestoreSessions {
 		// The projects stay; the sessions of the last daemon do not.
@@ -165,6 +170,7 @@ func (d *Daemon) restorePane(sid string, sp savedPane, when string) *pane {
 	p, err := newPane(d, sid, proto.Pane{
 		ID: sp.ID, Dir: sp.Dir, Command: sp.Command, Status: proto.Idle, Since: now,
 		Created: sp.Created, Cols: sp.Cols, Rows: sp.Rows, Restored: true, AgentSession: sp.Agent,
+		TaskID: sp.Task,
 	})
 	if err != nil {
 		d.log.Printf("restoring %s: %v", sp.ID, err)

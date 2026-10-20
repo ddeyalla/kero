@@ -15,6 +15,9 @@ Customizations are for the user's own use.
   upstream updates.
 - The maintained release branch on the fork is `shibu`. Keep unfinished feature
   work on its own branch and out of release commits.
+- Install this clone's guards with `sh scripts/install-git-guards.sh`. Never
+  bypass a secret-scan failure. Keep keys, private runtime state and raw research
+  transcripts out of commits; review and stage exact feature-owned files.
 - Before launching any test app or daemon, clear or isolate `KERO_HOME`,
   `KERO_CONFIG`, `KERO_SOCKET`, `KERO_PANE` and `KERO_SESSION`. A test data directory
   alone does not prevent an inherited socket from targeting the daily app.

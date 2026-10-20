@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"kero/internal/actions"
 	"kero/internal/cli"
 	"kero/internal/client"
+	"kero/internal/linear"
 	"kero/internal/proto"
 	"kero/internal/settings"
 	"kero/internal/shell"
@@ -68,6 +70,9 @@ type settingsState struct {
 	menus        map[string]*searchMenu     // the search menus', by key
 	problems     []string                   // what the configuration file got wrong
 	scrolls      map[string]*ui.ScrollState // each page's, for its scroll edge
+	linearKey    string                     // the Linear key, as typed
+	linearNotice string                     // what the Linear key did
+	linearSaving bool
 }
 
 // openSettings shows the Settings window, on a page.
@@ -105,6 +110,7 @@ func (a *App) openSettings(page string) {
 		a.setWin = nil
 		a.setRecording("") // the menus take their shortcuts back
 		a.ss.query = ""
+		a.ss.linearKey = ""
 	})
 }
 
@@ -858,6 +864,76 @@ func (a *App) agentsPage(c *ui.Context, pal *palette) {
 	})
 	settingsGroup(c, pal, locales.SetProgramStatus(), locales.SetProgramStatusDetail(), nil)
 	codeBlock(c, pal, "kero report working \"Deploying\" --progress 40\nkero report blocked \"Approve the migration?\" --kind permission\nkero report done \"Deployed\"")
+	a.linearSettings(c, pal)
+}
+
+// linearSettings is the Linear workspace's own settings: the key, and
+// what the daemon made of it.
+func (a *App) linearSettings(c *ui.Context, pal *palette) {
+	lin := a.st.Linear
+	detail := locales.LinearApiKeyDetail()
+	switch {
+	case lin == nil:
+		detail = locales.LinearStatusNoToken()
+	case lin.Status == proto.LinearOK:
+		detail = fmt.Sprintf("%s · %d %s · %d %s",
+			locales.LinearStatusOk(), len(lin.Projects), locales.LinearProjects(), len(lin.Issues), locales.LinearIssues())
+	case lin.Status == proto.LinearAuthFailed:
+		detail = locales.LinearStatusAuthFailed()
+	case lin.Status == proto.LinearRateLimited:
+		detail = locales.LinearStatusRateLimited()
+	case lin.Status == proto.LinearNoToken:
+		detail = locales.LinearStatusNoToken()
+	default:
+		detail = locales.LinearStatusUnreachable()
+	}
+	settingsGroup(c, pal, locales.LinearGroup(), locales.LinearGroupDetail(), func() {
+		settingRow(c, pal, locales.LinearApiKey(), detail, func() {
+			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+				ui.TextInput(c.Key("linear-key"), &a.ss.linearKey).Password().Label(locales.LinearApiKey()).
+					Placeholder("lin_api_…").Grow(1).MinWidth(0)
+				if ui.Button(c, "Save Linear key").Disabled(a.ss.linearSaving || strings.TrimSpace(a.ss.linearKey) == "").Clicked() {
+					a.saveLinearKey(a.ss.linearKey)
+				}
+				if ui.Button(c, "Remove Linear key").Disabled(a.ss.linearSaving).Clicked() {
+					a.saveLinearKey("")
+				}
+			})
+		})
+		if a.ss.linearNotice != "" {
+			ui.Text(c, a.ss.linearNotice).FontSize(11).TextColor(pal.textFaint)
+		}
+	})
+}
+
+// saveLinearKey keeps the Linear key, and asks the daemon to read the
+// workspace again.
+func (a *App) saveLinearKey(key string) {
+	key = strings.TrimSpace(key)
+	if a.ss.linearSaving {
+		return
+	}
+	a.ss.linearSaving = true
+	a.ss.linearKey = ""
+	go func() {
+		err := linear.SaveKey(key)
+		a.update(func() {
+			a.ss.linearSaving = false
+			if err != nil {
+				a.ss.linearNotice = err.Error()
+			} else {
+				a.ss.linearKey = ""
+				a.ss.linearNotice = locales.LinearKeySaved()
+				if key == "" {
+					a.ss.linearNotice = locales.LinearKeyEmpty()
+				}
+				a.call("linear.refresh", nil, nil)
+			}
+			if a.setWin != nil {
+				a.setWin.Invalidate()
+			}
+		})
+	}()
 }
 
 func codeBlock(c *ui.Context, pal *palette, code string) {

@@ -53,6 +53,8 @@ var All = []Action{
 	{ID: "pane.down", Title: "Pane Below", Menu: "Pane", Keys: "CmdOrCtrl+Alt+Down", Remote: true},
 
 	{ID: "sidebar.toggle", Title: "Toggle Sidebar", Menu: "View", Keys: "CmdOrCtrl+B", Remote: true},
+	{ID: "linear.open", Title: "Open Linear", Menu: "View", Keys: "CmdOrCtrl+Shift+L", Remote: true},
+	{ID: "linear.refresh", Title: "Refresh Linear", Menu: "View", Remote: true},
 	{ID: "usage.open", Title: "Account Usage…", Menu: "View", Keys: "CmdOrCtrl+Shift+U", Remote: true},
 	{ID: "usage.refresh", Title: "Refresh Account Usage", Menu: "View", Remote: true},
 	{ID: "text.bigger", Title: "Bigger", Menu: "View", Keys: "CmdOrCtrl+=", Remote: true},

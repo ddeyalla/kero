@@ -16,6 +16,43 @@ they do not imply published GitHub releases or existing release tags.
 - Clarified workflow-owned version increments and retained unfinished Linear work
   outside these documentation commits.
 
+### Added
+
+- A Linear workspace in the app: the issues of the team as a board or a
+  list, with a search and filters for the project, the milestone and the
+  state, and the issue open beside them with its description, its
+  relations, its attachments and its comments.
+- A session linked to the task it works on: `kero link <session> <BRU-25>`,
+  the link kept across restarts, the issue showing the session's name, and
+  its detail offering the agent's resume id to copy and the session to open.
+- The daemon reads the Linear workspace and keeps it fresh, so the app, the
+  CLI and the agents see the same one; a request is bounded and a workspace
+  that cannot be read is shown as such, not as an absence.
+- A Linear personal API key in Settings › Agents, kept at mode `0600` in
+  the personal data directory, and read from `LINEAR_API_KEY` when set.
+- `kero linear status|board|issue|set-state|comment|auth` and `kero link`.
+- The `linear.open` and `linear.refresh` actions, and the `Cmd+Shift+L`
+  shortcut for the workspace.
+- Local Gitleaks commit/push guards, a fork-only push destination allowlist,
+  GitHub secret-scan CI and ordinary feature-branch test CI.
+
+### Fixed
+
+- Paginated Linear reads, dependency decoding, fractional state ordering,
+  offline cache preservation, serialized refreshes and rate-limit backoff.
+- Linear navigation survives daemon broadcasts; stale detail responses are
+  rejected and failed reads show Retry. Existing sessions can be linked and
+  unlinked directly from issue detail without writing to Linear.
+- API keys no longer pass through CLI arguments; credential inputs clear,
+  removal is supported, and remote response bodies/redirects cannot echo or
+  forward the key. Private and malformed credential stores are preserved.
+- Test daemons refuse to replace an existing live daemon socket, including
+  when a different data directory inherits the same socket address.
+
+Scope and verification: [Linear v1](linear-workspace.md),
+[secret protection](security.md). This is unreleased feature-branch work;
+the installed daily app remains on its current release.
+
 ## [2.0.5-local.7] - 2026-10-20
 
 - Includes Kero 2.0.5 (`a920e3a0cc25`) and Shibu customizations.
