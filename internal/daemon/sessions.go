@@ -16,6 +16,7 @@ import (
 // guards its fields.
 type session struct {
 	id, project, name string
+	agentNamed        bool // name is an agent's (proto.Session.AgentNamed)
 	created           int64
 	restored          bool
 	panes             []*pane
@@ -42,7 +43,7 @@ func (d *Daemon) state() proto.State {
 // sessionInfo describes a session; d.mu is held.
 func (d *Daemon) sessionInfo(s *session) proto.Session {
 	info := proto.Session{
-		ID: s.id, Project: s.project, Name: s.name,
+		ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed,
 		Layout: s.layout.Clone(), Focus: s.focus, Zoomed: s.zoomed,
 		Panes: make([]proto.Pane, 0, len(s.panes)),
 	}
