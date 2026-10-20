@@ -159,3 +159,35 @@ A separate accessory app with no coding window exercised MyGo's native
 changed and daemon/shell PIDs stayed identical; the test daemon was then stopped.
 This does not establish full-window focus restoration or guarantee survival
 across arbitrary protocol/data changes. Automatic GUI relaunch remains off.
+
+## Manual update control and repair isolation — 2026-10-20
+
+`2.0.5-local.7` passed the [hosted release pipeline](https://github.com/ddeyalla/kero/actions/runs/39447980816)
+and was installed from its signed public archive. The actual updater probe
+again rejected a wrong key and installed the correct release into a temporary
+bundle. ARM64, bundle identity and strict native signature verification passed.
+The sidebar control was rendered and inspected with MyGo Tester.
+
+A [live manual workflow trigger](https://github.com/ddeyalla/kero/actions/runs/39447195716)
+passed through the new maintenance client. A separate real-fork clone/worktree
+test retained dirty source files and the source branch while preparing a repair
+branch. Unit tests cover fixed account/host/destination, secret error redaction,
+monitor cancellation, upstream-origin rejection and prompt boundaries. Go tests,
+MyGo vet and maintenance race checks passed in an isolated checkout; unrelated
+in-progress code in the shared checkout was excluded. No paid Codex repair was
+started for the test; interactive CLI trust/approval remains a first-use check.
+
+The installed bundle is local.7, while the pre-existing GUI/daemon remain running
+without a forced relaunch. Settings/provider-key fingerprints are unchanged and
+the original six shell processes remain alive.
+
+The final RPC session comparison was blocked by a separate local test daemon:
+`/tmp/kerobin/kero` used `KERO_HOME=/tmp/kerotest` while inheriting the personal
+`KERO_SOCKET`, replacing the live socket pathname. The original GUI, daemon and
+shells remained alive on existing connections. No daemon was stopped to repair
+this; the user was asked to pause the other test task before a safe recovery.
+The existing saved state/history was backed up again. Do not interpret this
+record as successful reconnect validation or an enabled automatic window handoff.
+
+Tests must isolate or unset **all** of KERO_HOME, KERO_CONFIG, KERO_SOCKET,
+KERO_PANE and KERO_SESSION. Isolating KERO_HOME alone is insufficient.
