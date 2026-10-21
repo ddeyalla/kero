@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -51,16 +55,25 @@ func TestNewVerifier(t *testing.T) {
 	}
 }
 
+// anyPort is a Config.Listen that listens on a free loopback port, so
+// that the tests do not need DefaultRedirectPort to be free.
+func anyPort(network, address string) (net.Listener, error) {
+	return net.Listen(network, "127.0.0.1:0")
+}
+
 // browser is an OpenURL that does what the browser does: it visits the
-// loopback redirect in the test, so the callback gets its code.
+// loopback redirect in the test, so the callback gets its code. With
+// again set, it visits the redirect a second time with that code.
 type browser struct {
 	t          *testing.T
 	urls       []string
 	code       string
+	again      string
 	state      string
 	params     url.Values
 	openErr    error
 	lastStatus int
+	statuses   []int
 }
 
 func (b *browser) OpenURL(raw string) error {
@@ -81,21 +94,29 @@ func (b *browser) OpenURL(raw string) error {
 	if b.state != "" {
 		state = b.state
 	}
-	callback := redirect.Query()
-	callback.Set("state", state)
-	callback.Set("code", b.code)
-	for key, values := range b.params {
-		for _, value := range values {
-			callback.Set(key, value)
+	codes := []string{b.code}
+	if b.again != "" {
+		codes = append(codes, b.again)
+	}
+	for _, code := range codes {
+		callback := redirect.Query()
+		callback.Set("state", state)
+		callback.Set("code", code)
+		for key, values := range b.params {
+			for _, value := range values {
+				callback.Set(key, value)
+			}
 		}
+		redirect.RawQuery = callback.Encode()
+		resp, err := http.Get(redirect.String())
+		if err != nil {
+			return err
+		}
+		b.lastStatus = resp.StatusCode
+		b.statuses = append(b.statuses, resp.StatusCode)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
 	}
-	redirect.RawQuery = callback.Encode()
-	resp, err := http.Get(redirect.String())
-	if err != nil {
-		return err
-	}
-	b.lastStatus = resp.StatusCode
-	resp.Body.Close()
 	return nil
 }
 
@@ -127,6 +148,7 @@ func TestSignIn(t *testing.T) {
 		OpenURL:     b,
 		Secrets:     secrets,
 		Now:         func() time.Time { return now },
+		Listen:      anyPort,
 	})
 	if err := client.SignIn(context.Background()); err != nil {
 		t.Fatalf("SignIn: %v", err)
@@ -221,7 +243,7 @@ func TestSignInWithoutClientID(t *testing.T) {
 
 func TestSignInOpenBrowserFails(t *testing.T) {
 	b := &browser{t: t, openErr: errors.New("no browser")}
-	client := New(Config{ClientID: "client-id", OpenURL: b, Secrets: MapSecrets{}})
+	client := New(Config{ClientID: "client-id", OpenURL: b, Secrets: MapSecrets{}, Listen: anyPort})
 	if err := client.SignIn(context.Background()); !errors.Is(err, ErrSignInFailed) {
 		t.Fatalf("SignIn = %v, want ErrSignInFailed", err)
 	}
@@ -234,6 +256,7 @@ func TestSignInWrongState(t *testing.T) {
 		OpenURL:       b,
 		Secrets:       MapSecrets{},
 		SignInTimeout: 200 * time.Millisecond,
+		Listen:        anyPort,
 	})
 	err := client.SignIn(context.Background())
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
@@ -252,7 +275,7 @@ func TestSignInDenied(t *testing.T) {
 	defer accounts.Close()
 
 	b := &browser{t: t, code: "the-code", params: url.Values{"error": {"access_denied"}}}
-	client := New(Config{ClientID: "client-id", AccountsURL: accounts.URL, OpenURL: b, Secrets: MapSecrets{}})
+	client := New(Config{ClientID: "client-id", AccountsURL: accounts.URL, OpenURL: b, Secrets: MapSecrets{}, Listen: anyPort})
 	err := client.SignIn(context.Background())
 	if !errors.Is(err, ErrSignInFailed) {
 		t.Fatalf("SignIn = %v, want ErrSignInFailed", err)
@@ -273,7 +296,7 @@ func TestSignInTokenRequestFails(t *testing.T) {
 	defer accounts.Close()
 
 	b := &browser{t: t, code: "the-code"}
-	client := New(Config{ClientID: "client-id", AccountsURL: accounts.URL, OpenURL: b, Secrets: MapSecrets{}})
+	client := New(Config{ClientID: "client-id", AccountsURL: accounts.URL, OpenURL: b, Secrets: MapSecrets{}, Listen: anyPort})
 	if err := client.SignIn(context.Background()); !errors.Is(err, ErrTokenRefused) {
 		t.Fatalf("SignIn = %v, want ErrTokenRefused", err)
 	}
@@ -298,6 +321,7 @@ func TestSignOutWaitsForSignIn(t *testing.T) {
 		OpenURL:     &browser{t: t, code: "the-code"},
 		Secrets:     secrets,
 		Now:         func() time.Time { return now },
+		Listen:      anyPort,
 	})
 
 	signInErr := make(chan error, 1)
@@ -324,5 +348,185 @@ func TestSignOutWaitsForSignIn(t *testing.T) {
 	}
 	if got := secrets[TokensKey]; got != "" {
 		t.Errorf("tokens secret = %q after SignOut", got)
+	}
+}
+
+func TestRedirectURI(t *testing.T) {
+	client := New(Config{ClientID: "client-id"})
+	if got, want := client.RedirectURI(), "http://127.0.0.1:43017/callback"; got != want {
+		t.Errorf("RedirectURI = %q, want %q", got, want)
+	}
+	other := New(Config{ClientID: "client-id", RedirectPort: 8888})
+	if got, want := other.RedirectURI(), "http://127.0.0.1:8888/callback"; got != want {
+		t.Errorf("RedirectURI = %q, want %q", got, want)
+	}
+}
+
+// tokenServer is an accounts server that gives tokens for every code and
+// records the codes it got.
+func tokenServer(t *testing.T) (*httptest.Server, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var codes []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("parse form: %v", err)
+		}
+		mu.Lock()
+		codes = append(codes, r.PostForm.Get("code"))
+		mu.Unlock()
+		io.WriteString(w, `{"access_token":"access-1","expires_in":3600,"refresh_token":"refresh-1"}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(codes)
+	}
+}
+
+func TestSignInListensOnTheDefaultPort(t *testing.T) {
+	accounts, _ := tokenServer(t)
+	var addresses []string
+	client := New(Config{
+		ClientID:    "client-id",
+		AccountsURL: accounts.URL,
+		OpenURL:     &browser{t: t, code: "the-code"},
+		Secrets:     MapSecrets{},
+		Listen: func(network, address string) (net.Listener, error) {
+			addresses = append(addresses, address)
+			return anyPort(network, address)
+		},
+	})
+	if err := client.SignIn(context.Background()); err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if len(addresses) != 1 || addresses[0] != "127.0.0.1:43017" {
+		t.Errorf("listened on %v, want 127.0.0.1:43017", addresses)
+	}
+}
+
+func TestSignInPortBusy(t *testing.T) {
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	port := held.Addr().(*net.TCPAddr).Port
+
+	b := &browser{t: t, code: "the-code"}
+	client := New(Config{ClientID: "client-id", RedirectPort: port, OpenURL: b, Secrets: MapSecrets{}})
+	err = client.SignIn(context.Background())
+	if !errors.Is(err, ErrRedirectPortBusy) {
+		t.Fatalf("SignIn = %v, want ErrRedirectPortBusy", err)
+	}
+	if !errors.Is(err, ErrSignInFailed) {
+		t.Errorf("SignIn = %v, want ErrSignInFailed too", err)
+	}
+	if len(b.urls) != 0 {
+		t.Errorf("opened %d URLs, want 0", len(b.urls))
+	}
+
+	// A listener hook that reports the same failure gives the same error.
+	hooked := New(Config{
+		ClientID: "client-id",
+		OpenURL:  b,
+		Secrets:  MapSecrets{},
+		Listen: func(network, address string) (net.Listener, error) {
+			return nil, &net.OpError{Op: "listen", Net: network, Err: syscall.EADDRINUSE}
+		},
+	})
+	if err := hooked.SignIn(context.Background()); !errors.Is(err, ErrRedirectPortBusy) {
+		t.Errorf("SignIn = %v, want ErrRedirectPortBusy", err)
+	}
+}
+
+func TestSecondCallbackIsIgnored(t *testing.T) {
+	accounts, codes := tokenServer(t)
+	b := &browser{t: t, code: "first", again: "second"}
+	client := New(Config{
+		ClientID:    "client-id",
+		AccountsURL: accounts.URL,
+		OpenURL:     b,
+		Secrets:     MapSecrets{},
+		Listen:      anyPort,
+	})
+	if err := client.SignIn(context.Background()); err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if got := codes(); len(got) != 1 || got[0] != "first" {
+		t.Errorf("exchanged codes = %v, want only the first", got)
+	}
+	if len(b.statuses) != 2 || b.statuses[0] != http.StatusOK || b.statuses[1] != http.StatusConflict {
+		t.Errorf("callback statuses = %v, want 200 then 409", b.statuses)
+	}
+}
+
+// closeListener records whether the sign-in closed its listener.
+type closeListener struct {
+	net.Listener
+	closed atomic.Bool
+}
+
+func (l *closeListener) Close() error {
+	l.closed.Store(true)
+	return l.Listener.Close()
+}
+
+func TestSignInClosesTheListener(t *testing.T) {
+	accounts, _ := tokenServer(t)
+	var ln *closeListener
+	b := &browser{t: t, code: "the-code"}
+	client := New(Config{
+		ClientID:    "client-id",
+		AccountsURL: accounts.URL,
+		OpenURL:     b,
+		Secrets:     MapSecrets{},
+		Listen: func(network, address string) (net.Listener, error) {
+			inner, err := anyPort(network, address)
+			if err != nil {
+				return nil, err
+			}
+			ln = &closeListener{Listener: inner}
+			return ln, nil
+		},
+	})
+	if err := client.SignIn(context.Background()); err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if ln == nil || !ln.closed.Load() {
+		t.Fatal("the listener is still open after SignIn")
+	}
+	if conn, err := net.DialTimeout("tcp", ln.Addr().String(), time.Second); err == nil {
+		conn.Close()
+		t.Error("the redirect port still takes connections after SignIn")
+	}
+}
+
+func TestSignInClearsLastResults(t *testing.T) {
+	accounts, _ := tokenServer(t)
+	now := testNow()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"items": [{"id": "p1", "name": "One"}]}`)
+	}))
+	defer api.Close()
+
+	client := New(Config{
+		ClientID:    "client-id",
+		BaseURL:     api.URL,
+		AccountsURL: accounts.URL,
+		OpenURL:     &browser{t: t, code: "the-code"},
+		Secrets:     seededSecrets(t, liveToken(now)),
+		Now:         func() time.Time { return now },
+		Listen:      anyPort,
+	})
+	if _, err := client.Playlists(context.Background()); err != nil {
+		t.Fatalf("Playlists: %v", err)
+	}
+	if err := client.SignIn(context.Background()); err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if last, ok := client.LastPlaylists(); ok {
+		t.Errorf("LastPlaylists = %+v after a sign-in, want none", last)
 	}
 }

@@ -6,13 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
-	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -22,6 +25,14 @@ const callbackPath = "/callback"
 // refreshLeeway is how long before expiry the client refreshes a token,
 // so that a call does not start with a token that is about to lapse.
 const refreshLeeway = time.Minute
+
+// shutdownTimeout is how long the loopback server waits for the browser
+// to read its page before it closes the connection.
+const shutdownTimeout = time.Second
+
+// defaultRetryAfter is the wait after a rate limit that gives no
+// Retry-After.
+const defaultRetryAfter = 30 * time.Second
 
 // newVerifier returns a PKCE code verifier: 32 random bytes in base64url,
 // which is the 43 characters the standard allows at the least.
@@ -74,8 +85,10 @@ type callback struct {
 	ln     net.Listener
 	state  string
 	result chan callbackResult
-	once   sync.Once
-	srv    *http.Server
+	// done is the first callback with the right state. Every later one
+	// is ignored.
+	done atomic.Bool
+	srv  *http.Server
 }
 
 func newCallback(ln net.Listener, state string) *callback {
@@ -88,7 +101,18 @@ func newCallback(ln net.Listener, state string) *callback {
 
 func (cb *callback) serve() { _ = cb.srv.Serve(cb.ln) }
 
-func (cb *callback) close() { _ = cb.srv.Close() }
+// close stops the server. Shutdown lets the browser read the page it
+// got; a connection that is still busy after shutdownTimeout is closed.
+func (cb *callback) close() {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if cb.srv.Shutdown(ctx) != nil {
+		_ = cb.srv.Close()
+	}
+	// Serve may not have started yet, and then nothing else closes the
+	// listener.
+	_ = cb.ln.Close()
+}
 
 // wait gives the callback, or the context's reason for giving up.
 func (cb *callback) wait(ctx context.Context) (callbackResult, error) {
@@ -106,20 +130,28 @@ func (cb *callback) handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "The sign-in state does not match.", http.StatusBadRequest)
 		return
 	}
-	if message := q.Get("error"); message != "" {
-		cb.once.Do(func() { cb.result <- callbackResult{message: message} })
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, signInFailedPage)
+	res := callbackResult{message: q.Get("error")}
+	page := signInFailedPage
+	if res.message == "" {
+		res.code = q.Get("code")
+		if res.code == "" {
+			http.Error(w, "The callback carries no code.", http.StatusBadRequest)
+			return
+		}
+		page = signInDonePage
+	}
+	if !cb.done.CompareAndSwap(false, true) {
+		http.Error(w, "Shibu Code has this sign-in already.", http.StatusConflict)
 		return
 	}
-	code := q.Get("code")
-	if code == "" {
-		http.Error(w, "The callback carries no code.", http.StatusBadRequest)
-		return
-	}
-	cb.once.Do(func() { cb.result <- callbackResult{code: code} })
+	// The page goes out before the result: the sign-in closes the server
+	// when it has the result, and the browser must have its page first.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, signInDonePage)
+	_, _ = io.WriteString(w, page)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	cb.result <- res
 }
 
 // The pages the browser shows after the callback. The app is the only
@@ -168,6 +200,9 @@ func (c *Client) SignIn(ctx context.Context) error {
 		return err
 	}
 	ln, err := c.listen("tcp", fmt.Sprintf("127.0.0.1:%d", c.redirectPort))
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return fmt.Errorf("%w: %w: another program holds port %d", ErrSignInFailed, ErrRedirectPortBusy, c.redirectPort)
+	}
 	if err != nil {
 		return fmt.Errorf("%w: listen on the loopback: %v", ErrSignInFailed, err)
 	}
@@ -178,6 +213,8 @@ func (c *Client) SignIn(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, c.signInTimeout)
 	defer cancel()
 
+	// The URI comes from the listener, which is RedirectURI unless a
+	// test listens on another port.
 	redirectURI := "http://" + ln.Addr().String() + callbackPath
 	challenge := codeChallenge(verifier)
 	if err := c.openURL.OpenURL(c.authorizeURL(clientID, redirectURI, challenge, state)); err != nil {
@@ -209,7 +246,24 @@ func (c *Client) exchange(ctx context.Context, clientID, redirectURI, code, veri
 		return fmt.Errorf("%w: Spotify returned no token", ErrSignInFailed)
 	}
 	t := out.token(c.now())
-	return c.adoptToken(&t)
+	return c.adoptSignIn(clientID, &t)
+}
+
+// adoptSignIn adopts the tokens of a sign-in while the Client ID is still
+// the one the sign-in used, and forgets the results of the account
+// before. It holds clientMu, so SetClientID waits for it and then
+// forgets the tokens of the old app.
+func (c *Client) adoptSignIn(clientID string, t *Token) error {
+	c.clientMu.RLock()
+	defer c.clientMu.RUnlock()
+	if c.clientID != clientID {
+		return fmt.Errorf("%w: the Client ID changed during the sign-in", ErrSignInFailed)
+	}
+	if err := c.adoptToken(t); err != nil {
+		return err
+	}
+	c.resetCache()
+	return nil
 }
 
 // Token is what the client keeps between runs. It is a secret.
@@ -268,7 +322,13 @@ func (c *Client) tokenRequest(ctx context.Context, form url.Values, out *tokenRe
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		message := spotifyMessage(raw)
-		if resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(message), "invalid_grant") {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return c.rateLimited(resp, message)
+		}
+		// invalid_grant is a revoked or expired grant, and invalid_client
+		// a Client ID that Spotify does not know: both need a sign-in.
+		if code := oauthError(raw); (resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized) &&
+			(code == "invalid_grant" || code == "invalid_client") {
 			return fmt.Errorf("%w: %s", ErrTokenRefused, message)
 		}
 		if resp.StatusCode >= 500 {
@@ -282,11 +342,71 @@ func (c *Client) tokenRequest(ctx context.Context, form url.Values, out *tokenRe
 	return nil
 }
 
+// oauthError is the error code of a token endpoint answer, such as
+// invalid_grant, or "" when the answer has none.
+func oauthError(raw []byte) string {
+	var body struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return ""
+	}
+	return body.Error
+}
+
+// rateLimited keeps the wait of a 429 answer and returns its error. The
+// wait only grows, so an answer with a shorter wait cannot cut a longer
+// one.
+func (c *Client) rateLimited(resp *http.Response, message string) error {
+	until := c.now().Add(retryAfter(resp.Header.Get("Retry-After"), c.now()))
+	c.limitMu.Lock()
+	if until.After(c.limitedUntil) {
+		c.limitedUntil = until
+	} else {
+		until = c.limitedUntil
+	}
+	c.limitMu.Unlock()
+	return &RateLimitError{Until: until, Message: message}
+}
+
+// limited returns the rate limit error while the wait has not passed,
+// and nil once it has.
+func (c *Client) limited() error {
+	c.limitMu.Lock()
+	until := c.limitedUntil
+	c.limitMu.Unlock()
+	if until.IsZero() || !c.now().Before(until) {
+		return nil
+	}
+	return &RateLimitError{Until: until}
+}
+
+// retryAfter reads a Retry-After header, which Spotify gives in seconds
+// and HTTP allows as a date too.
+func retryAfter(header string, now time.Time) time.Duration {
+	header = strings.TrimSpace(header)
+	if seconds, err := strconv.ParseInt(header, 10, 64); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if at, err := http.ParseTime(header); err == nil {
+		if wait := at.Sub(now); wait > 0 {
+			return wait
+		}
+		return 0
+	}
+	return defaultRetryAfter
+}
+
 // AccessToken returns a valid access token, and refreshes it when it is
-// near its expiry. It returns ErrSignedOut when the client has no tokens.
+// near its expiry. It returns ErrSignedOut when the client has no tokens,
+// and ErrTokenRefused after Spotify refused a refresh, until the next
+// sign-in.
 func (c *Client) AccessToken(ctx context.Context) (string, error) {
 	if c.ClientID() == "" {
 		return "", ErrNoClientID
+	}
+	if c.isRefused() {
+		return "", ErrTokenRefused
 	}
 	t, err := c.tokens()
 	if err != nil {
@@ -297,6 +417,9 @@ func (c *Client) AccessToken(ctx context.Context) (string, error) {
 	}
 	if c.valid(t) {
 		return t.AccessToken, nil
+	}
+	if err := c.limited(); err != nil {
+		return "", err
 	}
 	c.refreshMu.Lock()
 	defer c.refreshMu.Unlock()
@@ -318,6 +441,9 @@ func (c *Client) refreshAfterRefused(ctx context.Context, refused string) (strin
 	}
 	c.refreshMu.Lock()
 	defer c.refreshMu.Unlock()
+	if c.isRefused() {
+		return "", ErrTokenRefused
+	}
 	t, err := c.tokens()
 	if err != nil {
 		return "", err
@@ -340,8 +466,13 @@ func (c *Client) refreshAfterRefused(ctx context.Context, refused string) (strin
 // network.
 func (c *Client) refreshToken(ctx context.Context, force bool) (string, error) {
 	c.tokenMu.Lock()
-	t := c.tok
+	t, refused := c.tok, c.refused
 	c.tokenMu.Unlock()
+	if refused {
+		// A caller that waited for refreshMu shares the refusal of the
+		// refresh before it.
+		return "", ErrTokenRefused
+	}
 	if t == nil || (t.AccessToken == "" && t.RefreshToken == "") {
 		return "", ErrSignedOut
 	}
@@ -353,6 +484,7 @@ func (c *Client) refreshToken(ctx context.Context, force bool) (string, error) {
 		return "", ErrNoClientID
 	}
 	if t.RefreshToken == "" {
+		c.refuseIf(t)
 		return "", fmt.Errorf("%w: no refresh token", ErrTokenRefused)
 	}
 	form := url.Values{}
@@ -361,9 +493,13 @@ func (c *Client) refreshToken(ctx context.Context, force bool) (string, error) {
 	form.Set("client_id", clientID)
 	var out tokenResponse
 	if err := c.tokenRequest(ctx, form, &out); err != nil {
+		if errors.Is(err, ErrTokenRefused) {
+			c.refuseIf(t)
+		}
 		return "", err
 	}
 	if out.AccessToken == "" {
+		c.refuseIf(t)
 		return "", fmt.Errorf("%w: Spotify returned no access token", ErrTokenRefused)
 	}
 	next := out.token(c.now())
@@ -448,6 +584,7 @@ func (c *Client) adoptToken(t *Token) error {
 	}
 	c.tok = t
 	c.tokenLoaded = true
+	c.refused = false
 	return nil
 }
 
@@ -472,6 +609,32 @@ func (c *Client) adoptTokenIf(expected, next *Token) (*Token, error) {
 	c.tok = next
 	c.tokenLoaded = true
 	return next, nil
+}
+
+// refuseIf forgets the tokens after Spotify refused them, and remembers
+// the refusal until the next sign-in, while expected is still the
+// current token. A refusal that lands after a sign-in therefore cannot
+// forget the new tokens.
+func (c *Client) refuseIf(expected *Token) {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	if c.tok != expected {
+		return
+	}
+	c.tok = nil
+	c.tokenLoaded = true
+	c.refused = true
+	// Best effort: the refusal holds in memory, and a token that stays
+	// in the secret is refused again at the next start.
+	_ = c.secrets.Set(TokensKey, "")
+}
+
+// isRefused tells whether Spotify refused the tokens since the last
+// sign-in.
+func (c *Client) isRefused() bool {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	return c.refused
 }
 
 // networkError wraps a transport failure as ErrNetworkDown. A caller

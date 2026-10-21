@@ -696,6 +696,199 @@ func TestSetClientID(t *testing.T) {
 	}
 }
 
+func TestSetClientIDOfAnotherAppForgetsTheTokens(t *testing.T) {
+	now := testNow()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"items": [{"id": "p1", "name": "One"}]}`)
+	}))
+	defer api.Close()
+
+	// The Client ID that the settings give at the start keeps the tokens.
+	secrets := seededSecrets(t, liveToken(now))
+	client := New(Config{BaseURL: api.URL, Secrets: secrets, Now: func() time.Time { return now }})
+	client.SetClientID("app-1")
+	if got := client.Current(); got != StateReady {
+		t.Fatalf("Current = %q after the first Client ID", got)
+	}
+	if _, err := client.Playlists(context.Background()); err != nil {
+		t.Fatalf("Playlists: %v", err)
+	}
+
+	// Clearing the field and typing the same ID again keeps them too.
+	client.SetClientID("")
+	client.SetClientID("app-1")
+	if got := client.Current(); got != StateReady {
+		t.Errorf("Current = %q after the same Client ID", got)
+	}
+
+	client.SetClientID("")
+	client.SetClientID("app-2")
+	if got := client.Current(); got != StateSignedOut {
+		t.Errorf("Current = %q after another Client ID, want StateSignedOut", got)
+	}
+	if _, ok := secrets[TokensKey]; ok {
+		t.Error("the tokens of the old app are still in the secret")
+	}
+	if last, ok := client.LastPlaylists(); ok {
+		t.Errorf("LastPlaylists = %+v, want the results of the old app gone", last)
+	}
+}
+
+func TestSignInForAnOldClientIDIsDropped(t *testing.T) {
+	now := testNow()
+	client := New(Config{ClientID: "app-1", Secrets: MapSecrets{}, Now: func() time.Time { return now }})
+	client.SetClientID("app-2")
+	token := liveToken(now)
+	if err := client.adoptSignIn("app-1", &token); !errors.Is(err, ErrSignInFailed) {
+		t.Fatalf("adoptSignIn = %v, want ErrSignInFailed", err)
+	}
+	if client.SignedIn() {
+		t.Error("SignedIn = true with the tokens of the old app")
+	}
+}
+
+func TestSignOutDropsResultsInFlight(t *testing.T) {
+	now := testNow()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		io.WriteString(w, `{"items": [{"id": "p1", "name": "One"}]}`)
+	}))
+	defer api.Close()
+
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, liveToken(now)),
+		Now:      func() time.Time { return now },
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.Playlists(context.Background())
+		done <- err
+	}()
+	<-started
+	if err := client.SignOut(); err != nil {
+		t.Fatalf("SignOut: %v", err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Playlists: %v", err)
+	}
+	if last, ok := client.LastPlaylists(); ok {
+		t.Errorf("LastPlaylists = %+v after SignOut, want none", last)
+	}
+}
+
+func TestOlderSearchDoesNotReplaceANewerOne(t *testing.T) {
+	now := testNow()
+	startedA := make(chan struct{})
+	releaseA := make(chan struct{})
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		if q == "A" {
+			close(startedA)
+			<-releaseA
+		}
+		io.WriteString(w, `{"albums": {"items": [{"id": "`+q+`", "name": "`+q+`"}]}}`)
+	}))
+	defer api.Close()
+
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, liveToken(now)),
+		Now:      func() time.Time { return now },
+	})
+	type answer struct {
+		result SearchResult
+		err    error
+	}
+	gotA := make(chan answer, 1)
+	go func() {
+		result, err := client.Search(context.Background(), "A")
+		gotA <- answer{result, err}
+	}()
+	<-startedA
+	b, err := client.Search(context.Background(), "B")
+	if err != nil || b.Query != "B" {
+		t.Fatalf("Search B = %+v, %v", b, err)
+	}
+	close(releaseA)
+	a := <-gotA
+	if a.err != nil || a.result.Query != "A" || len(a.result.Albums) != 1 {
+		t.Fatalf("Search A = %+v, %v", a.result, a.err)
+	}
+	last, ok := client.LastSearch()
+	if !ok || last.Query != "B" || len(last.Albums) != 1 || last.Albums[0].ID != "B" {
+		t.Errorf("LastSearch = %+v, %v, want the newer search B", last, ok)
+	}
+}
+
+func TestExpiredTokenSharesOneRefresh(t *testing.T) {
+	now := testNow()
+	var refreshes atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	accounts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if refreshes.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		io.WriteString(w, `{"access_token": "fresh", "expires_in": 3600}`)
+	}))
+	defer accounts.Close()
+
+	// seen tells when the second caller read the clock, which it does
+	// when it finds the token expired.
+	var armed atomic.Bool
+	seen := make(chan struct{}, 1)
+	client := New(Config{
+		ClientID:    "client-id",
+		AccountsURL: accounts.URL,
+		Secrets: seededSecrets(t, Token{
+			AccessToken:  "stale",
+			RefreshToken: "refresh",
+			ExpiresAt:    now.Add(-time.Minute),
+		}),
+		Now: func() time.Time {
+			if armed.Load() {
+				select {
+				case seen <- struct{}{}:
+				default:
+				}
+			}
+			return now
+		},
+	})
+
+	tokens := make(chan string, 2)
+	call := func() {
+		token, err := client.AccessToken(context.Background())
+		if err != nil {
+			t.Errorf("AccessToken: %v", err)
+		}
+		tokens <- token
+	}
+	go call()
+	<-started
+	armed.Store(true)
+	go call()
+	<-seen
+	close(release)
+
+	for range 2 {
+		if token := <-tokens; token != "fresh" {
+			t.Errorf("AccessToken = %q, want the refreshed token", token)
+		}
+	}
+	if got := refreshes.Load(); got != 1 {
+		t.Errorf("refreshes = %d, want 1", got)
+	}
+}
+
 func TestClientTimeoutIsNetworkDown(t *testing.T) {
 	now := testNow()
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -749,9 +942,15 @@ func TestCanceledRequestIsNotNetworkDown(t *testing.T) {
 
 func TestRateLimited(t *testing.T) {
 	now := testNow()
+	var requests atomic.Int32
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-		io.WriteString(w, `{"error": {"status": 429, "message": "API rate limit exceeded"}}`)
+		if requests.Add(1) == 2 {
+			w.Header().Set("Retry-After", "30")
+			w.WriteHeader(http.StatusTooManyRequests)
+			io.WriteString(w, `{"error": {"status": 429, "message": "API rate limit exceeded"}}`)
+			return
+		}
+		io.WriteString(w, `{"items": [{"id": "p1", "name": "One"}]}`)
 	}))
 	defer api.Close()
 
@@ -761,18 +960,263 @@ func TestRateLimited(t *testing.T) {
 		Secrets:  seededSecrets(t, liveToken(now)),
 		Now:      func() time.Time { return now },
 	})
-	_, err := client.Playlists(context.Background())
-	if !errors.Is(err, ErrNetworkDown) {
-		t.Fatalf("Playlists = %v, want ErrNetworkDown", err)
+	if _, err := client.Playlists(context.Background()); err != nil {
+		t.Fatalf("Playlists: %v", err)
 	}
-	if got := State(err); got != StateNetworkDown {
-		t.Errorf("State = %q, want StateNetworkDown", got)
+
+	list, err := client.Playlists(context.Background())
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("Playlists = %v, want ErrRateLimited", err)
+	}
+	if errors.Is(err, ErrNetworkDown) {
+		t.Errorf("Playlists = %v, must not be ErrNetworkDown", err)
+	}
+	if got := State(err); got != StateRateLimited {
+		t.Errorf("State = %q, want StateRateLimited", got)
+	}
+	var limit *RateLimitError
+	if !errors.As(err, &limit) || !limit.Until.Equal(now.Add(30*time.Second)) {
+		t.Errorf("Playlists = %v, want a wait until %v", err, now.Add(30*time.Second))
 	}
 	if message := err.Error(); !strings.Contains(strings.ToLower(message), "rate limit") {
 		t.Errorf("Playlists = %q, want it to mention the rate limit", message)
 	}
+	if len(list) != 1 || list[0].ID != "p1" {
+		t.Errorf("playlists were not kept: %+v", list)
+	}
+
+	// Until the wait passes, no call reaches Spotify.
+	now = now.Add(29 * time.Second)
+	list, err = client.Playlists(context.Background())
+	if !errors.As(err, &limit) || len(list) != 1 {
+		t.Errorf("Playlists = %+v, %v, want the last results and the wait", list, err)
+	}
+	if _, err := client.Search(context.Background(), "daft punk"); !errors.Is(err, ErrRateLimited) {
+		t.Errorf("Search = %v, want ErrRateLimited", err)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Errorf("requests = %d during the wait, want 2", got)
+	}
+
+	now = now.Add(2 * time.Second)
+	if _, err := client.Playlists(context.Background()); err != nil {
+		t.Fatalf("Playlists after the wait: %v", err)
+	}
+	if got := requests.Load(); got != 3 {
+		t.Errorf("requests = %d after the wait, want 3", got)
+	}
 }
 
+func TestRateLimitKeepsTheLocalStates(t *testing.T) {
+	now := testNow()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer api.Close()
+
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, liveToken(now)),
+		Now:      func() time.Time { return now },
+	})
+	if _, err := client.Playlists(context.Background()); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("Playlists = %v, want ErrRateLimited", err)
+	}
+	if err := client.SignOut(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Playlists(context.Background()); !errors.Is(err, ErrSignedOut) {
+		t.Errorf("Playlists = %v after SignOut, want ErrSignedOut", err)
+	}
+	client.SetClientID("")
+	if _, err := client.Playlists(context.Background()); !errors.Is(err, ErrNoClientID) {
+		t.Errorf("Playlists = %v without a Client ID, want ErrNoClientID", err)
+	}
+}
+
+func TestRetryAfter(t *testing.T) {
+	now := testNow()
+	cases := []struct {
+		header string
+		want   time.Duration
+	}{
+		{"30", 30 * time.Second},
+		{" 0 ", 0},
+		{now.Add(time.Minute).Format(http.TimeFormat), time.Minute},
+		{now.Add(-time.Minute).Format(http.TimeFormat), 0},
+		{"", defaultRetryAfter},
+		{"soon", defaultRetryAfter},
+		{"-5", defaultRetryAfter},
+	}
+	for _, c := range cases {
+		if got := retryAfter(c.header, now); got != c.want {
+			t.Errorf("retryAfter(%q) = %v, want %v", c.header, got, c.want)
+		}
+	}
+}
+
+func TestRefreshRateLimited(t *testing.T) {
+	now := testNow()
+	var refreshes atomic.Int32
+	accounts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		refreshes.Add(1)
+		w.Header().Set("Retry-After", "10")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer accounts.Close()
+
+	client := New(Config{
+		ClientID:    "client-id",
+		AccountsURL: accounts.URL,
+		Secrets: seededSecrets(t, Token{
+			AccessToken:  "old",
+			RefreshToken: "refresh",
+			ExpiresAt:    now.Add(-time.Minute),
+		}),
+		Now: func() time.Time { return now },
+	})
+	for range 2 {
+		if _, err := client.Playlists(context.Background()); !errors.Is(err, ErrRateLimited) {
+			t.Fatalf("Playlists = %v, want ErrRateLimited", err)
+		}
+	}
+	if got := refreshes.Load(); got != 1 {
+		t.Errorf("refreshes = %d, want 1", got)
+	}
+	if got := client.Current(); got != StateReady {
+		t.Errorf("Current = %q, a rate limit is not a refused token", got)
+	}
+}
+
+func TestRefusedRefreshHoldsUntilSignIn(t *testing.T) {
+	now := testNow()
+	var refreshes atomic.Int32
+	accounts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("parse form: %v", err)
+		}
+		if r.PostForm.Get("grant_type") == "authorization_code" {
+			io.WriteString(w, `{"access_token": "signed-in", "expires_in": 3600, "refresh_token": "new-refresh"}`)
+			return
+		}
+		refreshes.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error": "invalid_grant", "error_description": "Refresh token revoked"}`)
+	}))
+	defer accounts.Close()
+
+	var requests atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		io.WriteString(w, `{"items": []}`)
+	}))
+	defer api.Close()
+
+	secrets := seededSecrets(t, Token{
+		AccessToken:  "old",
+		RefreshToken: "revoked",
+		ExpiresAt:    now.Add(-time.Minute),
+	})
+	client := New(Config{
+		ClientID:    "client-id",
+		BaseURL:     api.URL,
+		AccountsURL: accounts.URL,
+		OpenURL:     &browser{t: t, code: "the-code"},
+		Secrets:     secrets,
+		Now:         func() time.Time { return now },
+		Listen:      anyPort,
+	})
+	if got := client.Current(); got != StateReady {
+		t.Fatalf("Current = %q before the refresh", got)
+	}
+	for i := range 3 {
+		if _, err := client.Playlists(context.Background()); !errors.Is(err, ErrTokenRefused) {
+			t.Fatalf("Playlists %d = %v, want ErrTokenRefused", i, err)
+		}
+		if got := client.Current(); got != StateTokenRefused {
+			t.Errorf("Current = %q after call %d, want StateTokenRefused", got, i)
+		}
+	}
+	if _, err := client.AccessToken(context.Background()); !errors.Is(err, ErrTokenRefused) {
+		t.Errorf("AccessToken = %v, want ErrTokenRefused", err)
+	}
+	if got := refreshes.Load(); got != 1 {
+		t.Errorf("refreshes = %d, want 1", got)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Errorf("API requests = %d, want 0", got)
+	}
+	if client.SignedIn() {
+		t.Error("SignedIn = true after the refusal")
+	}
+	if _, ok := secrets[TokensKey]; ok {
+		t.Error("the refused tokens are still in the secret")
+	}
+
+	if err := client.SignIn(context.Background()); err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if got := client.Current(); got != StateReady {
+		t.Errorf("Current = %q after the sign-in", got)
+	}
+	if _, err := client.Playlists(context.Background()); err != nil {
+		t.Errorf("Playlists after the sign-in: %v", err)
+	}
+}
+
+func TestInvalidClientIsTokenRefused(t *testing.T) {
+	now := testNow()
+	accounts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error": "invalid_client", "error_description": "Invalid client"}`)
+	}))
+	defer accounts.Close()
+
+	client := New(Config{
+		ClientID:    "client-id",
+		AccountsURL: accounts.URL,
+		Secrets: seededSecrets(t, Token{
+			AccessToken:  "old",
+			RefreshToken: "refresh",
+			ExpiresAt:    now.Add(-time.Minute),
+		}),
+		Now: func() time.Time { return now },
+	})
+	_, err := client.Playlists(context.Background())
+	if !errors.Is(err, ErrTokenRefused) {
+		t.Fatalf("Playlists = %v, want ErrTokenRefused", err)
+	}
+	if got := client.Current(); got != StateTokenRefused {
+		t.Errorf("Current = %q, want StateTokenRefused", got)
+	}
+}
+
+func TestLateRefusalKeepsANewerSignIn(t *testing.T) {
+	now := testNow()
+	client := New(Config{
+		ClientID: "client-id",
+		Secrets: seededSecrets(t, Token{
+			AccessToken:  "old",
+			RefreshToken: "refresh",
+			ExpiresAt:    now.Add(-time.Minute),
+		}),
+		Now: func() time.Time { return now },
+	})
+	old, err := client.tokens()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := Token{AccessToken: "signed-in", RefreshToken: "new-refresh", ExpiresAt: now.Add(time.Hour)}
+	if err := client.adoptToken(&newer); err != nil {
+		t.Fatal(err)
+	}
+	client.refuseIf(old)
+	if got := client.Current(); got != StateReady {
+		t.Errorf("Current = %q, want the newer sign-in to stay", got)
+	}
+}
 func TestStateReadsDoNotWaitForRefresh(t *testing.T) {
 	now := testNow()
 	var refreshes int32

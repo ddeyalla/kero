@@ -61,6 +61,9 @@ func (p Playlist) Artwork() string { return SmallImage(p.Images) }
 
 // SearchResult is what a search found.
 type SearchResult struct {
+	// Query is the trimmed query the results are for. The last results
+	// a failed search returns can be for another query.
+	Query     string
 	Albums    []Album
 	Playlists []Playlist
 }
@@ -83,13 +86,19 @@ func SmallImage(images []Image) string {
 // Search finds albums and playlists. An empty query finds nothing and
 // sends no request.
 //
-// When the network is down, Search returns the last results together
-// with ErrNetworkDown, so the pane can keep them and add a note.
+// When the network is down or Spotify asks to wait, Search returns the
+// last results together with ErrNetworkDown or a *RateLimitError, so the
+// pane can keep them and add a note. Their Query tells what they are for.
 func (c *Client) Search(ctx context.Context, query string) (SearchResult, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return SearchResult{}, nil
 	}
+	c.cacheMu.Lock()
+	gen := c.gen
+	c.searchSeq++
+	seq := c.searchSeq
+	c.cacheMu.Unlock()
 	params := url.Values{}
 	params.Set("q", q)
 	params.Set("type", "album,playlist")
@@ -103,14 +112,14 @@ func (c *Client) Search(ctx context.Context, query string) (SearchResult, error)
 		} `json:"playlists"`
 	}
 	if err := c.get(ctx, "/v1/search", params, &body); err != nil {
-		if errors.Is(err, ErrNetworkDown) {
+		if keepsResults(err) {
 			if last, ok := c.lastSearchResults(); ok {
 				return last, err
 			}
 		}
 		return SearchResult{}, err
 	}
-	var result SearchResult
+	result := SearchResult{Query: q}
 	for _, item := range body.Albums.Items {
 		if album := item.album(); album.ID != "" {
 			result.Albums = append(result.Albums, album)
@@ -124,22 +133,35 @@ func (c *Client) Search(ctx context.Context, query string) (SearchResult, error)
 			result.Playlists = append(result.Playlists, playlist)
 		}
 	}
+	// Keep the result only while no sign-in or sign-out came between
+	// and no newer search got its answer first.
 	c.cacheMu.Lock()
-	c.lastSearch = result
-	c.lastSearchSet = true
+	if c.gen == gen && seq > c.lastSearchSeq {
+		c.lastSearch = result
+		c.lastSearchSet = true
+		c.lastSearchSeq = seq
+	}
 	c.cacheMu.Unlock()
 	return result, nil
 }
 
+// cacheGen is the generation a call starts with.
+func (c *Client) cacheGen() uint64 {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	return c.gen
+}
+
 // Playlists returns the user's playlists, up to the first 50.
 func (c *Client) Playlists(ctx context.Context) ([]Playlist, error) {
+	gen := c.cacheGen()
 	params := url.Values{}
 	params.Set("limit", "50")
 	var body struct {
 		Items []*playlistJSON `json:"items"`
 	}
 	if err := c.get(ctx, "/v1/me/playlists", params, &body); err != nil {
-		if errors.Is(err, ErrNetworkDown) {
+		if keepsResults(err) {
 			if last, ok := c.lastPlaylistsResults(); ok {
 				return last, err
 			}
@@ -154,14 +176,17 @@ func (c *Client) Playlists(ctx context.Context) ([]Playlist, error) {
 		list = append(list, item.playlist())
 	}
 	c.cacheMu.Lock()
-	c.lastPlaylists = list
-	c.lastPlaylistsSet = true
+	if c.gen == gen {
+		c.lastPlaylists = list
+		c.lastPlaylistsSet = true
+	}
 	c.cacheMu.Unlock()
 	return list, nil
 }
 
 // Albums returns the user's saved albums, up to the first 50.
 func (c *Client) Albums(ctx context.Context) ([]Album, error) {
+	gen := c.cacheGen()
 	params := url.Values{}
 	params.Set("limit", "50")
 	var body struct {
@@ -170,7 +195,7 @@ func (c *Client) Albums(ctx context.Context) ([]Album, error) {
 		} `json:"items"`
 	}
 	if err := c.get(ctx, "/v1/me/albums", params, &body); err != nil {
-		if errors.Is(err, ErrNetworkDown) {
+		if keepsResults(err) {
 			if last, ok := c.lastAlbumsResults(); ok {
 				return last, err
 			}
@@ -185,8 +210,10 @@ func (c *Client) Albums(ctx context.Context) ([]Album, error) {
 		list = append(list, item.Album.album())
 	}
 	c.cacheMu.Lock()
-	c.lastAlbums = list
-	c.lastAlbumsSet = true
+	if c.gen == gen {
+		c.lastAlbums = list
+		c.lastAlbumsSet = true
+	}
 	c.cacheMu.Unlock()
 	return list, nil
 }
@@ -219,10 +246,15 @@ func (c *Client) lastAlbumsResults() ([]Album, bool) {
 }
 
 // get sends one GET with the access token. A refused token is refreshed
-// once: one stale token must not look like a revoked sign-in.
+// once: one stale token must not look like a revoked sign-in. While a
+// rate limit lasts, get sends nothing, not even a refresh; the states
+// without a call, such as signed out, still come first.
 func (c *Client) get(ctx context.Context, path string, params url.Values, out any) error {
 	token, err := c.AccessToken(ctx)
 	if err != nil {
+		return err
+	}
+	if err := c.limited(); err != nil {
 		return err
 	}
 	err = c.doGet(ctx, path, params, token, out)
@@ -234,6 +266,14 @@ func (c *Client) get(ctx context.Context, path string, params url.Values, out an
 		err = c.doGet(ctx, path, params, token, out)
 	}
 	if errors.Is(err, errTokenStale) {
+		// The API refused the token the refresh just gave: refreshing
+		// again on every call would not help, so the user signs in again.
+		c.tokenMu.Lock()
+		current := c.tok
+		c.tokenMu.Unlock()
+		if current != nil && current.AccessToken == token {
+			c.refuseIf(current)
+		}
 		return fmt.Errorf("%w: the API refused a fresh token", ErrTokenRefused)
 	}
 	return err
@@ -274,7 +314,7 @@ func (c *Client) doGet(ctx context.Context, path string, params url.Values, toke
 		// endpoint. That is not the same as a refused token.
 		return fmt.Errorf("spotify: forbidden (HTTP 403): %s", message)
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return fmt.Errorf("%w: Spotify rate limit (HTTP 429): %s", ErrNetworkDown, spotifyMessage(raw))
+		return c.rateLimited(resp, spotifyMessage(raw))
 	case resp.StatusCode >= 500:
 		return fmt.Errorf("%w: HTTP %d: %s", ErrNetworkDown, resp.StatusCode, spotifyMessage(raw))
 	case resp.StatusCode < 200 || resp.StatusCode > 299:

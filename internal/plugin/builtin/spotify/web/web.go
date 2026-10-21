@@ -4,9 +4,10 @@
 //
 // The package has no UI. It gives the widget the data and a state for
 // every way a call can fail: no Client ID, not signed in, a refused
-// token, a lapsed Premium, and a network that is down. State reads that
-// state from an error. When the network is down, a call returns the last
-// results it got, so that the pane keeps them and adds a note.
+// token, a lapsed Premium, a network that is down, and a rate limit.
+// State reads that state from an error. When the network is down or
+// Spotify asks to wait, a call returns the last results it got, so that
+// the pane keeps them and adds a note.
 package web
 
 import (
@@ -64,6 +65,12 @@ const (
 	AccountsBaseURL = "https://accounts.spotify.com"
 )
 
+// DefaultRedirectPort is the loopback port of the redirect URI when
+// Config.RedirectPort is zero. The URI must match the one the user
+// registered in the Spotify dashboard, so the port stays the same from
+// one sign-in to the next.
+const DefaultRedirectPort = 43017
+
 // TokensKey is the plugin secret that keeps the tokens.
 const TokensKey = "tokens"
 
@@ -89,8 +96,8 @@ type Config struct {
 	AccountsURL string
 	// Scopes are the scopes to ask for. Empty is DefaultScopes.
 	Scopes []string
-	// RedirectPort is the port of the loopback callback. Zero picks a
-	// free port. Set it when the Spotify dashboard holds a fixed URI.
+	// RedirectPort is the port of the loopback callback. Zero is
+	// DefaultRedirectPort. RedirectURI gives the URI to register.
 	RedirectPort int
 	// OpenURL opens the sign-in page in the browser.
 	OpenURL OpenURL
@@ -122,10 +129,16 @@ type Client struct {
 
 	clientMu sync.RWMutex
 	clientID string
+	// appID is the last Client ID that was not empty, so that clearing
+	// the field and typing the same ID again keeps the tokens.
+	appID string
 
 	tokenMu     sync.Mutex
 	tok         *Token
 	tokenLoaded bool
+	// refused is a refresh that Spotify refused. It holds until the next
+	// sign-in, so that no call sends the refresh again.
+	refused bool
 
 	// loadMu makes the one-time read of the tokens secret single.
 	loadMu sync.Mutex
@@ -133,13 +146,26 @@ type Client struct {
 	refreshMu sync.Mutex
 	signInMu  sync.Mutex
 
-	cacheMu          sync.Mutex
+	cacheMu sync.Mutex
+	// gen counts the sign-ins, the sign-outs and the changes of app. A
+	// call keeps its results only while gen is the one it started with.
+	gen uint64
+	// searchSeq numbers the searches, and lastSearchSeq is the search
+	// that the cache holds, so that an older search cannot replace a
+	// newer one.
+	searchSeq        uint64
+	lastSearchSeq    uint64
 	lastSearch       SearchResult
 	lastSearchSet    bool
 	lastPlaylists    []Playlist
 	lastPlaylistsSet bool
 	lastAlbums       []Album
 	lastAlbumsSet    bool
+
+	// limitMu guards limitedUntil: the time before which the client
+	// does not call Spotify, after a rate limit.
+	limitMu      sync.Mutex
+	limitedUntil time.Time
 }
 
 // New returns a client for one plugin process.
@@ -180,19 +206,31 @@ func New(cfg Config) *Client {
 	if secrets == nil {
 		secrets = MapSecrets{}
 	}
+	port := cfg.RedirectPort
+	if port == 0 {
+		port = DefaultRedirectPort
+	}
+	clientID := strings.TrimSpace(cfg.ClientID)
 	return &Client{
 		baseURL:       base,
 		accountsURL:   accounts,
 		scopes:        scopes,
-		redirectPort:  cfg.RedirectPort,
+		redirectPort:  port,
 		openURL:       cfg.OpenURL,
 		secrets:       secrets,
 		http:          httpClient,
 		now:           now,
 		signInTimeout: timeout,
 		listen:        listen,
-		clientID:      strings.TrimSpace(cfg.ClientID),
+		clientID:      clientID,
+		appID:         clientID,
 	}
+}
+
+// RedirectURI is the redirect URI the sign-in uses, which the user
+// registers in the Spotify dashboard.
+func (c *Client) RedirectURI() string {
+	return fmt.Sprintf("http://127.0.0.1:%d%s", c.redirectPort, callbackPath)
 }
 
 // ClientID returns the Client ID of the user's developer app, "" when
@@ -204,10 +242,41 @@ func (c *Client) ClientID() string {
 }
 
 // SetClientID changes the Client ID, as the settings do.
+//
+// A Client ID of another app forgets the tokens, the last results and
+// the rate limit, which belong to the old app. An empty Client ID keeps
+// them, so that the same ID typed again is still signed in.
 func (c *Client) SetClientID(id string) {
+	id = strings.TrimSpace(id)
 	c.clientMu.Lock()
-	c.clientID = strings.TrimSpace(id)
-	c.clientMu.Unlock()
+	defer c.clientMu.Unlock()
+	c.clientID = id
+	if id == "" || id == c.appID {
+		return
+	}
+	other := c.appID != ""
+	c.appID = id
+	if !other {
+		return
+	}
+
+	// The change and the forgetting are one critical section under
+	// clientMu, so a sign-in for the old app cannot adopt its tokens
+	// in between. A refresh in flight finds other tokens and drops its
+	// own.
+	c.tokenMu.Lock()
+	c.tok = nil
+	c.tokenLoaded = true
+	c.refused = false
+	// The secret write is best effort: SetClientID has no error, and a
+	// token that stays in the secret is refused at its next refresh.
+	_ = c.secrets.Set(TokensKey, "")
+	c.tokenMu.Unlock()
+
+	c.resetCache()
+	c.limitMu.Lock()
+	c.limitedUntil = time.Time{}
+	c.limitMu.Unlock()
 }
 
 // SignedIn tells whether the client holds tokens.
@@ -219,11 +288,14 @@ func (c *Client) SignedIn() bool {
 	return t != nil && (t.AccessToken != "" || t.RefreshToken != "")
 }
 
-// Current is the state the plugin shows before a call: no Client ID,
-// not signed in, or ready.
+// Current is the state the plugin shows before a call: no Client ID, a
+// refused token, not signed in, or ready.
 func (c *Client) Current() string {
 	if c.ClientID() == "" {
 		return StateNoClientID
+	}
+	if c.isRefused() {
+		return StateTokenRefused
 	}
 	if !c.SignedIn() {
 		return StateSignedOut
@@ -246,19 +318,28 @@ func (c *Client) SignOut() error {
 	c.tokenMu.Lock()
 	c.tok = nil
 	c.tokenLoaded = true
+	c.refused = false
 	c.tokenMu.Unlock()
 
-	c.cacheMu.Lock()
-	c.lastSearch = SearchResult{}
-	c.lastSearchSet = false
-	c.lastPlaylists = nil
-	c.lastPlaylistsSet = false
-	c.lastAlbums = nil
-	c.lastAlbumsSet = false
-	c.cacheMu.Unlock()
+	c.resetCache()
 
 	if err := c.secrets.Set(TokensKey, ""); err != nil {
 		return fmt.Errorf("spotify: forget the tokens: %w", err)
 	}
 	return nil
+}
+
+// resetCache forgets the last results and starts a new generation, so
+// that a call in flight cannot keep its results afterwards.
+func (c *Client) resetCache() {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	c.gen++
+	c.lastSearch = SearchResult{}
+	c.lastSearchSet = false
+	c.lastSearchSeq = c.searchSeq
+	c.lastPlaylists = nil
+	c.lastPlaylistsSet = false
+	c.lastAlbums = nil
+	c.lastAlbumsSet = false
 }
