@@ -77,6 +77,7 @@ type pluginView struct {
 	scroll   map[string]*ui.ScrollState
 	sliders  map[string]*pluginSlider
 	searches map[string]*pluginSearch
+	marquees map[string]*pluginMarquee
 	progress map[string]float64 // the value each bar shows this frame
 	pictures map[string]*pluginPicture
 
@@ -107,6 +108,7 @@ func newPluginView() *pluginView {
 		scroll:   map[string]*ui.ScrollState{},
 		sliders:  map[string]*pluginSlider{},
 		searches: map[string]*pluginSearch{},
+		marquees: map[string]*pluginMarquee{},
 		progress: map[string]float64{},
 		pictures: map[string]*pluginPicture{},
 		fetch:    pluginFetch,
@@ -151,6 +153,11 @@ func (v *pluginView) forget() {
 			delete(v.searches, id)
 		}
 	}
+	for id := range v.marquees {
+		if !v.ids[id] {
+			delete(v.marquees, id)
+		}
+	}
 	for id := range v.progress {
 		if !v.ids[id] {
 			delete(v.progress, id)
@@ -175,6 +182,12 @@ func (v *pluginView) part(c *ui.Context, pal *palette, n *protocol.Node, horizon
 			e = ui.Column(c.Key(n.ID)).AlignItems(ui.Stretch)
 		}
 		e.Gap(float32(n.Gap)).Padding(float32(n.Padding)).MinWidth(0)
+		if n.Width > 0 {
+			e.Width(float32(n.Width))
+		}
+		if n.Height > 0 {
+			e.Height(float32(n.Height))
+		}
 		pluginAlign(e, n.Align)
 		if n.Grow > 0 {
 			e.Grow(float32(n.Grow))
@@ -186,7 +199,7 @@ func (v *pluginView) part(c *ui.Context, pal *palette, n *protocol.Node, horizon
 			}
 		})
 	case protocol.NodeText:
-		v.text(c, pal, n)
+		v.text(c, pal, n, horizontal)
 	case protocol.NodeImage:
 		v.image(c, pal, n)
 	case protocol.NodeButton, protocol.NodeIconButton:
@@ -261,25 +274,6 @@ func pluginTextColor(pal *palette, n *protocol.Node) ui.Color {
 		return pal.textMuted
 	}
 	return pal.text
-}
-
-// text draws a text part: its role's size and weight, its color, and its
-// lines, as many as it takes unless the plugin limits them.
-func (v *pluginView) text(c *ui.Context, pal *palette, n *protocol.Node) {
-	size, weight, family := pluginText(n.Role)
-	e := ui.Text(c.Key(n.ID), n.Text).FontSize(size).FontWeight(weight).TextColor(pluginTextColor(pal, n)).MinWidth(0)
-	if family != "" {
-		e.Font(family)
-	}
-	switch {
-	case n.Lines == 1:
-		e.SingleLine().Ellipsis("…")
-	case n.Lines > 1:
-		e.MaxLines(n.Lines).Ellipsis("…")
-	}
-	if n.Grow > 0 {
-		e.Grow(float32(n.Grow))
-	}
 }
 
 // image draws a picture part: the picture once it is loaded, at its own
