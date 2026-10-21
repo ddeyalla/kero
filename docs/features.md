@@ -34,11 +34,13 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| New Pane chooser: Terminal, Tasks, Files, Browser | `Cmd+Alt+N` or the pane header's **+**, then `T`/`L`/`E`/`B` | 2.0.7-local.1 | Shipped |
+| New Pane chooser: Terminal, Tasks, Files, Browser, Attention | `Cmd+Alt+N` or the pane header's **+**, then `T`/`L`/`E`/`B`/`A` | 2.0.7-local.1 | Shipped |
 | Open the new pane below instead of beside | Hold Shift in the chooser | 2.0.7-local.1 | Shipped |
-| Open a kind of pane directly | `Cmd+Alt+T` / `L` / `E` / `B` | 2.0.7-local.1 | Shipped |
+| Open a kind of pane directly | `Cmd+Alt+T` / `L` / `E` / `B` (and `A`) | 2.0.7-local.1 | Shipped |
 | Turn a pane into another kind | Pane menu › **Show in This Pane** | 2.0.7-local.1 | Shipped |
-| Agents open views beside themselves | `kero split --browser 5173`, `--files --open docs/plan.md`, `--tasks` | 2.0.7-local.1 | Shipped |
+| Attention pane: every session that needs you, one list, most urgent first, with chips (All, Needs you, Working, Unread, Done), counts and a plain-text search; a row opens the pane that needs you | `Cmd+Alt+A`, the chooser's `A`, or `kero split --attention` | Unreleased | Untried |
+| New icons are SF Symbols, drawn by macOS and cached as bitmaps | Automatic; the Attention pane's mark and its rows' states | Unreleased | Untried |
+| Agents open views beside themselves | `kero split --browser 5173`, `--files --open docs/plan.md`, `--tasks`, `--attention` | 2.0.7-local.1 | Shipped |
 | A view's page or file is kept across restarts | Automatic | 2.0.7-local.1 | Shipped |
 | Least pane size (280×150); a split without room is refused | Automatic | 2.0.7-local.1 | Shipped |
 | Make panes even | Double-click a divider, `Cmd+Ctrl+=` | 2.0.7-local.1 | Shipped |

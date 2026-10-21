@@ -140,6 +140,9 @@ type App struct {
 	tasks map[string]*linearState
 	// files are the Files panes' states, by pane.
 	files map[string]*filesState
+	// attention are the Attention panes' states, by pane: the filter,
+	// the search and the scroll of each.
+	attention map[string]*attentionView
 	// browsers are the Browser panes' states, with their web views.
 	browsers map[string]*browserState
 	// cardSize is how big each pane drew last.

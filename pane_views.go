@@ -9,12 +9,23 @@ import (
 )
 
 // A pane shows a terminal, or a view of the app's: the project's Linear
-// tasks, its files, a web page. A view runs nothing in kerod, which only
-// keeps where it is in the layout and what it shows (Target); the app
-// draws it, and keeps what it holds while it shows: an issue open, a
-// folder unfolded, a page.
+// tasks, its files, a web page, every session that needs the user. A view
+// runs nothing in kerod, which only keeps where it is in the layout and
+// what it shows (Target); the app draws it, and keeps what it holds while
+// it shows: an issue open, a folder unfolded, a page, a filter.
 
-// paneViewIcon is the mark of what a pane shows.
+// paneViewSymbol is the SF Symbol of a view whose mark is one, "" for a
+// view whose mark is an icon of icons.go.
+func paneViewSymbol(view string) string {
+	if view == proto.PaneAttention {
+		return "bell.badge"
+	}
+	return ""
+}
+
+// paneViewIcon is the mark of what a pane shows, as an icon of icons.go:
+// the terminal's for a view whose mark is an SF Symbol, which paneViewMark
+// draws in its place.
 func paneViewIcon(view string) *ui.SVG {
 	switch view {
 	case proto.PaneTasks:
@@ -27,6 +38,17 @@ func paneViewIcon(view string) *ui.SVG {
 	return terminalIcon
 }
 
+// paneViewMark draws a view's mark: its symbol where it has one, its icon
+// otherwise.
+func paneViewMark(c *ui.Context, view string, size float32, tint ui.Color, dark bool) {
+	if name := paneViewSymbol(view); name != "" {
+		if symbolMark(c, name, size, tint, dark) {
+			return
+		}
+	}
+	ui.Icon(c, paneViewIcon(view)).Size(size, size).TextColor(tint)
+}
+
 // paneViewName is a view's name, as its header shows it.
 func paneViewName(view string) string {
 	switch view {
@@ -36,6 +58,8 @@ func paneViewName(view string) string {
 		return locales.PaneFiles()
 	case proto.PaneBrowser:
 		return locales.PaneBrowser()
+	case proto.PaneAttention:
+		return locales.PaneAttention()
 	}
 	return locales.PaneTerminal()
 }
@@ -59,6 +83,8 @@ func (a *App) viewPane(c *ui.Context, pal *palette, s *proto.Session, p *proto.P
 			a.filesPane(c, pal, s, p, body)
 		case proto.PaneBrowser:
 			a.browserPane(c, pal, s, p, body)
+		case proto.PaneAttention:
+			a.attentionPane(c, pal, s, p, body)
 		}
 	})
 }

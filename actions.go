@@ -141,6 +141,8 @@ func (a *App) run(id string, args map[string]string) {
 		a.openView(s, "", proto.PaneFiles, false)
 	case "pane.new.browser":
 		a.openView(s, "", proto.PaneBrowser, false)
+	case "pane.new.attention":
+		a.openView(s, "", proto.PaneAttention, false)
 	case "pane.even":
 		a.evenPanes(s)
 	case "pane.zoom":
@@ -180,38 +182,39 @@ func (a *App) item(id string) *mygo.MenuItem {
 // actionTitles are the actions' titles in the language the app shows;
 // an Action's Title stays English, for `kero actions`.
 var actionTitles = map[string]func() string{
-	"settings.open":     locales.ActionSettings,
-	"cli.install":       locales.ActionInstallCli,
-	"app.quitAll":       locales.ActionQuitAll,
-	"session.new":       locales.ActionNewSession,
-	"session.newHome":   locales.ActionNewSessionHome,
-	"project.open":      locales.ActionOpenProject,
-	"palette.open":      locales.ActionGoToSession,
-	"session.attention": locales.ActionJumpToAttention,
-	"session.next":      locales.ActionNextSession,
-	"session.previous":  locales.ActionPreviousSession,
-	"session.rename":    locales.ActionRenameSession,
-	"pane.restart":      locales.ActionRestartPane,
-	"pane.close":        locales.ActionClose,
-	"session.close":     locales.ActionCloseSession,
-	"find.open":         locales.ActionFind,
-	"find.next":         locales.ActionFindNext,
-	"find.previous":     locales.ActionFindPrevious,
-	"pane.split.right":  locales.ActionSplitRight,
-	"pane.split.down":   locales.ActionSplitDown,
-	"pane.even":         locales.ActionEvenPanes,
-	"browser.location":  locales.ActionBrowserLocation,
-	"pane.zoom":         locales.ActionZoomPane,
-	"pane.next":         locales.ActionNextPane,
-	"pane.previous":     locales.ActionPreviousPane,
-	"pane.left":         locales.ActionPaneLeft,
-	"pane.right":        locales.ActionPaneRight,
-	"pane.up":           locales.ActionPaneAbove,
-	"pane.down":         locales.ActionPaneBelow,
-	"sidebar.toggle":    locales.ActionToggleSidebar,
-	"text.bigger":       locales.ActionBigger,
-	"text.smaller":      locales.ActionSmaller,
-	"text.reset":        locales.ActionActualSize,
+	"settings.open":      locales.ActionSettings,
+	"cli.install":        locales.ActionInstallCli,
+	"app.quitAll":        locales.ActionQuitAll,
+	"session.new":        locales.ActionNewSession,
+	"session.newHome":    locales.ActionNewSessionHome,
+	"project.open":       locales.ActionOpenProject,
+	"palette.open":       locales.ActionGoToSession,
+	"session.attention":  locales.ActionJumpToAttention,
+	"session.next":       locales.ActionNextSession,
+	"session.previous":   locales.ActionPreviousSession,
+	"session.rename":     locales.ActionRenameSession,
+	"pane.restart":       locales.ActionRestartPane,
+	"pane.close":         locales.ActionClose,
+	"session.close":      locales.ActionCloseSession,
+	"find.open":          locales.ActionFind,
+	"find.next":          locales.ActionFindNext,
+	"find.previous":      locales.ActionFindPrevious,
+	"pane.split.right":   locales.ActionSplitRight,
+	"pane.split.down":    locales.ActionSplitDown,
+	"pane.even":          locales.ActionEvenPanes,
+	"pane.new.attention": locales.ActionNewAttentionPane,
+	"browser.location":   locales.ActionBrowserLocation,
+	"pane.zoom":          locales.ActionZoomPane,
+	"pane.next":          locales.ActionNextPane,
+	"pane.previous":      locales.ActionPreviousPane,
+	"pane.left":          locales.ActionPaneLeft,
+	"pane.right":         locales.ActionPaneRight,
+	"pane.up":            locales.ActionPaneAbove,
+	"pane.down":          locales.ActionPaneBelow,
+	"sidebar.toggle":     locales.ActionToggleSidebar,
+	"text.bigger":        locales.ActionBigger,
+	"text.smaller":       locales.ActionSmaller,
+	"text.reset":         locales.ActionActualSize,
 }
 
 // actionTitle is an action's title as the menus, the palette and
@@ -282,7 +285,7 @@ func (a *App) menu() *mygo.Menu {
 func (a *App) paneMenuItems() []*mygo.MenuItem {
 	return a.items("Pane",
 		[]string{"pane.split.right", "pane.split.down"},
-		[]string{"pane.new", "pane.new.terminal", "pane.new.tasks", "pane.new.files", "pane.new.browser"},
+		[]string{"pane.new", "pane.new.terminal", "pane.new.tasks", "pane.new.files", "pane.new.browser", "pane.new.attention"},
 		[]string{"pane.even", "pane.zoom", "browser.location"},
 		[]string{"pane.next", "pane.previous", "pane.left", "pane.right", "pane.up", "pane.down"})
 }
