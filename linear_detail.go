@@ -377,7 +377,7 @@ func (a *App) linearRun(c *ui.Context, pal *palette, d *proto.LinearIssueDetail,
 	ui.Column(c.Key(key)).Gap(4).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			if running && r.Session == live.Session {
-				statusIconP(c, pal, live.SessionStatus, false, live.Progress, 12)
+				statusIconP(c, pal, live.SessionStatus, false, live.Progress, 0, 12)
 			} else {
 				dot := pal.textFaint.Alpha(0.6)
 				if running {

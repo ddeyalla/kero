@@ -73,22 +73,47 @@ builds only. What each feature is and where it stands is tracked in the
 - `agent-hooks` configuration key, `true` by default.
 - Account usage in the sidebar is a ring for each harness this Mac has
   installed — Claude, Codex, OpenCode Go or DeepSeek — with the first
-  allowance as its arc and amber as any window nears its limit, its name
+  allowance as its arc and amber once any window reaches 90%, its name
   beside it where the sidebar has room and rows of rings where it does not.
-  Hovering one shows the plan, every allowance window with the percentage
-  and its reset, a balance, or why it is not connected; clicking it, or
-  `Cmd+Shift+U`, opens the full modal as before. The CPU and RAM meters stay
-  below the bar.
+  A balance shows its currency's sign, a harness not connected a dashed
+  ring, and a ring whose refresh failed an amber dot. Hovering one makes its
+  name stand out and shows the plan, every allowance window with the
+  percentage and its reset, a balance, why it is not connected, or "Last
+  known usage; refresh failed"; clicking it, or `Cmd+Shift+U`, opens the
+  full modal as before. The CPU and RAM meters stay below the bar.
 - Session states read at a glance: a working session turns a loading ring
   (or fills it when its program reports progress), one that needs you shows
   an amber ring with a dot, one done and unseen a filled check, one done and
-  read a faint check, and an inactive — exited — one a half moon.
+  read a faint check, a failed one a red disc, one whose shell exited with
+  an error a crossed ring, red until read, and an inactive one — done, read
+  and unchanged for 24 hours — a half moon with its name dimmed.
 - The app's own busy states use the same loading.dev ring from MyGo's
   loading plugin — connecting, a pane attaching, Files reading, Linear
   reading — instead of the generic spinner. It follows Reduce Motion and
-  turns only while it shows.
+  turns only while it shows, at 15 frames a second.
 
 ### Fixed
+
+- A restart of the terminal service no longer loses the sessions' marks:
+  what was unread stays unread, the ages keep their times, and a failure
+  stays failed, as does a shell that crashed unseen ("Exited with code N").
+  A pane that was working or waiting comes back idle and unread, as of the
+  restart, as its program is gone. The state file gains optional fields; older ones load as
+  before. **Restart the terminal service once** (when agents are idle) to
+  run this version: that first restart still loads the old file, without
+  the marks, and they survive every restart after it. No protocol change.
+- The usage bar finds Claude Code, Codex and OpenCode when the app is
+  opened from the Dock or the Finder, whose `PATH` lacks the installers'
+  folders, such as `~/.local/bin`.
+- A weekly allowance resetting six or more days out says its date ("resets
+  Oct 28"), not a weekday that reads as today's.
+- Plan names show capitalized ("Max", "Plus") and the weekly window as
+  "Week" in the usage card.
+- The loading ring, on a working session or a busy view, no longer paints
+  the window at the display's rate for as long as it shows: it turns at 15
+  frames a second.
+- Every session mark has its accessible label, a read one too, and the
+  Files view's loading rings are named.
 
 - The title bar is lower: macOS's compact title bar and toolbar, 40 points
   (it was 60), with the traffic lights where macOS puts them in it and the

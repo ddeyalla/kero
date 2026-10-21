@@ -5193,3 +5193,33 @@ func FilesNoneFound() string { return In(i18n.Locale()).FilesNoneFound() }
 func (msgs Messages) FilesNoneFound() string {
 	return Catalog.Format(msgs.locale, "filesNoneFound", nil)
 }
+
+// FilesReading says "Reading…"
+// in the language the app shows.
+func FilesReading() string { return In(i18n.Locale()).FilesReading() }
+
+// FilesReading says "Reading…"
+// in the language of msgs.
+func (msgs Messages) FilesReading() string {
+	return Catalog.Format(msgs.locale, "filesReading", nil)
+}
+
+// FilesFinding says "Looking through the files…"
+// in the language the app shows.
+func FilesFinding() string { return In(i18n.Locale()).FilesFinding() }
+
+// FilesFinding says "Looking through the files…"
+// in the language of msgs.
+func (msgs Messages) FilesFinding() string {
+	return Catalog.Format(msgs.locale, "filesFinding", nil)
+}
+
+// UsageStale says "Last known usage; refresh failed"
+// in the language the app shows.
+func UsageStale() string { return In(i18n.Locale()).UsageStale() }
+
+// UsageStale says "Last known usage; refresh failed"
+// in the language of msgs.
+func (msgs Messages) UsageStale() string {
+	return Catalog.Format(msgs.locale, "usageStale", nil)
+}

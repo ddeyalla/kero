@@ -71,7 +71,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
 | Claude Code and Codex report working, waiting, done and error from their hooks; Esc and granted permissions still read from the screen | `kero skill setup`; `agent-hooks` in the configuration | Unreleased | Untried |
-| Session status icons: a turning ring while working (a filling one when the program reports progress), an amber ring with a dot when it needs you, a filled check when done and unseen, a faint check once read, a half moon when inactive | Sidebar rows and the footer's count chips | Unreleased | Untried |
+| Session status icons: a turning ring while working (a filling one when the program reports progress), an amber ring with a dot when it needs you, a filled check when done and unseen, a faint check once read, a red disc when a program fails, a crossed ring when the shell exits with an error, a half moon when read and idle for 24 hours; kept across a terminal service restart | Sidebar rows and the footer's count chips | Unreleased | Untried |
 
 ## Usage and the machine
 
@@ -80,9 +80,9 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Claude, Codex, OpenCode Go and DeepSeek usage, refreshed in the background | Sidebar, `kero usage --json` | 2.0.5-local.1 | Shipped |
 | Usage as a modal in the window | `Cmd+Shift+U`; `Cmd+R` refreshes, Esc closes | 2.0.5-local.2 | Shipped |
 | Optional private provider keys | Usage modal | 2.0.5-local.1 | Shipped |
-| Sidebar usage as a ring per installed harness; hovering shows the plan, every window, its percentage and reset time, a balance or why it is not connected | Hover a ring; click it or press `Cmd+Shift+U` for the modal | Unreleased | Untried |
+| Sidebar usage as a ring per installed harness (found on `PATH` or in the installers' folders), a currency sign for a balance, a dashed ring when not connected, an amber dot when a refresh failed; hovering highlights the harness and shows the plan, every window, its percentage and reset time, a balance or why it is not connected | Hover a ring; click it or press `Cmd+Shift+U` for the modal | Unreleased | Untried |
 | CPU and RAM meters for the whole Mac | Sidebar, `kero resources --json` | 2.0.5-local.2 | Shipped |
-| The loading.dev ring wherever the app itself is busy: connecting, attaching a pane, reading Files or Linear | Automatic | Unreleased | Untried |
+| The loading.dev ring wherever the app itself is busy: connecting, attaching a pane, reading Files or Linear; it and a working session's ring turn at 15 frames a second | Automatic | Unreleased | Untried |
 
 ## Settings
 

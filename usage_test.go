@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"image"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"kero/internal/resources"
 	"kero/internal/usage"
+	"kero/locales"
 )
 
 func TestUsageViews(t *testing.T) {
@@ -127,7 +130,8 @@ func TestUsageHoverCard(t *testing.T) {
 		a.usage.installed = []string{"claude", "codex", "opencode", "deepseek"}
 		a.usage.reports = usage.Providers()
 		now := time.Now()
-		a.usage.reports[0].Plan = "Max"
+		// As the API says it: the card capitalizes it.
+		a.usage.reports[0].Plan = "max"
 		a.usage.reports[0].Checked = now
 		a.usage.reports[0].Windows = []usage.Window{
 			{Label: "5 hours", Used: 27, Resets: now.Add(2 * time.Hour)},
@@ -143,10 +147,16 @@ func TestUsageHoverCard(t *testing.T) {
 		if !ok {
 			t.Fatalf("no Claude ring: %q", tt.Texts())
 		}
+		nameAt, _ := tt.Find("Claude")
+		plain := inked(tt, nameAt)
 		tt.Move(item.X+item.W/2, item.Y+item.H/2)
 		tt.Advance(200 * time.Millisecond)
 		tt.Frame()
-		for _, want := range []string{"Max", "27%", "64%", "resets ", usageReset(now.Add(2 * time.Hour))} {
+		// The hovered harness's name is heavier, in the text's color.
+		if !dark && inked(tt, nameAt) <= plain {
+			t.Errorf("the hovered name did not stand out: %d inked pixels, %d before", inked(tt, nameAt), plain)
+		}
+		for _, want := range []string{"Max", "27%", "64%", "5 hours", "Week", "resets ", usageReset(now.Add(2 * time.Hour))} {
 			if !tt.HasText(want) {
 				t.Fatalf("hover card lacks %q: %q", want, tt.Texts())
 			}
@@ -156,8 +166,11 @@ func TestUsageHoverCard(t *testing.T) {
 			name = "usage-hover-dark"
 		}
 		shot(t, tt, name)
+		if tt.HasText("Weekly") || tt.HasText("max") {
+			t.Fatalf("the card spells the window or plan as the API does: %q", tt.Texts())
+		}
 		// The card stays while the pointer is on it.
-		if r, ok := tt.Find("Weekly"); ok {
+		if r, ok := tt.Find("Week"); ok {
 			tt.Move(r.X+r.W/2, r.Y+r.H/2)
 			tt.Advance(300 * time.Millisecond)
 			tt.Frame()
@@ -220,6 +233,106 @@ func TestUsageStates(t *testing.T) {
 	if got := usageReset(now.AddDate(0, 0, 3)); got != "resets "+now.AddDate(0, 0, 3).Format("Mon") {
 		t.Fatalf("reset later this week: %q", got)
 	}
+	// A week's window reset the day after the last: its weekday would read
+	// as today's, so the card gives the date.
+	wed := time.Date(2026, 10, 21, 10, 0, 0, 0, time.Local)
+	for _, c := range []struct {
+		at   time.Time
+		want string
+	}{
+		{wed.Add(2 * time.Hour), "resets 12:00 PM"},
+		{wed.AddDate(0, 0, 2), "resets Fri"},
+		{wed.AddDate(0, 0, 6), "resets Oct 27"},
+		{wed.AddDate(0, 0, 7).Add(-time.Hour), "resets Oct 28"},
+		{wed.AddDate(0, 0, 9), "resets Oct 30"},
+	} {
+		if got := usageResetAt(c.at, wed); got != c.want {
+			t.Errorf("reset at %v: %q, want %q", c.at, got, c.want)
+		}
+	}
+	for plan, want := range map[string]string{"max": "Max", "plus": "Plus", "pro": "Pro", "team_pro": "Team Pro", "élite": "Élite", "API credit": "API credit", "": ""} {
+		if got := usagePlan(plan); got != want {
+			t.Errorf("plan %q shows %q, want %q", plan, got, want)
+		}
+	}
+}
+
+// Each ring says what it can: the arc, a balance's sign, a dashed track
+// for a harness not connected, and an amber dot when a refresh failed.
+func TestUsageRingMarks(t *testing.T) {
+	now := time.Now()
+	used := usage.Report{Checked: now, Windows: []usage.Window{{Label: "Weekly", Used: 40}}}
+	stale := used
+	stale.Error = "Could not reach provider"
+	cases := []struct {
+		name    string
+		r       usage.Report
+		loading bool
+		mark    usageMark
+		dot     bool
+	}{
+		{"usage", used, false, markUsage, false},
+		{"stale", stale, false, markUsage, true},
+		{"balance", usage.Report{Checked: now, Balance: "USD 4.60"}, false, markBalance, false},
+		{"not connected", usage.Report{Error: "Not connected"}, false, markUnconnected, false},
+		{"signed out", usage.Report{Error: "Sign in again"}, false, markUnconnected, false},
+		{"not connected, refreshing", usage.Report{Error: "Not connected"}, true, markUnconnected, false},
+		{"failed first", usage.Report{Error: "Could not reach provider"}, false, markUsage, true},
+		{"checking", usage.Report{}, true, markUsage, false},
+	}
+	for _, c := range cases {
+		if mark, dot := usageMarkOf(c.r, c.loading); mark != c.mark || dot != c.dot {
+			t.Errorf("%s: mark %d, dot %v; want %d, %v", c.name, mark, dot, c.mark, c.dot)
+		}
+	}
+	// The marks draw differently from one another, and from 0%.
+	pal := lightPalette
+	ink := func(r usage.Report) *image.RGBA {
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Row(c).Padding(4).Children(func() { usageRing(c, &pal, r, false, false) })
+		}, 30, 30)
+		tt.Frame()
+		return tt.Image()
+	}
+	empty := usage.Report{Checked: now, Windows: []usage.Window{{Label: "Weekly", Used: 0}}}
+	shots := map[string]*image.RGBA{"0%": ink(empty)}
+	for _, c := range cases {
+		switch c.name {
+		case "stale", "balance", "not connected", "failed first":
+			shots[c.name] = ink(c.r)
+		}
+	}
+	for a, x := range shots {
+		for b, y := range shots {
+			if a < b && bytes.Equal(x.Pix, y.Pix) {
+				t.Errorf("the %s and %s rings look the same", a, b)
+			}
+		}
+	}
+}
+
+// A card over the last known usage says a refresh failed.
+func TestUsageHoverStale(t *testing.T) {
+	a := testApp(t)
+	a.usage.installed = []string{"claude"}
+	a.usage.reports = usage.Providers()
+	now := time.Now()
+	a.usage.reports[0].Checked = now.Add(-time.Hour)
+	a.usage.reports[0].Windows = []usage.Window{{Label: "5 hours", Used: 27, Resets: now.Add(time.Hour)}}
+	a.usage.reports[0].Error = "Could not reach provider"
+	tt := ui.NewTester(a.view, 1100, 700)
+	tt.Frame()
+	item, ok := tt.Find("Claude usage")
+	if !ok {
+		t.Fatalf("no Claude ring: %q", tt.Texts())
+	}
+	tt.Move(item.X+item.W/2, item.Y+item.H/2)
+	tt.Advance(200 * time.Millisecond)
+	tt.Frame()
+	if !tt.HasText(locales.UsageStale()) || !tt.HasText("27%") {
+		t.Fatalf("the stale card: %q", tt.Texts())
+	}
+	shot(t, tt, "usage-hover-stale")
 }
 
 func TestUsageKeyEditing(t *testing.T) {

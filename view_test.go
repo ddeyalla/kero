@@ -337,27 +337,32 @@ func TestSidebarFooter(t *testing.T) {
 
 // Each session's state has an icon named for it: a ring turning while it
 // works, an amber ring when it needs the user, a filled check unseen, a
-// faint check once seen, and a half moon once its shell has gone. The
-// foot's chips wear the same icons ($KERO_SHOTS).
+// faint check once seen, a red disc when a program failed, a crossed ring
+// when its shell exited with an error, and a half moon once it has rested,
+// read, for a day. The foot's chips wear the same icons ($KERO_SHOTS).
 func TestSessionStatusIcons(t *testing.T) {
 	a := testApp(t)
 	a.conn = connReady
+	now := time.Now()
+	ms := func(ago time.Duration) int64 { return now.Add(-ago).UnixMilli() }
+	a.st.Sessions[0].Since = ms(time.Minute)
 	base := a.st.Sessions[0]
-	add := func(id, name string, st proto.Status, unread bool, progress int) {
+	add := func(id, name string, st proto.Status, unread bool, progress int, since int64) {
 		s := base
-		s.ID, s.Name, s.Status, s.Unread, s.Progress = id, name, st, unread, progress
+		s.ID, s.Name, s.Status, s.Unread, s.Progress, s.Since = id, name, st, unread, progress, since
 		a.st.Sessions = append(a.st.Sessions, s)
 	}
-	add("s2", "compile", proto.Working, false, -1)
-	add("s3", "report", proto.Working, false, 40)
-	add("s4", "deploy", proto.Waiting, true, -1)
-	add("s5", "tests", proto.Idle, true, -1)
-	add("s6", "scratch", proto.Exited, false, -1)
-	add("s7", "broken", proto.Failed, true, -1)
-	tt := ui.NewTester(a.view, 1100, 700)
+	add("s2", "compile", proto.Working, false, -1, ms(3*time.Minute))
+	add("s3", "report", proto.Working, false, 40, ms(time.Minute))
+	add("s4", "deploy", proto.Waiting, true, -1, ms(time.Minute))
+	add("s5", "tests", proto.Idle, true, -1, ms(2*time.Hour))
+	add("s6", "crashed", proto.Exited, true, -1, ms(time.Minute))
+	add("s7", "broken", proto.Failed, true, -1, ms(time.Minute))
+	add("s8", "scratch", proto.Idle, false, -1, ms(inactiveAfter+time.Minute))
+	add("s9", "lint", proto.Idle, false, -1, ms(inactiveAfter-time.Minute))
+	add("s10", "old crash", proto.Exited, false, -1, ms(3*inactiveAfter))
+	tt := ui.NewTester(a.view, 1100, 760)
 	tt.Frame()
-	// One frame draws the spinner where it is: a test never waits for it
-	// to finish, as it never finishes.
 	shot(t, tt, "session-statuses")
 	tt.SetDark(true)
 	tt.Frame()
@@ -366,11 +371,85 @@ func TestSessionStatusIcons(t *testing.T) {
 	tt.Frame()
 	for _, label := range []string{
 		locales.StatusWorking(), locales.StatusNeedsYou(), locales.StatusDone(),
-		locales.StatusInactive(), locales.StatusFailed(),
+		locales.StatusInactive(), locales.StatusFailed(), locales.StatusExited(),
 	} {
 		if _, ok := tt.Find(label); !ok {
 			t.Errorf("no icon labeled %q; labels %q", label, tt.Texts())
 		}
+	}
+	// The ages show, as the rows have them.
+	for _, age := range []string{locales.AgoMinutes(3), locales.AgoHours(2), locales.AgoHours(23), locales.AgoDays(1)} {
+		if !tt.HasText(age) {
+			t.Errorf("no age %q; texts %q", age, tt.Texts())
+		}
+	}
+	// Each row's mark, by its state.
+	for _, c := range []struct {
+		st     proto.Status
+		unread bool
+		since  int64
+		want   string
+	}{
+		{proto.Working, false, ms(time.Minute), locales.StatusWorking()},
+		{proto.Waiting, true, ms(2 * inactiveAfter), locales.StatusNeedsYou()},
+		{proto.Idle, true, ms(2 * inactiveAfter), locales.StatusDone()},
+		{proto.Idle, false, ms(inactiveAfter - time.Minute), locales.StatusDone()},
+		{proto.Idle, false, ms(inactiveAfter + time.Minute), locales.StatusInactive()},
+		{proto.Idle, false, 0, locales.StatusDone()},
+		{proto.Failed, false, ms(2 * inactiveAfter), locales.StatusFailed()},
+		{proto.Exited, false, ms(2 * inactiveAfter), locales.StatusExited()},
+		{proto.Exited, true, ms(time.Minute), locales.StatusExited()},
+	} {
+		pal := lightPalette
+		one := ui.NewTester(func(ctx *ui.Context) {
+			statusIconP(ctx, &pal, c.st, c.unread, -1, c.since, 15)
+		}, 20, 20)
+		one.Frame()
+		if labels := one.Texts(); !slices.Contains(labels, c.want) {
+			t.Errorf("%s unread=%v %v ago: labeled %q, want %q", c.st, c.unread, now.Sub(time.UnixMilli(c.since)).Round(time.Minute), labels, c.want)
+		}
+	}
+	// A failure shows red until it is seen, never the calm moon: the
+	// crossed ring of a shell that crashed is drawn in the danger color.
+	red := func(name string) int {
+		r, ok := tt.Find(name)
+		if !ok {
+			t.Fatalf("no row %q", name)
+		}
+		img, n := tt.Image(), 0
+		for y := int(r.Y); y < int(r.Y+r.H); y++ {
+			for x := int(r.X + r.W); x < int(r.X+r.W)+200 && x < img.Rect.Dx(); x++ {
+				if c := img.RGBAAt(x, y); int(c.R) > int(c.G)+60 && int(c.R) > int(c.B)+60 {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	if red("crashed") == 0 {
+		t.Error("a shell that crashed shows no red")
+	}
+	if red("old crash") != 0 || red("scratch") != 0 {
+		t.Error("a crash seen, or a session at rest, is still red")
+	}
+	// A read session is in the regular weight: a done row unseen is bolder
+	// than the same name read.
+	weight := func(unread bool) int {
+		s := base
+		s.ID, s.Name, s.Status, s.Unread, s.Since = "w", "weigh", proto.Idle, unread, ms(time.Minute)
+		b := testApp(t)
+		b.conn = connReady
+		b.st.Sessions = append(b.st.Sessions, s)
+		tw := ui.NewTester(b.view, 1100, 400)
+		tw.Frame()
+		r, ok := tw.Find("weigh")
+		if !ok {
+			t.Fatalf("no row; texts %q", tw.Texts())
+		}
+		return inked(tw, r)
+	}
+	if read, unread := weight(false), weight(true); read >= unread {
+		t.Errorf("a read row is as heavy as an unread one: %d inked pixels, unread %d", read, unread)
 	}
 	// The foot counts them, with the same icons: two working, one needing
 	// the user and one done unseen.
@@ -388,7 +467,7 @@ func TestStatusIconProgress(t *testing.T) {
 	count := func(progress int) int {
 		tt := ui.NewTester(func(c *ui.Context) {
 			ui.Row(c).Padding(10).Children(func() {
-				statusIconP(c, &pal, proto.Working, false, progress, 24)
+				statusIconP(c, &pal, proto.Working, false, progress, 0, 24)
 			})
 		}, 64, 44)
 		tt.Frame()

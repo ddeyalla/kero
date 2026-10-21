@@ -478,7 +478,7 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 			case p.IsView():
 				ui.Icon(c, paneViewIcon(p.View)).Size(14, 14).TextColor(pal.textMuted)
 			case multi && (p.Status != proto.Idle || p.Unread):
-				statusIconP(c, pal, p.Status, p.Unread, p.Progress, 13)
+				statusIconP(c, pal, p.Status, p.Unread, p.Progress, 0, 13)
 			case multi:
 				ui.Icon(c, programIcon(p)).Size(14, 14).TextColor(pal.textFaint)
 			}
@@ -607,7 +607,7 @@ func (a *App) paneChips(c *ui.Context, pal *palette, p *proto.Pane, icon bool) {
 	case proto.Working:
 		chip(c, pal, pal.chip, pal.textMuted, func() {
 			if icon {
-				statusIconP(c, pal, p.Status, false, p.Progress, 11)
+				statusIconP(c, pal, p.Status, false, p.Progress, 0, 11)
 			}
 			label := ago(p.Since, c.Now())
 			if p.Progress >= 0 {
@@ -688,8 +688,8 @@ func (a *App) paneTerminal(c *ui.Context, pal *palette, s *proto.Session, p *pro
 				a.ensureTerm(p.ID)
 			})
 		default:
-			// Attaching takes a moment for a long scrollback: a spinner
-			// only once it is a noticeable one.
+			// Attaching takes a moment for a long scrollback: the loading
+			// ring only once it is a noticeable one.
 			if e != nil && time.Since(e.started) > 250*time.Millisecond {
 				working(c, pal, locales.PaneAttaching())
 			} else {

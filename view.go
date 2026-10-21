@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/egoist/mygo/plugins/loading"
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/actions"
@@ -466,7 +465,7 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 		if s.Unread {
 			name.FontWeight(650)
 		}
-		if s.Status == proto.Exited && !s.Unread {
+		if inactive(s.Status, s.Unread, s.Since, c.Now()) {
 			name.TextColor(pal.textMuted)
 		}
 		cmd := c.Modifiers() == ui.Cmd
@@ -475,7 +474,7 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 		} else {
 			ui.Text(c, ago(s.Since, c.Now())).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine()
 		}
-		statusIconP(c, pal, s.Status, s.Unread, s.Progress, 15)
+		statusIconP(c, pal, s.Status, s.Unread, s.Progress, s.Since, 15)
 	})
 }
 
@@ -642,42 +641,63 @@ func ago(ms int64, now time.Time) string {
 	return locales.AgoWeeks(int(d / (7 * 24 * time.Hour)))
 }
 
+// inactiveAfter is how long a session rests, read and done, before the
+// sidebar shows it inactive.
+const inactiveAfter = 24 * time.Hour
+
+// inactive tells a session at rest: done and read, its last change of
+// status, since, inactiveAfter or more before now. One that works, waits
+// for the user, failed or exited is never at rest, nor one unread.
+func inactive(st proto.Status, unread bool, since int64, now time.Time) bool {
+	return st == proto.Idle && !unread && since != 0 && now.Sub(time.UnixMilli(since)) >= inactiveAfter
+}
+
 // statusIcon draws a session's status, as the sidebar shows it: a ring
 // turning while it works, an amber ring when it needs the user, a filled
-// check when it finished unseen, a faint check once seen, and a half moon
-// once its shell has gone.
+// check when it finished unseen, a faint check once seen, a red disc when
+// a program failed and a crossed ring when its shell exited with an error.
 func statusIcon(c *ui.Context, pal *palette, st proto.Status, unread bool, size float32) ui.Element {
-	return statusIconP(c, pal, st, unread, -1, size)
+	return statusIconP(c, pal, st, unread, -1, 0, size)
 }
 
 // statusIconP is statusIcon with a program's progress (OSC 7501), 0–100,
-// which a working ring fills instead of turning; -1 for none.
-func statusIconP(c *ui.Context, pal *palette, st proto.Status, unread bool, progress int, size float32) ui.Element {
+// which a working ring fills instead of turning, -1 for none; and since,
+// when the status last changed, in Unix milliseconds, which draws a half
+// moon for a session inactive since, 0 for a mark that never shows it.
+func statusIconP(c *ui.Context, pal *palette, st proto.Status, unread bool, progress int, since int64, size float32) ui.Element {
 	box := ui.Box(c).Size(size, size).Shrink(0)
+	asleep := inactive(st, unread, since, c.Now())
 	switch {
 	case st == proto.Working:
 		box.Label(locales.StatusWorking())
 	case st == proto.Waiting:
 		box.Label(locales.StatusNeedsYou())
 	case st == proto.Exited:
-		box.Label(locales.StatusInactive())
+		box.Label(locales.StatusExited())
 	case st == proto.Failed:
 		box.Label(locales.StatusFailed())
-	case unread:
+	case asleep:
+		box.Label(locales.StatusInactive())
+	case st == proto.Idle:
 		box.Label(locales.StatusDone())
 	}
-	// Working, before a program reports how far it has got, turns: MyGo's
-	// ring draws the faint track and the arc going round it, and stands
-	// still where the desktop asks for less motion. Nothing else moves.
-	if st == proto.Working && progress < 0 {
-		box.Children(func() {
-			loading.Ring(c, loading.Options{Size: size, Color: pal.text})
-		})
-		return box
+	// Working, before a program reports how far it has got, turns the
+	// loading ring, the faint track and the arc going round it, in steps
+	// (turningRing), and stands still where the desktop asks for less
+	// motion. Nothing else moves.
+	turns := st == proto.Working && progress < 0
+	var start time.Time
+	if turns {
+		start = ringStart(c, box)
 	}
+	still := c.Preferences().ReduceMotion
 	box.Draw(func(p *ui.Painter, r ui.Rect) {
+		if turns {
+			turningRing(p, r, pal.text, start, still)
+			return
+		}
 		cx, cy := r.X+r.W/2, r.Y+r.H/2
-		// The plugin's ring draws its track at 10 of 24 across, and its
+		// The loading ring draws its track at 10 of 24 across, and its
 		// stroke at 2.5: a session that starts reporting progress keeps
 		// the ring the size it was.
 		side := min(r.W, r.H)
@@ -713,6 +733,20 @@ func statusIconP(c *ui.Context, pal *palette, st proto.Status, unread bool, prog
 			dot.Circle(cx, cy+rad*0.42, 1)
 			p.FillPath(&dot, pal.onDone)
 		case st == proto.Exited:
+			// The shell ended with an error: a crossed ring, red until
+			// the user has seen it, faint after, while the pane keeps its
+			// output and offers a restart.
+			col := pal.textFaint
+			if unread {
+				col = pal.danger
+			}
+			var ring ui.Path
+			ring.Circle(cx, cy, rad)
+			p.StrokePath(&ring, 1.5, col)
+			k := rad * 0.45
+			p.Line(cx-k, cy-k, cx+k, cy+k, 1.5, col)
+			p.Line(cx+k, cy-k, cx-k, cy+k, 1.5, col)
+		case asleep:
 			// A moon, filled: it reads over the sidebar's material as
 			// it reads over the card.
 			moon := moonPath(cx, cy, rad)

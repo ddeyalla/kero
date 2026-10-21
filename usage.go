@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/usage"
+	"kero/locales"
 )
 
 type usageState struct {
@@ -32,7 +35,8 @@ type usageState struct {
 
 func (a *App) startUsage() {
 	a.usage.ctx, a.usage.cancel = context.WithCancel(context.Background())
-	a.usage.installed = usage.Installed()
+	// What is installed, as the reports, comes with the first refresh, off
+	// the main thread: it looks through the disk.
 	a.refreshUsage()
 	ctx := a.usage.ctx
 	go func() {
@@ -142,7 +146,9 @@ func (a *App) usageSidebar(c *ui.Context, pal *palette) {
 	// and the padding.
 	room := make([]float32, len(reports))
 	for i, r := range reports {
-		w, _ := c.MeasureText(0, ui.Span{Text: r.Name, Size: 11.5})
+		// At the weight of the hovered name, so that the bar does not move
+		// as the pointer goes over it.
+		w, _ := c.MeasureText(0, ui.Span{Text: r.Name, Size: 11.5, Weight: 600})
 		room[i] = usageRingSize + usageNameGap + w + usageItemPad + 1.5
 	}
 	avail := a.prefs.SidebarWidth - 16
@@ -233,13 +239,19 @@ func (a *App) usageHarness(c *ui.Context, pal *palette, r usage.Report, width fl
 	if item.Hovered() {
 		item.Background(pal.rowHover)
 	}
+	// The harness whose card shows stands out: its name in the text's
+	// color and heavier, its ring's track darker.
+	hot := item.Hovered() || a.usage.hover == r.ID
 	item.Children(func() {
 		ui.Row(c).Fill().AlignItems(ui.Center).Gap(usageNameGap).Children(func() {
-			usageRing(c, pal, r)
+			usageRing(c, pal, r, a.usage.loading, hot)
 			// A name with no room would show only an ellipsis: let the ring
 			// speak there, and the card on hover.
 			if named && width-usageRingSize-usageNameGap-usageItemPad >= 16 {
-				ui.Text(c, r.Name).FontSize(11.5).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+				name := ui.Text(c, r.Name).FontSize(11.5).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+				if hot {
+					name.TextColor(pal.text).FontWeight(600)
+				}
 			}
 		})
 	})
@@ -257,9 +269,44 @@ func (a *App) usageHarness(c *ui.Context, pal *palette, r usage.Report, width fl
 	return item
 }
 
+// usageMark is what a harness's ring shows.
+type usageMark uint8
+
+const (
+	// markUsage is the first allowance as the arc, the track alone at 0%
+	// or while the first read is under way.
+	markUsage usageMark = iota
+	// markBalance is a balance, with no allowance to draw: a currency's
+	// sign in the track.
+	markBalance
+	// markUnconnected is a harness with no sign-in to read: a dashed track.
+	markUnconnected
+)
+
+// usageMarkOf is the mark r's ring shows, and whether an amber dot marks
+// it: a refresh failed, so the arc is the last known usage, or there is
+// none yet for another reason than a sign-in. A harness not connected
+// stays so through a refresh; loading only matters to one never read.
+func usageMarkOf(r usage.Report, loading bool) (usageMark, bool) {
+	stale := r.Error != ""
+	switch {
+	case r.Balance != "" && len(r.Windows) == 0:
+		return markBalance, stale
+	case r.Checked.IsZero() && (r.Error == "Not connected" || r.Error == "Sign in again"):
+		return markUnconnected, false
+	case r.Checked.IsZero() && r.Error == "" && !loading:
+		return markUnconnected, false
+	}
+	return markUsage, stale
+}
+
 // usageRing is a harness's first allowance as a ring: the track faint, the
-// arc in the text's color, and amber as any window nears its limit.
-func usageRing(c *ui.Context, pal *palette, r usage.Report) {
+// arc in the text's color, and amber once any window reaches 90%; a
+// balance's currency sign, or a dashed track for a harness not connected;
+// and an amber dot where a refresh failed. hot darkens the track, for the
+// harness whose card shows.
+func usageRing(c *ui.Context, pal *palette, r usage.Report, loading, hot bool) {
+	mark, dot := usageMarkOf(r, loading)
 	used := float32(0)
 	alert := false
 	if len(r.Windows) > 0 && !r.Checked.IsZero() {
@@ -270,14 +317,47 @@ func usageRing(c *ui.Context, pal *palette, r usage.Report) {
 			alert = true
 		}
 	}
+	trackInk := pal.text.Alpha(0.13)
+	if hot {
+		trackInk = pal.text.Alpha(0.26)
+	}
 	box := ui.Box(c).Size(usageRingSize, usageRingSize).Shrink(0)
+	if mark == markBalance {
+		sign := "$"
+		if strings.HasPrefix(r.Balance, "CNY") {
+			sign = "¥"
+		}
+		box.Center().Children(func() {
+			ui.Text(c, sign).FontSize(10.5).FontWeight(600).TextColor(pal.textMuted).SingleLine()
+		})
+	}
 	box.Draw(func(p *ui.Painter, rect ui.Rect) {
 		cx, cy := rect.X+rect.W/2, rect.Y+rect.H/2
 		rad := min(rect.W, rect.H)/2 - 1.5
+		if dot {
+			// Drawn last, over the ring's top right.
+			defer func() {
+				var d ui.Path
+				d.Circle(rect.X+rect.W-3.5, rect.Y+3.5, 2.5)
+				p.FillPath(&d, pal.attention)
+			}()
+		}
+		if mark == markUnconnected {
+			// Eight dashes round a fainter track: nothing to read yet.
+			const dashes = 8
+			for i := range dashes {
+				p.Transform(ui.Rotation(float32(i)*360/dashes), cx, cy, func() {
+					var dash ui.Path
+					dash.Circle(cx, cy, rad)
+					p.StrokePath(dash.Trim(0, 0.5/dashes), 1.5, trackInk)
+				})
+			}
+			return
+		}
 		var track ui.Path
 		track.Circle(cx, cy, rad)
-		p.StrokePath(&track, 2, pal.text.Alpha(0.13))
-		if used <= 0 {
+		p.StrokePath(&track, 2, trackInk)
+		if used <= 0 || mark != markUsage {
 			return
 		}
 		arc := pal.text
@@ -291,6 +371,29 @@ func usageRing(c *ui.Context, pal *palette, r usage.Report) {
 			p.StrokePath(path.Trim(0, max(0.02, used/100)), 2, arc)
 		})
 	})
+}
+
+// usagePlan is a plan's name as the card and the modal show it: the
+// providers' own are lowercase ("max", "plus", "pro"), which reads as a
+// word, so they are capitalized, a word at a time.
+func usagePlan(plan string) string {
+	if plan != strings.ToLower(plan) {
+		return plan
+	}
+	words := strings.Fields(strings.ReplaceAll(plan, "_", " "))
+	for i, w := range words {
+		r, n := utf8.DecodeRuneInString(w)
+		words[i] = string(unicode.ToTitle(r)) + w[n:]
+	}
+	return strings.Join(words, " ")
+}
+
+// usageWindow is a window's name as the card says it, shortly: a week.
+func usageWindow(label string) string {
+	if label == "Weekly" {
+		return "Week"
+	}
+	return label
 }
 
 // usageHover shows a harness's full card above its ring: the plan, each
@@ -310,12 +413,12 @@ func (a *App) usageHover(c *ui.Context, pal *palette, r usage.Report, anchor ui.
 				ui.Text(c, r.Name).FontSize(13).FontWeight(600).TextColor(pal.text).SingleLine().Shrink(0)
 				ui.Spacer(c)
 				if r.Plan != "" {
-					ui.Text(c, r.Plan).FontSize(11).TextColor(pal.textFaint).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+					ui.Text(c, usagePlan(r.Plan)).FontSize(11).TextColor(pal.textFaint).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
 				}
 			})
 			for i, w := range r.Windows {
 				ui.Row(c.Key(fmt.Sprint(i))).AlignItems(ui.Center).Gap(4).Children(func() {
-					ui.Text(c, w.Label).FontSize(11).TextColor(pal.textMuted).SingleLine().Shrink(0)
+					ui.Text(c, usageWindow(w.Label)).FontSize(11).TextColor(pal.textMuted).SingleLine().Shrink(0)
 					ui.Spacer(c)
 					ui.Text(c, fmt.Sprintf("%.0f%%", w.Used)).FontSize(11.5).FontWeight(600).TextColor(pal.text).Shrink(0)
 					if !w.Resets.IsZero() {
@@ -327,6 +430,10 @@ func (a *App) usageHover(c *ui.Context, pal *palette, r usage.Report, anchor ui.
 				ui.Text(c, r.Balance+" remaining").FontSize(12).TextColor(pal.text)
 			}
 			switch {
+			case r.Error != "" && !r.Checked.IsZero():
+				// What shows is the last read that worked.
+				ui.Text(c, locales.UsageStale()).FontSize(11).TextColor(pal.attention).SingleLine().Ellipsis("…")
+				ui.Text(c, r.Error).FontSize(11).TextColor(pal.textFaint).SingleLine().Ellipsis("…")
 			case r.Error != "":
 				ui.Text(c, r.Error).FontSize(11).TextColor(pal.attention).SingleLine().Ellipsis("…")
 			case r.Checked.IsZero():
@@ -337,17 +444,21 @@ func (a *App) usageHover(c *ui.Context, pal *palette, r usage.Report, anchor ui.
 }
 
 // usageReset is a window's reset as the card says it: the time today, the
-// weekday for a later day, or now when it is due.
+// weekday for a later day this week, the date from six days on, when the
+// weekday would read as today's, or now when it is due.
 func usageReset(at time.Time) string {
-	now := time.Now()
+	return usageResetAt(at, time.Now())
+}
+
+func usageResetAt(at, now time.Time) string {
 	if !at.After(now) {
 		return "resets now"
 	}
-	local := at.Local()
+	local, now := at.Local(), now.Local()
 	if local.Format("2006-01-02") == now.Format("2006-01-02") {
 		return "resets " + local.Format("3:04 PM")
 	}
-	if at.Sub(now) < 7*24*time.Hour {
+	if at.Sub(now) < 6*24*time.Hour && local.Weekday() != now.Weekday() {
 		return "resets " + local.Format("Mon")
 	}
 	return "resets " + local.Format("Jan 2")
@@ -434,7 +545,7 @@ func (a *App) usageCard(c *ui.Context, pal *palette, r usage.Report) {
 		ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 			ui.Text(c, r.Name).FontSize(14).Bold().TextColor(pal.text)
 			if r.Plan != "" {
-				ui.Text(c, r.Plan).FontSize(11).TextColor(pal.textFaint)
+				ui.Text(c, usagePlan(r.Plan)).FontSize(11).TextColor(pal.textFaint)
 			}
 			ui.Spacer(c)
 			if ui.Button(c, "Open account ↗").Clicked() {

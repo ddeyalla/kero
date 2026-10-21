@@ -151,39 +151,57 @@ Tests: `hook_events_test.go`, `internal/daemon/hooks_test.go`.
 A session row, and each count chip in the footer, draw the session's state
 with one small mark, in `statusIconP` ([`view.go`](../view.go)):
 
-- **Working** turns MyGo's loading ring, a faint track with an arc going
-  round it (`loading.Ring`), and stands still where the desktop asks for
-  less motion. A program that reports its own progress (OSC 7501) fills a
-  determinate arc instead, from the top clockwise, on the same track.
+- **Working** turns the loading ring, a faint track with an arc going
+  round it, drawn as MyGo's `loading.Ring` draws it but in steps of 15 a
+  second (`turningRing` in [`loading_ui.go`](../loading_ui.go)), and stands
+  still where the desktop asks for less motion. A program that reports its
+  own progress (OSC 7501) fills a determinate arc instead, from the top
+  clockwise, on the same track.
 - **Needs you** is an amber ring, heavier than the others, with a filled
   amber dot in its middle: it is the one state that should pull the eye.
 - **Done** is a filled disc with a dark check until the session is read
   (unread, and its name is bolder), and a faint check once read.
-- **Inactive** — a session whose shell has exited — is a filled half moon,
-  so it reads as asleep rather than failed. Failed sessions keep the red
-  error disc.
+- **Failed** — a program reported it failed — is a red disc with a bar,
+  dimmer once read.
+- **Exited** — the shell ended with an error; one that exits cleanly closes
+  its pane — is a crossed ring, red until the session is read and faint
+  after, beside the pane's "Exited" chip and its Restart button.
+- **Inactive** — a session done and read whose status last changed 24 hours
+  ago or more (`inactive`, `inactiveAfter`) — is a filled half moon, and
+  its name is dimmed. A session working, waiting, failed, exited or unread
+  is never inactive, so the calm moon never hides a failure.
 
-The accessible labels are Working, Needs you, Done, Inactive and Failed,
-from `locales/en.json`, so a screen reader says the state the icon draws.
-The marks are 15 points in a row and 12 in the footer chips.
+Each mark has its accessible label — Working, Needs you, Done, Inactive,
+Failed and Exited, from `locales/en.json` — read or unread, so a screen
+reader says the state the icon draws. The turning ring is drawn by the mark
+itself, with no unnamed progress element inside it. The marks are 15
+points in a row and 12 in the footer chips.
 
-Tests: `view_test.go` (`TestSessionStatusIcons`, `TestStatusIconProgress`).
+Tests: `view_test.go` (`TestSessionStatusIcons`, `TestStatusIconProgress`),
+`loading_ui_test.go` (`TestLoadingRingThrottled`).
 
 ## Busy indicators
 
 Where the app itself is busy — the connecting card before a session shows, a
-pane attaching to a session, Files reading a directory or finding, an issue
-being read — it draws the loading ring of MyGo's loading plugin:
+pane attaching to a session, Files reading a directory, finding, or the file
+viewer while a file loads, an issue being read — it draws the loading ring:
 `working` in [`loading_ui.go`](../loading_ui.go), 16 points in the muted text
-color, with the same accessible label the spinner had. The ring asks for a
-frame only while it shows, and stands in loading.dev's reduced-motion pose
-when the desktop asks for less motion. Nothing else in the app animates
-continuously.
+color, a progress indicator named for what it waits on ("Reading…" and
+"Looking through the files…" in Files). It is loading.dev's Ring as MyGo's
+loading plugin draws it — the same track, arc and 800 ms turn — but the
+plugin asks for a frame at every display refresh, which paints the whole
+window again for as long as it shows; `turningRing` asks for its next step
+with `Painter.After` at 15 frames a second instead. It asks only while it
+shows, and stands still, in the plugin's pose at rest, when the desktop
+asks for less motion. The loading ring, on a working session or a busy
+view, is the only continuous motion in the app, and it runs at that
+throttled rate.
 
 Code: [`loading_ui.go`](../loading_ui.go), and the call sites in
 [`view.go`](../view.go), [`panes.go`](../panes.go),
 [`files_pane.go`](../files_pane.go) and
-[`linear_detail.go`](../linear_detail.go). Test: `loading_ui_test.go`.
+[`linear_detail.go`](../linear_detail.go). Test: `loading_ui_test.go`
+(the ring's steps, Reduce Motion, and no frames once it has gone).
 
 ## Account usage
 
@@ -195,23 +213,38 @@ after errors, and respect rate-limit backoff. Explicit provider-key overrides
 are atomically stored with mode `0600` in the personal data directory.
 
 The sidebar's bottom bar is one ring per harness this Mac has installed:
-Claude, Codex and OpenCode Go when their CLI is on `PATH` or their sign-in
-file is found, and DeepSeek when a key is saved; with none found it shows
-every provider, so a new user sees what can be connected. The first
-allowance is the arc, amber as any of the harness's windows nears 90%. The
-names sit beside the rings while they fit — in rows when the sidebar can't
-hold them in one, and the rings alone at the narrowest sidebar, where the
-hover card names them instead. Hovering a ring shows the plan, every
-allowance window with its percentage and reset, a balance, or why the
-harness is not connected; clicking it, or `Cmd+Shift+U`, opens the full
-in-window modal with refresh, provider configuration and keys. The CPU and
-RAM meters stay below the bar, unchanged (`resources.go`).
+Claude, Codex and OpenCode Go when their command or sign-in file is found
+(OpenCode Go also by `OPENCODE_API_KEY` or OpenCode's own login), and
+DeepSeek when its key is saved, set in `DEEPSEEK_API_KEY` or in OpenCode's
+DeepSeek login; with none found it shows every provider, so a new user sees
+what can be connected. The first allowance is the arc, amber once any of
+the harness's windows reaches 90%. A harness with only a balance, as
+DeepSeek, shows its currency's sign in the track instead; one not
+connected, a dashed track; and an amber dot marks a ring whose last
+refresh failed, the arc then being the last known usage. The names sit
+beside the rings while they fit — in rows when the sidebar can't hold them
+in one, and the rings alone at the narrowest sidebar, where the hover card
+names them instead. The hovered harness's name turns the text's color and
+heavier, and its ring's track darker. Hovering a ring shows the plan
+(capitalized: the APIs send "max", "plus"), every allowance window ("5
+hours", "Week") with its percentage and reset — the time today, the
+weekday this week, the date from six days on — a balance, or why the
+harness is not connected, and "Last known usage; refresh failed" over a
+stale one; clicking it, or `Cmd+Shift+U`, opens the full in-window modal
+with refresh, provider configuration and keys. The CPU and RAM meters stay
+below the bar, unchanged (`resources.go`).
 
-Detecting what is installed is `usage.Installed()`, which checks `PATH`
-and the sign-in files without asking the keychain for a secret, and is
-recomputed with each two-minute refresh. The bar's rows come from
+Detecting what is installed is `usage.Installed()`, which looks for each
+command on `PATH` and then in the folders the installers use
+(`installDirs`: `~/.local/bin`, `~/.claude/local`, `~/.opencode/bin`,
+`~/.bun/bin`, `/opt/homebrew/bin`, `/usr/local/bin`), as an app opened from
+the Dock or the Finder has only the system's `PATH`; and for the sign-in
+files without asking the keychain for a secret, where Claude Code keeps
+its sign-in. It runs off the main thread with each two-minute refresh, the
+first at launch; until it returns, every provider shows. The bar's rows come from
 `usageBarRows` in [`usage.go`](../usage.go); a ring is `usageRing`, the card
-`usageHover`, its reset text `usageReset`.
+`usageHover`, its reset text `usageReset`. Tests: `usage_test.go`,
+`internal/usage/usage_test.go` (`TestInstalledFromInstallerFolders`).
 
 The modal shows allowance windows, reset times, refresh and provider
 configuration, and its own error and connection states. `Cmd+Shift+U` opens
@@ -272,8 +305,9 @@ Automation: `kero resources --json`.
 
 The local build targets the host architecture: Apple Silicon is `arm64`;
 Intel/AMD is `amd64`. The terminal's own status line no longer animates
-constantly; the only continuous motion is a working session's loading ring,
-which turns only while that session works. The daemon's
+constantly; the loading ring, on a working session or a busy view, is the
+only continuous motion, and it turns at a throttled 15 frames a second
+only while it shows. The daemon's
 synchronized-redraw scheduling now advances completed frames past an older
 50ms retry, with a fake-clock regression test. The measured isolated transport
 median improved from 55.93ms to 16.90ms (15 samples per build). GPU rendering,
@@ -592,3 +626,23 @@ The pre-import backup is local at
 `~/Library/Application Support/kero-local/backups/before-kero-import-20261020-194341`.
 This is not an automatic importer or a promise of ongoing synchronization.
 Session contents, credentials and backups do not belong in the repository.
+
+**A restart keeps each pane's status mark.** kerod saves, with each pane in
+`state.json`, where its status stood: `status`, `since` (when it last
+changed), `unread`, a failure's `message` and an exited shell's `exitCode`
+(`savedPane` in [`internal/daemon/store.go`](../internal/daemon/store.go)).
+A restore (`restoredStatus`) brings back the unread mark and the time, so the
+ages and the inactive moon survive a restart. What ran in the pane is gone
+and a new shell starts, so a pane that was working or waiting comes back
+idle and unread, dated at the save, so that the user sees the work stopped
+and a long job does not come back at rest since it began; a shell that
+exited with an error unseen comes back failed, "Exited with code N", and
+one already seen idle, both dated at the save; a failure stays failed until
+the user's first key, as before. The migration is additive: the
+fields are optional and left out when empty, the file's `version` stays 2, a
+state file of before loads with its panes idle and read as of the restore,
+as it always did, and an older kerod reads past the new fields. So the first
+restart into this version still loses the marks once, from the old file;
+kerod saves the fields with every change of status (`changed` queues a
+save), and every restart after keeps them. Tests:
+`internal/daemon/store_test.go`.

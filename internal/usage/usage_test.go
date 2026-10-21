@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -147,6 +148,7 @@ func TestInstalled(t *testing.T) {
 	t.Setenv("PATH", filepath.Join(home, "bin"))
 	t.Setenv("OPENCODE_API_KEY", "")
 	t.Setenv("DEEPSEEK_API_KEY", "")
+	homeDirsOnly(t)
 
 	all := []string{"claude", "codex", "opencode", "deepseek"}
 	if got := Installed(); !slices.Equal(got, all) {
@@ -180,5 +182,51 @@ func TestInstalled(t *testing.T) {
 	}
 	if got := Installed(); !slices.Equal(got, []string{"claude", "codex", "deepseek"}) {
 		t.Fatalf("a command on PATH was missed: %v", got)
+	}
+}
+
+// homeDirsOnly keeps Installed to the installers' folders in the home
+// folder, for a test: this Mac's own /opt/homebrew/bin may have them all.
+func homeDirsOnly(t *testing.T) {
+	old := installDirs
+	t.Cleanup(func() { installDirs = old })
+	installDirs = nil
+	for _, dir := range old {
+		if strings.HasPrefix(dir, "~/") {
+			installDirs = append(installDirs, dir)
+		}
+	}
+}
+
+// An app opened from the Dock has only the system's PATH, and Claude Code
+// keeps its sign-in in the keychain, which Installed does not ask: its
+// command, in the folder its installer links it in, finds it.
+func TestInstalledFromInstallerFolders(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, env := range []string{"XDG_DATA_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "KERO_HOME"} {
+		t.Setenv(env, filepath.Join(home, env))
+	}
+	t.Setenv("PATH", "")
+	t.Setenv("OPENCODE_API_KEY", "")
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	homeDirsOnly(t)
+
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A file that does not run is not a command.
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := Installed(); !slices.Equal(got, []string{"claude", "codex", "opencode", "deepseek"}) {
+		t.Fatalf("a file that does not run counted: %v", got)
+	}
+	if err := os.Chmod(filepath.Join(bin, "claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := Installed(); !slices.Equal(got, []string{"claude"}) {
+		t.Fatalf("claude in ~/.local/bin with an empty PATH: %v", got)
 	}
 }

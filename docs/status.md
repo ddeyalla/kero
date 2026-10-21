@@ -22,8 +22,14 @@ Every pane has a status, shown in the sidebar:
 A session's mark says its state at a glance: a turning ring while it works,
 or a ring filling to the progress the program reported; an amber ring with a
 dot when it needs you; a filled check when it is done and you have not read
-it, and a faint check once you have; and a half moon when the session is
-inactive, its shell exited. The count chips in the footer use the same marks.
+it, and a faint check once you have; a red disc when a program reported an
+error; a crossed ring, red until you have read it, when its shell exited
+with an error; and a half moon, its name dimmed, when the session is
+inactive: done and read, with no change for 24 hours. The count chips in the
+footer use the same marks. The unread marks, failures and ages survive a
+restart of the terminal service, with a new shell: a session that was
+working or waiting comes back done and unread, and one whose shell crashed
+unseen comes back failed.
 
 Kero tells a coding agent's status from what its screen shows: its spinner, a permission prompt, its prompt waiting for you. Redrawing the same screen, as when you resize a pane, changes nothing. Claude Code and Codex also [report their turns](#agents-that-report-their-turns) through Kero's hook, which is quicker and surer than the screen. Other programs are `working` while their title shows a spinner, or when they [report their status](#reporting-status-from-a-program).
 

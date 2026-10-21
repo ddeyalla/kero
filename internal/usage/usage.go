@@ -217,27 +217,54 @@ func credentials(ctx context.Context, id string) (token, account, plan string) {
 	return "", "", ""
 }
 
-// Installed returns the providers this Mac has set up: those whose CLI is on
-// PATH, whose sign-in files exist, or, for DeepSeek, whose key is saved. The
-// sidebar shows these, so a new user, with none, sees every provider it can
-// connect instead of an empty row.
-func Installed() []string {
-	onPath := func(name string) bool {
-		_, err := exec.LookPath(name)
-		return err == nil
+// installDirs are where the harnesses' installers put their commands, for
+// an app opened from the Dock or the Finder, whose PATH is only the
+// system's (/usr/bin:/bin:/usr/sbin:/sbin): Claude Code's installer links
+// ~/.local/bin/claude (~/.claude/local before it), OpenCode's
+// ~/.opencode/bin, Bun's global installs ~/.bun/bin, and Homebrew and npm
+// /opt/homebrew/bin or /usr/local/bin. "~/" is the home folder.
+var installDirs = []string{"~/.local/bin", "~/.claude/local", "~/.opencode/bin", "~/.bun/bin", "/opt/homebrew/bin", "/usr/local/bin"}
+
+// command reports whether this Mac has the command name: on PATH, or an
+// executable file in one of installDirs.
+func command(name string) bool {
+	if _, err := exec.LookPath(name); err == nil {
+		return true
 	}
+	home, _ := os.UserHomeDir()
+	for _, dir := range installDirs {
+		if rest, ok := strings.CutPrefix(dir, "~/"); ok {
+			if home == "" {
+				continue
+			}
+			dir = filepath.Join(home, rest)
+		}
+		if st, err := os.Stat(filepath.Join(dir, name)); err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o111 != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Installed returns the providers this Mac has set up: those whose CLI is on
+// PATH or in an installer's folder (installDirs), whose sign-in files exist,
+// or, for DeepSeek, whose key is found. The sidebar shows these, so a new
+// user, with none, sees every provider it can connect instead of an empty
+// row. Claude Code keeps its sign-in in the keychain, which this does not
+// ask, so its command is what finds it.
+func Installed() []string {
 	var ids []string
-	if onPath("claude") {
+	if command("claude") {
 		ids = append(ids, "claude")
 	} else if token, _ := claudeFile(); token != "" {
 		ids = append(ids, "claude")
 	}
-	if onPath("codex") {
+	if command("codex") {
 		ids = append(ids, "codex")
 	} else if token, _ := codexFile(); token != "" {
 		ids = append(ids, "codex")
 	}
-	if onPath("opencode") || openCodeKey() != "" {
+	if command("opencode") || openCodeKey() != "" {
 		ids = append(ids, "opencode")
 	}
 	if deepSeekKey() != "" {

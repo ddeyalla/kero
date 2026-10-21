@@ -217,7 +217,7 @@ func (a *App) linearChips(c *ui.Context, pal *palette, i proto.LinearIssue) {
 // dot of its status, and the name it goes by.
 func linearSessionBadge(c *ui.Context, pal *palette, i proto.LinearIssue) {
 	row := ui.Row(c).Height(18).Shrink(1).MinWidth(0).Gap(5).Padding(0, 6, 0, 4).Radius(9).AlignItems(ui.Center).Background(pal.chip).Children(func() {
-		statusIconP(c, pal, i.SessionStatus, false, i.Progress, 10)
+		statusIconP(c, pal, i.SessionStatus, false, i.Progress, 0, 10)
 		ui.Text(c, i.SessionName).FontSize(11).TextColor(pal.textMuted).SingleLine().MaxWidth(110).Ellipsis("…")
 	})
 	row.Tooltip(locales.LinearSessionTip())

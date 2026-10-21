@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -57,6 +58,17 @@ type savedPane struct {
 	Created int64  `json:"created"`
 	Cols    int    `json:"cols"`
 	Rows    int    `json:"rows"`
+	// Status, Since and Unread are where the pane's status stood, Message
+	// a failure's and ExitCode an exited shell's, so that a restore keeps
+	// what the user has yet to see and how long ago it changed
+	// (restoredStatus). A state file of before has none of them: its
+	// panes come back idle and read, as of the restore, as they always
+	// did. A daemon of before reads past them.
+	Status   proto.Status `json:"status,omitempty"`
+	Since    int64        `json:"since,omitempty"`
+	Unread   bool         `json:"unread,omitempty"`
+	Message  string       `json:"message,omitempty"`
+	ExitCode int          `json:"exitCode,omitempty"`
 }
 
 func (d *Daemon) statePath() string { return filepath.Join(d.dir, "state.json") }
@@ -88,8 +100,16 @@ func (d *Daemon) saveState() {
 			Unlinked: slices.Sorted(maps.Keys(s.unlinked))}
 		for _, p := range s.panes {
 			p.mu.Lock()
-			ss.Panes = append(ss.Panes, savedPane{ID: p.info.ID, View: p.info.View, Target: p.info.Target, Dir: p.info.Dir, Command: p.info.Command,
-				Agent: p.info.AgentSession, Task: p.info.TaskID, Created: p.info.Created, Cols: p.info.Cols, Rows: p.info.Rows})
+			sp := savedPane{ID: p.info.ID, View: p.info.View, Target: p.info.Target, Dir: p.info.Dir, Command: p.info.Command,
+				Agent: p.info.AgentSession, Task: p.info.TaskID, Created: p.info.Created, Cols: p.info.Cols, Rows: p.info.Rows,
+				Status: p.info.Status, Since: p.info.Since, Unread: p.info.Unread}
+			switch p.info.Status {
+			case proto.Failed:
+				sp.Message = p.info.Message
+			case proto.Exited:
+				sp.ExitCode = p.info.ExitCode
+			}
+			ss.Panes = append(ss.Panes, sp)
 			p.mu.Unlock()
 		}
 		st.Sessions = append(st.Sessions, ss)
@@ -173,7 +193,7 @@ func (d *Daemon) restore() {
 			if !set.ResumeAgents {
 				sp.Agent = nil
 			}
-			if p := d.restorePane(s.id, sp, when); p != nil {
+			if p := d.restorePane(s.id, sp, when, st.Saved); p != nil {
 				s.panes = append(s.panes, p)
 				d.panes[p.info.ID] = p
 				resumed[p.info.ID] = sp.Agent != nil
@@ -198,13 +218,52 @@ func (d *Daemon) restore() {
 	}
 }
 
+// restoredStatus is the status a pane of the last daemon comes back with,
+// its time and whether the user has seen it, and its message, as of now in
+// Unix milliseconds, from a state file saved at saved. What ran in the
+// pane is gone, and a new shell starts:
+//
+//   - work under way, or a question to the user, stopped: the pane comes
+//     back idle and unread, as of the save, so that the user sees it
+//     stopped, and it does not read as at rest since the work began;
+//   - a shell that exited with an error comes back failed, with its code,
+//     while the user had not seen it, and idle once seen, as of the save;
+//   - a failure, which the user's first key clears as it would have, and
+//     a pane idle, keep their time and their mark.
+//
+// A pane saved with no status, in a state file of before, is idle and
+// read as of now, as it always was.
+func restoredStatus(sp savedPane, saved, now int64) (st proto.Status, since int64, unread bool, msg string) {
+	if saved <= 0 || saved > now {
+		saved = now
+	}
+	st, since, unread = proto.Idle, sp.Since, sp.Unread
+	switch {
+	case sp.View != "":
+		// A view never works or fails.
+	case sp.Status == proto.Working || sp.Status == proto.Waiting:
+		since, unread = saved, true
+	case sp.Status == proto.Exited && sp.Unread:
+		st, since, msg = proto.Failed, saved, fmt.Sprintf("Exited with code %d", sp.ExitCode)
+	case sp.Status == proto.Exited:
+		since = saved
+	case sp.Status == proto.Failed:
+		st, msg = proto.Failed, sp.Message
+	}
+	if since <= 0 || since > now {
+		since = now
+	}
+	return st, since, unread, msg
+}
+
 // restorePane starts a pane of the last daemon again, under its
 // scrollback, in its directory, with the agent it ran resumed.
-func (d *Daemon) restorePane(sid string, sp savedPane, when string) *pane {
+func (d *Daemon) restorePane(sid string, sp savedPane, when string, saved int64) *pane {
 	now := time.Now().UnixMilli()
+	status, since, unread, msg := restoredStatus(sp, saved, now)
 	if sp.View != "" {
 		// A view comes back as it was: nothing ran in it.
-		p, err := newPane(d, sid, proto.Pane{ID: sp.ID, View: sp.View, Target: sp.Target, Dir: sp.Dir, Status: proto.Idle, Since: now,
+		p, err := newPane(d, sid, proto.Pane{ID: sp.ID, View: sp.View, Target: sp.Target, Dir: sp.Dir, Status: status, Since: since, Unread: unread,
 			Created: sp.Created, Cols: sp.Cols, Rows: sp.Rows, TaskID: sp.Task})
 		if err != nil {
 			d.log.Printf("restoring %s: %v", sp.ID, err)
@@ -213,7 +272,7 @@ func (d *Daemon) restorePane(sid string, sp savedPane, when string) *pane {
 		return p
 	}
 	p, err := newPane(d, sid, proto.Pane{
-		ID: sp.ID, Dir: sp.Dir, Command: sp.Command, Status: proto.Idle, Since: now,
+		ID: sp.ID, Dir: sp.Dir, Command: sp.Command, Status: status, Since: since, Unread: unread, Message: msg,
 		Created: sp.Created, Cols: sp.Cols, Rows: sp.Rows, Restored: true, AgentSession: sp.Agent,
 		TaskID: sp.Task,
 	})

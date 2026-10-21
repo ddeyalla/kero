@@ -653,5 +653,8 @@
   "browserZoomReset": "Actual Size",
   "filesFind": "Find a file in {name}",
   "filesFindClear": "Clear",
-  "filesNoneFound": "No files match"
+  "filesNoneFound": "No files match",
+  "filesReading": "Reading…",
+  "filesFinding": "Looking through the files…",
+  "usageStale": "Last known usage; refresh failed"
 }
