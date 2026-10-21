@@ -13,18 +13,26 @@ import (
 
 type usageState struct {
 	reports []usage.Report
-	loading bool
-	ctx     context.Context
-	cancel  context.CancelFunc
-	open    bool
-	scroll  ui.ScrollState
-	keys    map[string]*string
-	notice  string
-	saving  bool
+	// installed are the providers this Mac has set up, the ones the sidebar
+	// shows: usage.Installed's, kept from the last refresh.
+	installed []string
+	loading   bool
+	ctx       context.Context
+	cancel    context.CancelFunc
+	open      bool
+	scroll    ui.ScrollState
+	keys      map[string]*string
+	notice    string
+	saving    bool
+	// hover is the harness whose card shows, and cardOver tells the pointer
+	// is on that card, which keeps it open as the pointer leaves the ring.
+	hover    string
+	cardOver bool
 }
 
 func (a *App) startUsage() {
 	a.usage.ctx, a.usage.cancel = context.WithCancel(context.Background())
+	a.usage.installed = usage.Installed()
 	a.refreshUsage()
 	ctx := a.usage.ctx
 	go func() {
@@ -49,12 +57,13 @@ func (a *App) refreshUsage() {
 	previous, ctx := a.usage.reports, a.usage.ctx
 	a.invalidateUsage()
 	go func() {
+		installed := usage.Installed()
 		reports := usage.Refresh(ctx, previous)
 		if ctx.Err() != nil {
 			return
 		}
 		a.update(func() {
-			a.usage.reports, a.usage.loading = reports, false
+			a.usage.reports, a.usage.installed, a.usage.loading = reports, installed, false
 			a.invalidateUsage()
 		})
 	}()
@@ -71,6 +80,27 @@ func (a *App) usageReports() []usage.Report {
 		return usage.Providers()
 	}
 	return a.usage.reports
+}
+
+// usageInstalled are the reports the sidebar shows: the harnesses this Mac
+// has set up, in the providers' order. Until the first refresh finds them,
+// every provider shows, as a new user sees what to connect.
+func (a *App) usageInstalled() []usage.Report {
+	reports := a.usageReports()
+	if len(a.usage.installed) == 0 {
+		return reports
+	}
+	have := make(map[string]bool, len(a.usage.installed))
+	for _, id := range a.usage.installed {
+		have[id] = true
+	}
+	out := make([]usage.Report, 0, len(reports))
+	for _, r := range reports {
+		if have[r.ID] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func usageSummary(r usage.Report, loading bool) string {
@@ -95,52 +125,183 @@ func usageSummary(r usage.Report, loading bool) string {
 	return "Unavailable"
 }
 
-func usageColor(r usage.Report, pal *palette) ui.Color {
-	if r.Error != "" {
-		return pal.textFaint
-	}
-	if len(r.Windows) > 0 && r.Windows[0].Used >= 90 {
-		return pal.attention
-	}
-	return pal.textMuted
-}
+// The harness bar's measures: a 22pt ring, its gap to the name, and the
+// padding around both.
+const (
+	usageRingSize = 22
+	usageNameGap  = 5
+	usageItemPad  = 8
+)
 
+// usageSidebar is the harness bar above the machine's meters: a ring for
+// each harness this Mac has set up, its name beside it, and, on hover, a
+// card with the allowances the modal shows in full.
 func (a *App) usageSidebar(c *ui.Context, pal *palette) {
-	ui.Column(c.Key("account-usage")).Shrink(0).Padding(6, 12, 8, 12).Gap(1).Children(func() {
-		header := ui.ButtonBase(c.Key("usage-details")).Height(24).Radius(5).Padding(0, 8).Label("Account usage").Tooltip(a.tip("Account allowances and reset times", "usage.open"))
-		if header.Hovered() {
-			header.Background(pal.rowHover)
-		}
-		header.Children(func() {
-			ui.Row(c).Fill().AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "Usage").FontSize(11).Bold().TextColor(pal.textMuted)
-				ui.Spacer(c)
-				ui.Text(c, a.keys("usage.open")).FontSize(10).TextColor(pal.textFaint)
-			})
-		})
-		if header.Clicked() {
-			a.openUsage()
-		}
-		for _, r := range a.usageReports() {
-			row := ui.ButtonBase(c.Key(r.ID)).Height(25).Padding(0, 8).Radius(5).Label(r.Name + " usage").Tooltip(usageSummary(r, a.usage.loading) + " · click for details")
-			if row.Hovered() {
-				row.Background(pal.rowHover)
+	reports := a.usageInstalled()
+	// Each item wants room for its whole name: the ring, its gap, the name
+	// and the padding. Where the names do not fit, the items share the row
+	// evenly and the names ellipsize, keeping every ring whole.
+	room := make([]float32, len(reports))
+	var need float32
+	for i, r := range reports {
+		w, _ := c.MeasureText(0, ui.Span{Text: r.Name, Size: 11.5})
+		room[i] = usageRingSize + usageNameGap + w + usageItemPad + 1.5
+		need += room[i]
+	}
+	avail := a.prefs.SidebarWidth - 16
+	tight := len(reports) > 0 && need > avail
+	share := float32(0)
+	if tight {
+		share = (avail - 2*float32(len(reports)-1)) / float32(len(reports))
+	}
+	var anchor ui.Element
+	var shown usage.Report
+	var card bool
+	ui.Row(c.Key("account-usage")).Width(a.prefs.SidebarWidth).Shrink(0).Justify(ui.SpaceBetween).Padding(3, 8, 4, 8).Gap(2).Children(func() {
+		for i, r := range reports {
+			w := room[i]
+			if tight {
+				w = share
 			}
-			row.Children(func() {
-				ui.Row(c).Fill().AlignItems(ui.Center).Gap(6).Children(func() {
-					ui.Text(c, r.Name).FontSize(11.5).TextColor(pal.textMuted).SingleLine().Shrink(0)
-					ui.Spacer(c)
-					ui.Text(c, usageSummary(r, a.usage.loading)).FontSize(11).TextColor(usageColor(r, pal)).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
-					if r.Error != "" && !r.Checked.IsZero() {
-						ui.Text(c, "·").TextColor(pal.attention).Tooltip("Last known usage; refresh failed")
-					}
-				})
-			})
-			if row.Clicked() {
-				a.openUsage()
+			item := a.usageHarness(c, pal, r, w)
+			if a.usage.hover == r.ID {
+				anchor, shown, card = item, r, true
 			}
 		}
 	})
+	if card {
+		a.usageHover(c, pal, shown, anchor)
+	}
+}
+
+// usageHarness is one ring and name, width DIPs wide, a click opening the
+// modal. Its card stays while the pointer goes from the ring to the card.
+func (a *App) usageHarness(c *ui.Context, pal *palette, r usage.Report, width float32) ui.Element {
+	key := "usage-" + r.ID
+	summary := usageSummary(r, a.usage.loading)
+	item := ui.ButtonBase(c.Key(key)).Width(width).MinWidth(0).Height(28).Padding(0, usageItemPad/2).Radius(5).
+		Label(r.Name + " usage").Description(a.tip(summary+" · Click for details", "usage.open"))
+	if item.Hovered() {
+		item.Background(pal.rowHover)
+	}
+	item.Children(func() {
+		ui.Row(c).Fill().AlignItems(ui.Center).Gap(usageNameGap).Children(func() {
+			usageRing(c, pal, r)
+			// A name with no room would show only an ellipsis: let the ring
+			// speak there, and the card on hover.
+			if width-usageRingSize-usageNameGap-usageItemPad >= 16 {
+				ui.Text(c, r.Name).FontSize(11.5).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+			}
+		})
+	})
+	if item.Clicked() {
+		a.openUsage()
+	}
+	over := item.Hovered() || a.usage.hover == r.ID && a.usage.cardOver
+	stays := a.hoverIntent(c, key, over)
+	switch {
+	case item.Hovered():
+		a.usage.hover = r.ID
+	case a.usage.hover == r.ID && !stays:
+		a.usage.hover, a.usage.cardOver = "", false
+	}
+	return item
+}
+
+// usageRing is a harness's first allowance as a ring: the track faint, the
+// arc in the text's color, and amber as any window nears its limit.
+func usageRing(c *ui.Context, pal *palette, r usage.Report) {
+	used := float32(0)
+	alert := false
+	if len(r.Windows) > 0 && !r.Checked.IsZero() {
+		used = float32(max(0, min(100, r.Windows[0].Used)))
+	}
+	for _, w := range r.Windows {
+		if w.Used >= 90 {
+			alert = true
+		}
+	}
+	box := ui.Box(c).Size(usageRingSize, usageRingSize).Shrink(0)
+	box.Draw(func(p *ui.Painter, rect ui.Rect) {
+		cx, cy := rect.X+rect.W/2, rect.Y+rect.H/2
+		rad := min(rect.W, rect.H)/2 - 1.5
+		var track ui.Path
+		track.Circle(cx, cy, rad)
+		p.StrokePath(&track, 2, pal.text.Alpha(0.13))
+		if used <= 0 {
+			return
+		}
+		arc := pal.text
+		if alert {
+			arc = pal.attention
+		}
+		// From the top, clockwise: the circle starts at 3 o'clock.
+		p.Transform(ui.Rotation(-90), cx, cy, func() {
+			var path ui.Path
+			path.Circle(cx, cy, rad)
+			p.StrokePath(path.Trim(0, max(0.02, used/100)), 2, arc)
+		})
+	})
+}
+
+// usageHover shows a harness's full card above its ring: the plan, each
+// window with its reset, a balance, or why it is not connected.
+func (a *App) usageHover(c *ui.Context, pal *palette, r usage.Report, anchor ui.Element) {
+	ui.Overlay(c, func() {
+		card := ui.Column(c.Key("usage-hover")).Width(240).Padding(11, 12).Gap(7).Radius(10).Background(pal.popover)
+		if pal.dark {
+			floating(card, pal)
+		} else {
+			floating(card.Border(1, pal.cardBorder), pal)
+		}
+		card.AttachTo(anchor, ui.AnchorTopLeft, ui.AnchorBottomLeft).Margin(0, 0, 6, 0)
+		a.usage.cardOver = card.Hovered()
+		card.Children(func() {
+			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+				ui.Text(c, r.Name).FontSize(13).FontWeight(600).TextColor(pal.text).SingleLine().Shrink(0)
+				ui.Spacer(c)
+				if r.Plan != "" {
+					ui.Text(c, r.Plan).FontSize(11).TextColor(pal.textFaint).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+				}
+			})
+			for i, w := range r.Windows {
+				ui.Row(c.Key(fmt.Sprint(i))).AlignItems(ui.Center).Gap(4).Children(func() {
+					ui.Text(c, w.Label).FontSize(11).TextColor(pal.textMuted).SingleLine().Shrink(0)
+					ui.Spacer(c)
+					ui.Text(c, fmt.Sprintf("%.0f%%", w.Used)).FontSize(11.5).FontWeight(600).TextColor(pal.text).Shrink(0)
+					if !w.Resets.IsZero() {
+						ui.Text(c, "· "+usageReset(w.Resets)).FontSize(11).TextColor(pal.textFaint).SingleLine().Shrink(0)
+					}
+				})
+			}
+			if r.Balance != "" {
+				ui.Text(c, r.Balance+" remaining").FontSize(12).TextColor(pal.text)
+			}
+			switch {
+			case r.Error != "":
+				ui.Text(c, r.Error).FontSize(11).TextColor(pal.attention).SingleLine().Ellipsis("…")
+			case r.Checked.IsZero():
+				ui.Text(c, usageSummary(r, a.usage.loading)).FontSize(11).TextColor(pal.textMuted)
+			}
+		})
+	})
+}
+
+// usageReset is a window's reset as the card says it: the time today, the
+// weekday for a later day, or now when it is due.
+func usageReset(at time.Time) string {
+	now := time.Now()
+	if !at.After(now) {
+		return "resets now"
+	}
+	local := at.Local()
+	if local.Format("2006-01-02") == now.Format("2006-01-02") {
+		return "resets " + local.Format("3:04 PM")
+	}
+	if at.Sub(now) < 7*24*time.Hour {
+		return "resets " + local.Format("Mon")
+	}
+	return "resets " + local.Format("Jan 2")
 }
 
 func (a *App) openUsage() {
@@ -150,6 +311,7 @@ func (a *App) openUsage() {
 	a.pal.open = false
 	a.usage.open = true
 	a.usage.keys = map[string]*string{}
+	a.usage.hover, a.usage.cardOver = "", false
 }
 
 func (a *App) closeUsage() {

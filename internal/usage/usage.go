@@ -116,69 +116,139 @@ func openCodeLogins() map[string]login {
 	return auth
 }
 
-func credentials(ctx context.Context, id string) (token, account, plan string) {
-	if id == "deepseek" || id == "opencode" {
-		if key := savedKey(id); key != "" {
-			return key, "", ""
+type claudeAuth struct {
+	OAuth struct {
+		Token string `json:"accessToken"`
+		Plan  string `json:"subscriptionType"`
+	} `json:"claudeAiOauth"`
+}
+
+// claudeFile reads Claude Code's sign-in file. Installed uses it rather than
+// the keychain: looking for what is set up should not ask the system for a
+// secret.
+func claudeFile() (token, plan string) {
+	var auth claudeAuth
+	readJSON(filepath.Join(configDir("CLAUDE_CONFIG_DIR", ".claude"), ".credentials.json"), &auth)
+	return auth.OAuth.Token, auth.OAuth.Plan
+}
+
+func claudeCredentials(ctx context.Context) (token, plan string) {
+	var auth claudeAuth
+	if runtime.GOOS == "darwin" {
+		service := "Claude Code-credentials"
+		if profile := os.Getenv("CLAUDE_CONFIG_DIR"); profile != "" {
+			hash := sha256.Sum256([]byte(norm.NFC.String(profile)))
+			service += fmt.Sprintf("-%x", hash[:4])
+		}
+		if u, err := user.Current(); err == nil {
+			cmd := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", service, "-a", u.Username, "-w")
+			if b, err := cmd.Output(); err == nil {
+				json.Unmarshal(b, &auth)
+			}
 		}
 	}
+	if auth.OAuth.Token == "" {
+		readJSON(filepath.Join(configDir("CLAUDE_CONFIG_DIR", ".claude"), ".credentials.json"), &auth)
+	}
+	return auth.OAuth.Token, auth.OAuth.Plan
+}
+
+// codexFile reads Codex's sign-in file, without OpenCode's login fallback.
+func codexFile() (token, account string) {
+	var auth struct {
+		Tokens struct {
+			Access  string `json:"access_token"`
+			Account string `json:"account_id"`
+		} `json:"tokens"`
+	}
+	readJSON(filepath.Join(configDir("CODEX_HOME", ".codex"), "auth.json"), &auth)
+	return auth.Tokens.Access, auth.Tokens.Account
+}
+
+func codexCredentials() (token, account string) {
+	if token, account := codexFile(); token != "" {
+		return token, account
+	}
+	if a := openCodeLogins()["openai"]; a.Type == "oauth" {
+		return a.Access, a.AccountID
+	}
+	return "", ""
+}
+
+func openCodeKey() string {
+	if key := savedKey("opencode"); key != "" {
+		return key
+	}
+	if key := os.Getenv("OPENCODE_API_KEY"); key != "" {
+		return key
+	}
+	auth := openCodeLogins()
+	for _, name := range []string{"opencode-go", "opencode"} {
+		if a := auth[name]; a.Key != "" {
+			return a.Key
+		}
+	}
+	return ""
+}
+
+func deepSeekKey() string {
+	if key := savedKey("deepseek"); key != "" {
+		return key
+	}
+	if key := os.Getenv("DEEPSEEK_API_KEY"); key != "" {
+		return key
+	}
+	return openCodeLogins()["deepseek"].Key
+}
+
+func credentials(ctx context.Context, id string) (token, account, plan string) {
 	switch id {
 	case "claude":
-		var auth struct {
-			OAuth struct {
-				Token string `json:"accessToken"`
-				Plan  string `json:"subscriptionType"`
-			} `json:"claudeAiOauth"`
-		}
-		dir := configDir("CLAUDE_CONFIG_DIR", ".claude")
-		if runtime.GOOS == "darwin" {
-			service := "Claude Code-credentials"
-			if profile := os.Getenv("CLAUDE_CONFIG_DIR"); profile != "" {
-				hash := sha256.Sum256([]byte(norm.NFC.String(profile)))
-				service += fmt.Sprintf("-%x", hash[:4])
-			}
-			if u, err := user.Current(); err == nil {
-				cmd := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", service, "-a", u.Username, "-w")
-				if b, err := cmd.Output(); err == nil {
-					json.Unmarshal(b, &auth)
-				}
-			}
-		}
-		if auth.OAuth.Token == "" {
-			readJSON(filepath.Join(dir, ".credentials.json"), &auth)
-		}
-		return auth.OAuth.Token, "", auth.OAuth.Plan
+		token, plan = claudeCredentials(ctx)
+		return token, "", plan
 	case "codex":
-		var auth struct {
-			Tokens struct {
-				Access  string `json:"access_token"`
-				Account string `json:"account_id"`
-			} `json:"tokens"`
-		}
-		readJSON(filepath.Join(configDir("CODEX_HOME", ".codex"), "auth.json"), &auth)
-		if auth.Tokens.Access != "" {
-			return auth.Tokens.Access, auth.Tokens.Account, ""
-		}
-		if a := openCodeLogins()["openai"]; a.Type == "oauth" {
-			return a.Access, a.AccountID, ""
-		}
+		token, account = codexCredentials()
+		return token, account, ""
 	case "opencode":
-		if key := os.Getenv("OPENCODE_API_KEY"); key != "" {
-			return key, "", ""
-		}
-		auth := openCodeLogins()
-		for _, name := range []string{"opencode-go", "opencode"} {
-			if a := auth[name]; a.Key != "" {
-				return a.Key, "", ""
-			}
-		}
+		return openCodeKey(), "", ""
 	case "deepseek":
-		if key := os.Getenv("DEEPSEEK_API_KEY"); key != "" {
-			return key, "", ""
-		}
-		return openCodeLogins()["deepseek"].Key, "", ""
+		return deepSeekKey(), "", ""
 	}
 	return "", "", ""
+}
+
+// Installed returns the providers this Mac has set up: those whose CLI is on
+// PATH, whose sign-in files exist, or, for DeepSeek, whose key is saved. The
+// sidebar shows these, so a new user, with none, sees every provider it can
+// connect instead of an empty row.
+func Installed() []string {
+	onPath := func(name string) bool {
+		_, err := exec.LookPath(name)
+		return err == nil
+	}
+	var ids []string
+	if onPath("claude") {
+		ids = append(ids, "claude")
+	} else if token, _ := claudeFile(); token != "" {
+		ids = append(ids, "claude")
+	}
+	if onPath("codex") {
+		ids = append(ids, "codex")
+	} else if token, _ := codexFile(); token != "" {
+		ids = append(ids, "codex")
+	}
+	if onPath("opencode") || openCodeKey() != "" {
+		ids = append(ids, "opencode")
+	}
+	if deepSeekKey() != "" {
+		ids = append(ids, "deepseek")
+	}
+	if len(ids) == 0 {
+		for _, r := range Providers() {
+			ids = append(ids, r.ID)
+		}
+	}
+	return ids
 }
 
 var endpoints = map[string]string{
