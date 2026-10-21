@@ -133,6 +133,14 @@ const runLoopRest = 10 * time.Millisecond
 // have none, so RunLoop adds a Mach port that never fires, to keep a
 // source in it, and rests after a turn that still returns at once.
 func RunLoop() {
+	RunLoopUntil(nil)
+}
+
+// RunLoopUntil is RunLoop that returns once stop is closed: within one
+// turn of the run loop, a second at most. The plugin closes stop when the
+// host goes away, so that its process ends with its stdin. A nil stop
+// never closes, as in RunLoop. The same main-thread rule holds.
+func RunLoopUntil(stop <-chan struct{}) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -151,13 +159,22 @@ func RunLoop() {
 	})
 
 	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
 		began := time.Now()
 		ran := false
 		withPool(func() {
 			ran = objc.Send[bool](loop, sel("runMode:beforeDate:"), mode, nsDate(runLoopTurn))
 		})
 		if rest := runLoopPause(ran, time.Since(began)); rest > 0 {
-			time.Sleep(rest)
+			select {
+			case <-stop:
+				return
+			case <-time.After(rest):
+			}
 		}
 	}
 }

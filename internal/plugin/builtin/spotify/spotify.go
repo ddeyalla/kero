@@ -36,10 +36,6 @@ const (
 	compactWidth  = 420
 	compactHeight = 340
 
-	// signInPort is the fixed loopback port of the Web API's redirect
-	// URI. It must match the redirect URI in the user's Spotify app.
-	signInPort = 43821
-
 	// actionTimeout bounds one command, and readTimeout one extra read
 	// after a command.
 	actionTimeout = 5 * time.Second
@@ -53,6 +49,14 @@ const (
 	// tickInterval is how often a visible, playing pane redraws its
 	// clock between the monitor's snapshots.
 	tickInterval = time.Second
+
+	// automationSettingsURL opens System Settings at Privacy & Security ›
+	// Automation, the one link outside the web the host lets a plugin
+	// open.
+	automationSettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+
+	// downloadURL is Spotify's download page, for a Mac without the app.
+	downloadURL = "https://www.spotify.com/download/mac/"
 )
 
 // init registers the plugin's runner, so that the executable knows what
@@ -65,11 +69,17 @@ func init() {
 // in its own goroutine, while this goroutine runs the macOS run loop the
 // playback listener needs. The run loop may only run on the main thread,
 // so it is never started with "go".
+//
+// The SDK loop ends when the host closes stdin, or when the app that
+// held it is gone. Then the plugin stops the monitor and its ticker and
+// stops the run loop, so that serve returns and the process ends: no
+// orphan keeps reading Spotify after the app crashed.
 func serve() error {
 	p := newPlugin()
 	done := make(chan error, 1)
+	stop := make(chan struct{})
 	go func() {
-		done <- sdk.Run(sdk.Handlers{
+		err := sdk.Run(sdk.Handlers{
 			Open:     p.open,
 			Close:    p.close,
 			Resize:   p.resize,
@@ -78,9 +88,29 @@ func serve() error {
 			Event:    p.event,
 			Command:  p.command,
 		})
+		p.shutdown()
+		done <- err
+		close(stop)
 	}()
-	transport.RunLoop()
+	transport.RunLoopUntil(stop)
 	return <-done
+}
+
+// shutdown stops the playback monitor and the ticker, once the host is
+// gone. A monitor that has not started yet never starts afterwards.
+func (p *plugin) shutdown() {
+	// An empty Do waits for a start in flight, and keeps a later open
+	// from starting the monitor.
+	p.monitorOnce.Do(func() {})
+	p.mu.Lock()
+	monitor, cancel := p.monitor, p.cancel
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if monitor != nil {
+		_ = monitor.Close()
+	}
 }
 
 // playbackMode is the state of the player the pane draws. It is a type,
@@ -92,6 +122,7 @@ const (
 	modePlaying
 	modeIdle
 	modeNotRunning
+	modeNotInstalled
 	modeAutomation
 	modeUnavailable
 )
@@ -105,6 +136,7 @@ const (
 	libTokenRefused
 	libPremiumLapsed
 	libNetworkDown
+	libRateLimited
 	libReady
 	libFailed
 	libSigningIn
@@ -370,23 +402,27 @@ func (p *plugin) libraryState() libraryMode {
 	return libraryModeOf(library)
 }
 
-// libraryModeOf is the library state of a Web API client.
+// libraryModeOf is the library state of a Web API client, from the
+// client's own state before a call. A refusal holds there until the next
+// sign-in, so the pane keeps asking to sign in again, not only to sign in.
 func libraryModeOf(library *web.Client) libraryMode {
 	if library == nil {
 		return libFailed
 	}
-	if strings.TrimSpace(library.ClientID()) == "" {
+	switch library.Current() {
+	case web.StateNoClientID:
 		return libNoClientID
-	}
-	if !library.SignedIn() {
+	case web.StateTokenRefused:
+		return libTokenRefused
+	case web.StateSignedOut:
 		return libSignedOut
 	}
 	return libReady
 }
 
 // libraryError turns a Web API error into the state the pane shows. A
-// network failure keeps the last results, which the web client returns
-// beside its error.
+// network failure and a rate limit keep the last results, which the web
+// client returns beside its error.
 func libraryError(err error) libraryMode {
 	switch {
 	case err == nil:
@@ -401,9 +437,17 @@ func libraryError(err error) libraryMode {
 		return libPremiumLapsed
 	case errors.Is(err, web.ErrNetworkDown):
 		return libNetworkDown
+	case errors.Is(err, web.ErrRateLimited):
+		return libRateLimited
 	default:
 		return libFailed
 	}
+}
+
+// keepsResults tells a library state that keeps the last results and
+// adds a note above them.
+func keepsResults(lib libraryMode) bool {
+	return lib == libNetworkDown || lib == libRateLimited
 }
 
 // playbackState maps a read's result to the state the pane draws.
@@ -411,6 +455,8 @@ func playbackState(err error, snap transport.Snapshot) playbackMode {
 	switch {
 	case errors.Is(err, transport.ErrNotRunning):
 		return modeNotRunning
+	case errors.Is(err, transport.ErrNotInstalled):
+		return modeNotInstalled
 	case errors.Is(err, transport.ErrAutomation):
 		return modeAutomation
 	case err != nil:
@@ -575,10 +621,15 @@ func (p *plugin) runSearch(pane, query string) {
 			return
 		}
 		s.loading = false
-		if !errors.Is(err, web.ErrNetworkDown) {
+		s.lib = libraryError(err)
+		switch {
+		case !keepsResults(s.lib):
+			s.search = result
+		case result.Query != "":
+			// The client's last results, for whatever query they were;
+			// rebuild shows them only under that query.
 			s.search = result
 		}
-		s.lib = libraryError(err)
 		s.rebuild()
 		p.mu.Unlock()
 		p.render(pane)
@@ -593,7 +644,13 @@ func (s *session) rebuild() {
 	case tabAlbums:
 		s.entries = albumEntries(s.albums)
 	default:
-		s.entries = searchEntries(s.search)
+		// Results of another query stay out of the list: an offline or
+		// rate-limited search keeps the last results, and those can be
+		// for the query typed before this one.
+		s.entries = nil
+		if s.search.Query == strings.TrimSpace(s.query) {
+			s.entries = searchEntries(s.search)
+		}
 	}
 }
 
@@ -687,7 +744,9 @@ func (p *plugin) event(conn *sdk.Conn, e protocol.EventParams) {
 	case "open-spotify":
 		p.launch(e.Pane)
 	case "privacy":
-		p.openLink("https://support.apple.com/guide/mac-help/mchl108e1718/mac")
+		p.openLink(automationSettingsURL)
+	case "get-spotify":
+		p.openLink(downloadURL)
 	case "setup":
 		p.openLink("https://developer.spotify.com/dashboard")
 	case "sign-in", "sign-in-again":
@@ -748,8 +807,12 @@ func (p *plugin) searchEvent(e protocol.EventParams) {
 	p.mu.Unlock()
 }
 
-// selectTab switches the library tab and loads it when needed.
+// selectTab switches the library tab and loads it when needed. It asks the
+// client for the library state, as runSearch does, so that a tab whose
+// last load failed loads again.
 func (p *plugin) selectTab(pane string, tab tabKind) {
+	lib := p.libraryState()
+
 	p.mu.Lock()
 	s := p.panes[pane]
 	if s == nil || s.tab == tab {
@@ -759,7 +822,13 @@ func (p *plugin) selectTab(pane string, tab tabKind) {
 	s.tab = tab
 	s.rebuild()
 	s.loaded[tab] = s.loaded[tab] && len(s.entries) > 0
-	ready := s.lib == libReady
+	// The state before a call replaces a failure of the last one, so the
+	// tab draws its loading state, or its search field, again. Kept
+	// results keep their offline or rate-limit note until a call works.
+	if !keepsResults(s.lib) {
+		s.lib = lib
+	}
+	ready := lib == libReady
 	p.saveLocked(pane)
 	p.mu.Unlock()
 	p.render(pane)
@@ -1010,8 +1079,28 @@ func (p *plugin) action(pane, fail string, fn func(context.Context) error) {
 			p.render(pane)
 			return
 		}
+		p.mu.Lock()
+		cleared := false
+		if s := p.panes[pane]; s != nil {
+			cleared = clearNotice(s)
+		}
+		p.mu.Unlock()
+		if cleared {
+			p.render(pane)
+		}
 		p.readNow()
 	}()
+}
+
+// clearNotice drops a failure notice after a command that worked, and
+// tells whether there was one. The sign-in's own notice stays while the
+// sign-in runs.
+func clearNotice(s *session) bool {
+	if s.notice == "" || s.signingIn {
+		return false
+	}
+	s.notice = ""
+	return true
 }
 
 // actionAll runs one player command off the handler goroutine, reports a
@@ -1033,6 +1122,17 @@ func (p *plugin) actionAll(fail string, fn func(context.Context) error) {
 				p.render(pane)
 			}
 			return
+		}
+		p.mu.Lock()
+		cleared := make([]string, 0, len(p.panes))
+		for pane, s := range p.panes {
+			if clearNotice(s) {
+				cleared = append(cleared, pane)
+			}
+		}
+		p.mu.Unlock()
+		for _, pane := range cleared {
+			p.render(pane)
 		}
 		p.readNow()
 	}()
@@ -1077,7 +1177,8 @@ func (p *plugin) launch(pane string) {
 	})
 }
 
-// openLink opens an http or https link in the browser.
+// openLink opens an http or https link in the browser, or the Privacy &
+// Security link in System Settings.
 func (p *plugin) openLink(url string) {
 	p.mu.Lock()
 	conn := p.conn

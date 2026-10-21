@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"kero/internal/plugin/builtin/spotify/transport"
+	"kero/internal/plugin/builtin/spotify/web"
 	"kero/internal/plugin/protocol"
 	"kero/internal/plugin/sdk"
 	"kero/locales"
@@ -37,7 +38,7 @@ func (p *plugin) tree(s *session) protocol.Tree {
 // the controls, and a thin progress bar.
 func (p *plugin) compactTree(s *session) *sdk.Node {
 	if s.playback != modePlaying {
-		return sdk.Column(widgetPlayer, p.playbackState(s)).Gap(4).Padding(8)
+		return columnNodes(widgetPlayer, p.playbackState(s), s.noticeNode()).Gap(4).Padding(8)
 	}
 
 	children := make([]*sdk.Node, 0, 5)
@@ -52,16 +53,33 @@ func (p *plugin) compactTree(s *session) *sdk.Node {
 	next := sdk.IconButton("next", "next")
 	children = append(children, sdk.Row("controls", prev, play, next, sdk.Spacer("controls-space")).Gap(4))
 
-	progress := sdk.Progress("progress", s.fraction())
-	if s.snap.State == transport.StatePlaying {
-		progress.Playing(s.snap.Rate(), s.snap.At())
-	}
-	children = append(children, progress)
-	if s.notice != "" {
-		children = append(children, sdk.Text("notice", s.notice).Role(protocol.RoleCaption).Color(protocol.ColorAccent).Lines(2))
+	children = append(children, s.progressNode())
+	if notice := s.noticeNode(); notice != nil {
+		children = append(children, notice)
 	}
 
 	return sdk.Column(widgetPlayer, children...).Gap(8).Padding(12)
+}
+
+// progressNode is the compact player's thin bar. While a track plays, the
+// host moves the bar on its own by rate from at, so the bar carries the
+// snapshot's fraction at its read time, not the position now: the time
+// since the read would count twice. The large layout's seek slider,
+// which the host does not move, carries the position now instead.
+func (s *session) progressNode() *sdk.Node {
+	if s.snap.State != transport.StatePlaying || s.snap.ReadAt.IsZero() {
+		return sdk.Progress("progress", s.fraction())
+	}
+	return sdk.Progress("progress", s.snap.Fraction()).Playing(s.snap.Rate(), s.snap.At())
+}
+
+// noticeNode is the line that says a command failed, or nil when no
+// command failed since the last one that worked. Every layout draws it.
+func (s *session) noticeNode() *sdk.Node {
+	if s.notice == "" {
+		return nil
+	}
+	return sdk.Text("notice", s.notice).Role(protocol.RoleCaption).Color(protocol.ColorAccent).Lines(2)
 }
 
 // largeTree is the large player: the art and the track, a seekable
@@ -71,7 +89,7 @@ func (p *plugin) largeTree(s *session) *sdk.Node {
 	if s.playback != modePlaying {
 		// The library stays usable when nothing plays: the idle copy
 		// itself says to pick an album or a playlist here.
-		return sdk.Column(widgetPlayer, p.playbackState(s), sdk.Divider("library"), p.libraryTree(s)).Gap(8).Padding(12)
+		return columnNodes(widgetPlayer, p.playbackState(s), s.noticeNode(), sdk.Divider("library"), p.libraryTree(s)).Gap(8).Padding(12)
 	}
 
 	art := s.artNode("art", 96, 8)
@@ -108,8 +126,8 @@ func (p *plugin) largeTree(s *session) *sdk.Node {
 	volumeRow := sdk.Row("volume-row", volumeLabel, volume).Gap(8)
 
 	children := []*sdk.Node{header, seek, times, controls, volumeRow}
-	if s.notice != "" {
-		children = append(children, sdk.Text("notice", s.notice).Role(protocol.RoleCaption).Color(protocol.ColorAccent).Lines(2))
+	if notice := s.noticeNode(); notice != nil {
+		children = append(children, notice)
 	}
 	children = append(children, sdk.Divider("library"))
 	children = append(children, p.libraryTree(s))
@@ -124,6 +142,9 @@ func (p *plugin) playbackState(s *session) *sdk.Node {
 	case modeNotRunning:
 		return sdk.EmptyState("open-spotify", locales.SpotifyNotRunningTitle(), locales.SpotifyNotRunningDetail()).
 			Action(locales.SpotifyOpen())
+	case modeNotInstalled:
+		return sdk.EmptyState("get-spotify", locales.SpotifyNotInstalledTitle(), locales.SpotifyNotInstalledDetail()).
+			Action(locales.SpotifyGetSpotify())
 	case modeAutomation:
 		return sdk.EmptyState("privacy", locales.SpotifyAutomationTitle(), locales.SpotifyAutomationDetail()).
 			Action(locales.SpotifyAutomationButton())
@@ -157,7 +178,7 @@ func (p *plugin) libraryContent(s *session) *sdk.Node {
 	}
 	switch s.lib {
 	case libNoClientID:
-		return sdk.EmptyState("setup", locales.SpotifyNoClientID(), locales.SpotifyNoClientIDDetail()).
+		return sdk.EmptyState("setup", locales.SpotifyNoClientID(), locales.SpotifyNoClientIDDetail(p.redirectURI())).
 			Action(locales.SpotifySetUp()).Grow(1)
 	case libSignedOut:
 		return sdk.EmptyState("sign-in", locales.SpotifySignedOut(), locales.SpotifySignedOutDetail()).
@@ -177,14 +198,22 @@ func (p *plugin) libraryContent(s *session) *sdk.Node {
 	if s.lib == libNetworkDown && len(s.entries) == 0 {
 		return sdk.EmptyState("state-offline", locales.SpotifyOffline(), locales.SpotifyLibraryFailed()).Grow(1)
 	}
+	if s.lib == libRateLimited && len(s.entries) == 0 {
+		return sdk.EmptyState("state-rate-limited", locales.SpotifyRateLimitedTitle(), locales.SpotifyRateLimitedDetail()).Grow(1)
+	}
 
 	children := make([]*sdk.Node, 0, 3)
-	if s.lib == libNetworkDown {
+	switch s.lib {
+	case libNetworkDown:
 		children = append(children, sdk.Text("offline", locales.SpotifyOffline()).Role(protocol.RoleCaption).Color(protocol.ColorAccent).Lines(1))
+	case libRateLimited:
+		children = append(children, sdk.Text("rate-limited", locales.SpotifyRateLimited()).Role(protocol.RoleCaption).Color(protocol.ColorAccent).Lines(1))
 	}
 	switch s.tab {
 	case tabSearch:
-		children = append(children, sdk.SearchField("search", locales.SpotifySearchPlaceholder()))
+		// The field shows the saved query after a restart; the host
+		// applies it when the field first shows, or when it changes here.
+		children = append(children, sdk.SearchField("search", locales.SpotifySearchPlaceholder()).Query(s.query))
 		children = append(children, p.searchContent(s))
 	case tabPlaylists:
 		children = append(children, p.listContent(s, locales.SpotifyNoPlaylists(), locales.SpotifyNoPlaylistsDetail()))
@@ -250,13 +279,33 @@ func (s *session) artNode(id string, size, radius int) *sdk.Node {
 // rowNodes is a row that leaves out a part that has nothing to draw, such
 // as the art of a track without a picture.
 func rowNodes(id string, children ...*sdk.Node) *sdk.Node {
-	kept := make([]*sdk.Node, 0, len(children))
+	return sdk.Row(id, kept(children)...)
+}
+
+// columnNodes is a column that leaves out a part that has nothing to
+// draw, such as the notice when no command failed.
+func columnNodes(id string, children ...*sdk.Node) *sdk.Node {
+	return sdk.Column(id, kept(children)...)
+}
+
+// kept is the parts that are not nil.
+func kept(children []*sdk.Node) []*sdk.Node {
+	out := make([]*sdk.Node, 0, len(children))
 	for _, child := range children {
 		if child != nil {
-			kept = append(kept, child)
+			out = append(out, child)
 		}
 	}
-	return sdk.Row(id, kept...)
+	return out
+}
+
+// redirectURI is the redirect URI the user registers in the Spotify
+// dashboard: the client's, or the default one before there is a client.
+func (p *plugin) redirectURI() string {
+	if p.library != nil {
+		return p.library.RedirectURI()
+	}
+	return web.DefaultRedirectURI()
 }
 
 // playIcon is pause while a track plays, and play otherwise.

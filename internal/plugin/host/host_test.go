@@ -764,3 +764,34 @@ func TestTheStoreIsApartFromThePluginsCode(t *testing.T) {
 		t.Fatalf("the store wrote in the code folder: %v", err)
 	}
 }
+
+// A plugin may open a web link and System Settings' Privacy & Security,
+// where the user allows Automation, and no other scheme.
+func TestOpenURLAllowsOnlyTheWebAndPrivacySettings(t *testing.T) {
+	for _, link := range []string{
+		"https://developer.spotify.com/dashboard",
+		"http://127.0.0.1:43017/callback",
+		"x-apple.systempreferences:com.apple.preference.security",
+		"x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
+	} {
+		if !openableURL(link) {
+			t.Errorf("openableURL(%q) = false, want the link to open", link)
+		}
+	}
+	for _, link := range []string{
+		"",
+		"file:///etc/passwd",
+		"javascript:alert(1)",
+		"spotify:album:a1",
+		"x-apple.systempreferences:com.apple.preference.general",
+		"x-apple.systempreferences:com.apple.preference.securityextra",
+		"x-apple.systempreferences:com.apple.preference.security?Privacy Automation",
+		"x-apple.systempreferences:com.apple.preference.security?a\nb",
+		"X-APPLE.SYSTEMPREFERENCES:com.apple.preference.security",
+		"https://",
+	} {
+		if openableURL(link) {
+			t.Errorf("openableURL(%q) = true, want it refused", link)
+		}
+	}
+}

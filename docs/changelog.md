@@ -100,7 +100,8 @@ builds only. What each feature is and where it stands is tracked in the
   `Cmd+Alt+P`, or `kero split --plugin <id> [--widget <name>]`. This release changes the daemon protocol. Restart the terminal service once after you update.
 - The parts the host draws for a plugin: rows and columns, text (title, body,
   caption, mono), images, buttons and icon buttons, sliders, progress, lists,
-  a search field, an empty state, spacers and dividers, in the app's palette,
+  a search field (with an optional query from the plugin), an empty state,
+  spacers and dividers, in the app's palette,
   fonts and motion. Focus and scroll stay with a part's id across renders,
   images load off the main thread and are cached, and progress moves locally
   from a rate and a time.
@@ -135,9 +136,16 @@ builds only. What each feature is and where it stands is tracked in the
   seek bar, volume, shuffle and repeat, and Search, Playlists and Albums tabs
   above them; it scrolls a title that does not fit, tints the pane with the
   album art, keeps the track position moving between reads, and tells Spotify
-  not running, an Automation refusal, signed out, a lapsed Premium account and
-  an offline read apart. Sign in once from Settings › Plugins with a Spotify
-  Client ID; the tokens stay in the plugin's secrets file. Its commands are in
+  not running, Spotify not installed (with a link to the download page), an
+  Automation refusal (with a button to Privacy › Automation in System
+  Settings), signed out, a refused sign-in, a lapsed Premium account, a rate
+  limit and an offline read apart; offline and rate-limited, it keeps the last
+  results of the same query with a note. A failed command says so in every
+  layout until a command works, and the search field shows the saved query
+  after a restart. Sign in once from Settings › Plugins with a Spotify Client
+  ID, after you add `http://127.0.0.1:43017/callback` as the redirect URI of
+  your Spotify app; the tokens stay in the plugin's secrets file. The plugin
+  process ends when the app does. Its commands are in
   the command palette and are `kero do` actions, with no key bindings. The Usage
   widget shows each account's usage in a bar and a percent (or its balance),
   and the machine's CPU and RAM; the large one adds the reset time, the plan
@@ -147,6 +155,9 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- The Browser pane's **Open in Default Browser** button and a Markdown
+  link in the Files pane open the page again. The app handed the address
+  to the system as a file's path, so the page never opened.
 - A restart of the terminal service no longer loses the sessions' marks:
   what was unread stays unread, the ages keep their times, and a failure
   stays failed, as does a shell that crashed unseen ("Exited with code N").

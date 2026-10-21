@@ -166,6 +166,12 @@ func SearchField(id, placeholder string) *Node {
 	return n
 }
 
+// Query sets the text a search field shows, such as a query saved before
+// a restart. The host puts it in the field when the field first shows,
+// and again only when the plugin sends another text, so a render does
+// not undo what the user is typing.
+func (n *Node) Query(query string) *Node { n.text = query; return n }
+
 // EmptyState draws a title, a detail and one action.
 func EmptyState(id, title, detail string) *Node {
 	n := newNode(protocol.NodeEmptyState, id)

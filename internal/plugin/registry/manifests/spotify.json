@@ -28,7 +28,7 @@
       "label": "Client ID",
       "kind": "text",
       "secret": false,
-      "help": "Your Spotify app's Client ID. Add http://127.0.0.1:43821/callback as the app's redirect URI.",
+      "help": "Your Spotify app's Client ID. Add http://127.0.0.1:43017/callback as the app's redirect URI.",
       "link": "https://developer.spotify.com/dashboard"
     }
   ]

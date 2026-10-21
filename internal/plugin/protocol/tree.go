@@ -101,6 +101,9 @@ type Node struct {
 	Children []*Node `json:"children,omitempty"`
 	Items    []Item  `json:"items,omitempty"`
 
+	// Text is a text's words, and a searchField's query from the plugin,
+	// which the app shows when the field first appears or the query
+	// changes.
 	Text    string `json:"text,omitempty"`
 	Role    string `json:"role,omitempty"`
 	Color   string `json:"color,omitempty"`

@@ -24,3 +24,11 @@ func (source) Close() error {
 
 // RunLoop does nothing, because there is no notification run loop.
 func RunLoop() {}
+
+// RunLoopUntil waits for stop to close, as the macOS run loop would. A
+// nil stop returns at once, as RunLoop does.
+func RunLoopUntil(stop <-chan struct{}) {
+	if stop != nil {
+		<-stop
+	}
+}

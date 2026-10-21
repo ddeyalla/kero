@@ -762,13 +762,34 @@ The Spotify widget (`spotify`, widget `player`) is a compact player and a
 large one. It reads and commands the desktop app through the AppleScript
 transport; its library calls (search, playlists, albums) go through the Web API
 client with PKCE sign-in, a loopback redirect at
-`http://127.0.0.1:43821/callback`, the Client ID set in Settings › Plugins and
-the tokens kept in the plugin's `secrets.json`. The plugin process calls
-`transport.RunLoop()` on its main goroutine after starting `sdk.Run`, because
-the distributed-notification listener needs the main run loop. Playback states
-(not running, the Automation refusal, playing, idle) and library states (no
-Client ID, signed out, token refused, Premium lapsed, offline, ready) are typed,
-not strings, so each draws its own empty state. The large layout keeps the
+`http://127.0.0.1:43017/callback` (`web.DefaultRedirectPort`; the widget keeps
+the client's default, the Set Up state names `RedirectURI()`, and the
+manifest's Client ID help names the same URI, which a test checks), the Client
+ID set in Settings › Plugins and the tokens kept in the plugin's
+`secrets.json`. The plugin process calls `transport.RunLoopUntil(stop)` on its
+main goroutine after starting `sdk.Run`, because the distributed-notification
+listener needs the main run loop. When the SDK loop ends (the host closed
+stdin, or the app crashed), the plugin closes the monitor and its ticker and
+closes `stop`, so the run loop returns within a turn and the process exits
+instead of polling osascript as an orphan; a test closes the stdin of the real
+`plugin-run spotify` binary and waits for it to end. Playback states (not
+running, not installed, the Automation refusal, playing, idle) and library
+states (no Client ID, signed out, token refused, Premium lapsed, offline, rate
+limited, ready) are typed, not strings, so each draws its own empty state. The
+library state before a call comes from the client's `Current()`, so a refused
+refresh keeps **Sign In Again** until the next sign-in, and a tab switch asks
+the client again, so a tab whose load failed loads on the next pick. Offline
+and rate-limited calls keep the last results with a note above them, and a
+search shows kept results only under the query they are for
+(`SearchResult.Query`). **Privacy › Automation** opens
+`x-apple.systempreferences:com.apple.preference.security?Privacy_Automation`,
+the one non-web link the host's `openURL` check allows, and the app opens
+plugin links as URLs (`mygo.Shell.OpenExternal`), not as file paths. A failed
+command's notice shows in every layout and clears after the next command that
+works. The compact bar sends the snapshot's fraction at its read time with
+`rate` and `at`, so the host counts the time since the read once. The search
+field gets the saved query through the `searchField` part's `text`, so it is
+filled again after a restart. The large layout keeps the
 Search, Playlists and Albums tabs under the player in every playback state; a
 one-second local tick moves the seek bar and the elapsed clock between reads,
 without another AppleScript call. The title uses `marquee` and the album art
