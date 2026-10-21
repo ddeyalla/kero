@@ -31,6 +31,12 @@ func TestFakePluginHelper(t *testing.T) {
 		fakeVersion()
 		return
 	}
+	if mode == "stall" {
+		// A plugin that stops reading its stdin: the app must not wait
+		// for it, and must end it instead.
+		fakeStall()
+		return
+	}
 	if mode == "bad" {
 		// A line that is not JSON: the host answers a parse error and
 		// keeps the process.
@@ -64,6 +70,27 @@ func TestFakePluginHelper(t *testing.T) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	os.Exit(0)
+}
+
+// fakeStall says hello, then reads nothing more from its stdin. The host's
+// next writes fill the pipe; the host must end the process rather than
+// block the caller.
+func fakeStall() {
+	dec := protocol.NewDecoder(os.Stdin)
+	enc := protocol.NewEncoder(os.Stdout)
+	var req protocol.Request
+	if err := dec.Decode(&req); err != nil {
+		os.Exit(1)
+	}
+	resp, err := protocol.NewResult(req.ID, protocol.HelloResult{Protocol: protocol.Version})
+	if err != nil {
+		os.Exit(1)
+	}
+	if err := enc.Encode(resp); err != nil {
+		os.Exit(1)
+	}
+	time.Sleep(30 * time.Second)
 	os.Exit(0)
 }
 
@@ -168,6 +195,12 @@ func fakeManifest() protocol.Manifest {
 // newFakeHost makes a host whose plugin is this test binary. It turns the
 // stop delay down so that a test does not wait five seconds for a stop.
 func newFakeHost(t *testing.T, manifest protocol.Manifest, mode string) (*Host, *fakeCallbacks) {
+	return newFakeHostTuned(t, manifest, mode, 0)
+}
+
+// newFakeHostTuned is newFakeHost with the stall timeout a test needs: a
+// plugin that stops reading is ended after stall, not after five seconds.
+func newFakeHostTuned(t *testing.T, manifest protocol.Manifest, mode string, stall time.Duration) (*Host, *fakeCallbacks) {
 	t.Helper()
 	t.Setenv(fakeEnv, "1")
 	t.Setenv(fakeMode, mode)
@@ -178,6 +211,7 @@ func newFakeHost(t *testing.T, manifest protocol.Manifest, mode string) (*Host, 
 		Callbacks:    f.callbacks(),
 		StopDelay:    150 * time.Millisecond,
 		HelloTimeout: 5 * time.Second,
+		StallTimeout: stall,
 		Command: func(registry.Plugin) ([]string, error) {
 			return []string{os.Args[0], "-test.run=" + fakeHelper}, nil
 		},
@@ -458,5 +492,40 @@ func TestLogRollsAtACap(t *testing.T) {
 	}
 	if _, err := os.Stat(w.Path() + ".1"); err != nil {
 		t.Fatal("the full log was not rolled aside")
+	}
+}
+
+// A plugin that stops reading its stdin must not block the app's calls:
+// they come from the UI goroutine. The host ends the process, and the pane
+// shows the crash with its Restart button.
+func TestAPluginThatStopsReadingDoesNotBlockTheHost(t *testing.T) {
+	h, f := newFakeHostTuned(t, fakeManifest(), "stall", 200*time.Millisecond)
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, f)
+
+	sent := make(chan struct{})
+	go func() {
+		defer close(sent)
+		// More than the pipe holds: a host that writes from the caller
+		// would never get here.
+		for i := 0; i < 400; i++ {
+			h.Event("p1", "node", "click", strings.Repeat("x", 2048))
+		}
+	}()
+	select {
+	case <-sent:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the host blocked its caller on a plugin that stopped reading")
+	}
+
+	crash := waitCrash(t, f)
+	if !strings.Contains(crash.message, "stopped reading") {
+		t.Fatalf("crash = %q", crash.message)
+	}
+	eventually(t, "the plugin to stop", func() bool { return !h.Running("fake") })
+	if err := h.Restart("fake"); err != nil {
+		t.Fatalf("restart: %v", err)
 	}
 }

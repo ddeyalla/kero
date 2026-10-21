@@ -43,6 +43,11 @@ const DefaultStopDelay = 5 * time.Second
 // handshake. A plugin that does not answer is a crash, not a wait.
 const DefaultHelloTimeout = 5 * time.Second
 
+// DefaultStallTimeout is how long one write to a plugin may take. A plugin
+// that stops reading its stdin fills the pipe, and a write to a full pipe
+// never returns: the wait becomes a crash, and the pane offers a restart.
+const DefaultStallTimeout = 5 * time.Second
+
 // Theme is what the app tells a plugin about how it looks: whether the
 // theme is dark, and the accent color as the theme names it.
 type Theme struct {
@@ -91,9 +96,10 @@ type Config struct {
 	Plugins []registry.Plugin
 	// Callbacks may be nil in a test that only checks the process.
 	Callbacks Callbacks
-	// StopDelay and HelloTimeout default when they are zero.
+	// StopDelay, HelloTimeout and StallTimeout default when they are zero.
 	StopDelay    time.Duration
 	HelloTimeout time.Duration
+	StallTimeout time.Duration
 	// Command starts a plugin, when set. The app leaves it nil; a test
 	// uses it to run a plugin without a registry of its own.
 	Command func(registry.Plugin) ([]string, error)
@@ -105,6 +111,7 @@ type Host struct {
 	dir          string
 	stopDelay    time.Duration
 	helloTimeout time.Duration
+	stallTimeout time.Duration
 	cbs          Callbacks
 	store        *Store
 	command      func(registry.Plugin) ([]string, error)
@@ -129,6 +136,7 @@ func New(cfg Config) *Host {
 		dir:          dir,
 		stopDelay:    cfg.StopDelay,
 		helloTimeout: cfg.HelloTimeout,
+		stallTimeout: cfg.StallTimeout,
 		cbs:          cfg.Callbacks,
 		store:        NewStore(filepath.Join(dir, "plugins")),
 		command:      cfg.Command,
@@ -143,6 +151,9 @@ func New(cfg Config) *Host {
 	}
 	if h.helloTimeout <= 0 {
 		h.helloTimeout = DefaultHelloTimeout
+	}
+	if h.stallTimeout <= 0 {
+		h.stallTimeout = DefaultStallTimeout
 	}
 	for _, p := range cfg.Plugins {
 		h.plugins[p.Manifest.ID] = p
@@ -522,10 +533,36 @@ type proc struct {
 
 	stopOnce  sync.Once
 	crashOnce sync.Once
-	log       *logWriter
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	enc       *protocol.Encoder
+
+	// mu guards the process ends: the run goroutine sets them once the
+	// process starts, and the stop of a pane that closes at that moment
+	// reads them.
+	mu    sync.Mutex
+	log   *logWriter
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+	enc   *protocol.Encoder
+}
+
+// setLog records the log the process writes its stderr to.
+func (p *proc) setLog(w *logWriter) {
+	p.mu.Lock()
+	p.log = w
+	p.mu.Unlock()
+}
+
+// setPipe records the ends of a process that has just started.
+func (p *proc) setPipe(cmd *exec.Cmd, stdin io.WriteCloser, enc *protocol.Encoder) {
+	p.mu.Lock()
+	p.cmd, p.stdin, p.enc = cmd, stdin, enc
+	p.mu.Unlock()
+}
+
+// encoder is the plugin's stdin encoder, or nil before the process starts.
+func (p *proc) encoder() *protocol.Encoder {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.enc
 }
 
 type (
@@ -562,12 +599,40 @@ type (
 	}
 )
 
-// send hands a command to the process goroutine. It does not block the UI
-// goroutine for long: the queue is larger than any frame's messages, and
-// a stopped process drops what comes after it.
+// send hands a command to the process goroutine, and never waits for it:
+// the app's calls come from the UI goroutine. A full queue means the plugin
+// stopped reading its stdin, so the process is ended and the pane shows the
+// crash with its Restart button.
 func (p *proc) send(c any) {
 	select {
 	case p.cmds <- c:
+	case <-p.done:
+	default:
+		// Off the caller's goroutine: the crash callback belongs to the
+		// app, not to the frame that found the plugin stuck.
+		go p.crash(fmt.Errorf("the %s plugin stopped reading from the app", p.plugin.Manifest.Name))
+	}
+}
+
+// write encodes one message to the plugin, and gives up on a plugin that
+// stops reading its stdin. The write runs in a goroutine of its own: a
+// pipe with a full buffer blocks a write forever, and the process must be
+// ended instead.
+func (p *proc) write(v any) {
+	enc := p.encoder()
+	if enc == nil {
+		return
+	}
+	name := p.plugin.Manifest.Name
+	done := make(chan error, 1)
+	go func() { done <- enc.Encode(v) }()
+	select {
+	case err := <-done:
+		if err != nil && !p.stopped() {
+			p.crash(fmt.Errorf("could not write to the %s plugin: %w", name, err))
+		}
+	case <-time.After(p.h.stallTimeout):
+		p.crash(fmt.Errorf("the %s plugin stopped reading from the app", name))
 	case <-p.done:
 	}
 }
@@ -586,14 +651,17 @@ func (p *proc) stopped() bool {
 func (p *proc) stop() {
 	p.stopOnce.Do(func() {
 		close(p.done)
-		if p.cmd != nil && p.cmd.Process != nil {
-			_ = p.cmd.Process.Kill()
+		p.mu.Lock()
+		cmd, stdin, logw := p.cmd, p.stdin, p.log
+		p.mu.Unlock()
+		if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
 		}
-		if p.stdin != nil {
-			_ = p.stdin.Close()
+		if stdin != nil {
+			_ = stdin.Close()
 		}
-		if p.log != nil {
-			_ = p.log.Close()
+		if logw != nil {
+			_ = logw.Close()
 		}
 	})
 }
@@ -625,7 +693,7 @@ func (p *proc) run() {
 		p.crash(fmt.Errorf("could not open the log of the %s plugin: %w", name, err))
 		return
 	}
-	p.log = logw
+	p.setLog(logw)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	if p.plugin.Dir != "" && !p.plugin.Builtin {
 		cmd.Dir = p.plugin.Dir
@@ -645,7 +713,14 @@ func (p *proc) run() {
 		p.crash(fmt.Errorf("could not start the %s plugin: %w", name, err))
 		return
 	}
-	p.cmd, p.stdin, p.enc = cmd, stdin, protocol.NewEncoder(stdin)
+	p.setPipe(cmd, stdin, protocol.NewEncoder(stdin))
+	// The pane may have closed while the process was starting; the stop
+	// that closed it saw no process to kill, so this one ends it here.
+	if p.stopped() {
+		_ = cmd.Process.Kill()
+		_ = stdin.Close()
+		return
+	}
 	wait := make(chan error, 1)
 	go func() { wait <- cmd.Wait() }()
 	go p.read(protocol.NewDecoder(stdout))
@@ -655,8 +730,8 @@ func (p *proc) run() {
 		p.crash(err)
 		return
 	}
-	if err := p.enc.Encode(greeting); err != nil {
-		p.crash(fmt.Errorf("could not greet the %s plugin: %w", name, err))
+	p.write(greeting)
+	if p.stopped() {
 		return
 	}
 
@@ -792,7 +867,7 @@ func (p *proc) tell(method string, params any) {
 	if err != nil {
 		return
 	}
-	_ = p.enc.Encode(req)
+	p.write(req)
 }
 
 func (p *proc) ok(req *protocol.Request) {
@@ -803,7 +878,7 @@ func (p *proc) ok(req *protocol.Request) {
 	if err != nil {
 		return
 	}
-	_ = p.enc.Encode(resp)
+	p.write(resp)
 }
 
 // fail answers a request with an error. A notification has nobody to
@@ -812,13 +887,13 @@ func (p *proc) fail(id json.RawMessage, code int, message string) {
 	if len(id) == 0 {
 		return
 	}
-	_ = p.enc.Encode(protocol.NewFailure(id, code, message))
+	p.write(protocol.NewFailure(id, code, message))
 }
 
 // parseFail answers a line that did not read as a message. It has no id to
 // answer to, so the id is null, as JSON-RPC asks.
 func (p *proc) parseFail(code int, message string) {
-	_ = p.enc.Encode(protocol.NewFailure(nil, code, message))
+	p.write(protocol.NewFailure(nil, code, message))
 }
 
 // handle applies one host command to the process.
@@ -926,7 +1001,7 @@ func (p *proc) answer(req *protocol.Request) {
 			p.fail(req.ID, protocol.CodeInternal, err.Error())
 			return
 		}
-		_ = p.enc.Encode(resp)
+		p.write(resp)
 	case protocol.MethodSecretSet:
 		var params protocol.SecretSetParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {

@@ -22,6 +22,15 @@ type pluginState struct {
 	host  *host.Host
 	known []registry.Plugin
 
+	// The plugins are found off the UI goroutine, once, when the window
+	// opens. Drawing, the palette and the chooser read the cache only.
+	knownAt     bool
+	discovering bool
+	// discover reads the installed plugins. The app leaves it nil, which
+	// means registry.Known; a test sets it to watch the read happen off
+	// the UI goroutine.
+	discover func(dir string) []registry.Plugin
+
 	panes map[string]*pluginPaneState
 
 	// settings and hasSecret are what the settings page shows, read once
@@ -59,13 +68,43 @@ type pluginPaneState struct {
 }
 
 // knownPlugins lists the plugins the app knows: its own, and the ones the
-// user installed under proto.Dir()/plugins.
+// user installed under proto.Dir()/plugins. It reads the cache that
+// discoverPlugins filled, and never its disk: a slow config folder must not
+// stop a frame.
 func (a *App) knownPlugins() []registry.Plugin {
-	if a.plugins.known != nil {
-		return a.plugins.known
-	}
-	a.plugins.known = registry.Known(filepath.Join(proto.Dir(), "plugins"))
 	return a.plugins.known
+}
+
+// discoverPlugins finds the installed plugins off the UI goroutine, and
+// caches them when it is done. The first read of proto.Dir()/plugins is a
+// folder walk and a JSON file per plugin, which can wait on a slow volume.
+// Until it finishes, the app draws no plugin rows; it invalidates the
+// window when they are known.
+func (a *App) discoverPlugins() {
+	if a.plugins.knownAt || a.plugins.discovering {
+		return
+	}
+	a.plugins.discovering = true
+	discover := a.plugins.discover
+	if discover == nil {
+		discover = registry.Known
+	}
+	dir := filepath.Join(proto.Dir(), "plugins")
+	go func() {
+		plugins := discover(dir)
+		a.update(func() { a.applyPlugins(plugins) })
+	}()
+}
+
+// applyPlugins caches the plugins the discovery found. It runs on the UI
+// goroutine, through win.Update.
+func (a *App) applyPlugins(plugins []registry.Plugin) {
+	a.plugins.known = plugins
+	a.plugins.knownAt = true
+	a.plugins.discovering = false
+	if a.win != nil {
+		a.win.Invalidate()
+	}
 }
 
 // pluginByID finds one of the plugins the app knows.
@@ -224,9 +263,26 @@ func (a *App) pluginPane(c *ui.Context, pal *palette, s *proto.Session, p *proto
 		a.pluginCrash(c, pal, st)
 		return
 	}
+	// The list of plugins is read off the UI goroutine when the window
+	// opens. A pane that comes back before it is done waits one frame
+	// instead of stopping the window.
+	if !a.plugins.knownAt {
+		a.discoverPlugins()
+		paneNothing(c, pal, projectIcon, locales.PluginStarting(a.pluginName(st.plugin)), locales.PluginStartingDetail())
+		return
+	}
 	plugin, ok := a.pluginByID(st.plugin)
 	if !ok {
 		paneNothing(c, pal, projectIcon, locales.PluginUnknownTitle(), locales.PluginUnknownDetail(st.plugin))
+		return
+	}
+	// A target may name only its plugin; its widget is the first one,
+	// once the manifest is known.
+	if st.widget == "" {
+		st.widget = a.firstWidget(st.plugin)
+	}
+	if st.widget == "" {
+		paneNothing(c, pal, projectIcon, locales.PluginUnknownTitle(), locales.PluginNoWidgets(plugin.Manifest.Name))
 		return
 	}
 
@@ -421,8 +477,15 @@ func (a *App) newPluginPane() {
 	if s == nil {
 		return
 	}
+	a.discoverPlugins()
 	kinds := a.pluginWidgets()
 	if len(kinds) == 0 {
+		if !a.plugins.knownAt {
+			// The list is still being read; the chooser fills itself
+			// with the plugin rows when it lands.
+			a.chooser = chooserState{open: true, index: len(paneKinds), plugin: true}
+			return
+		}
 		a.toast(locales.PluginNoPlugins())
 		return
 	}
@@ -496,6 +559,12 @@ func (a *App) pluginField(key, value string) *string {
 }
 
 func (a *App) pluginsPage(c *ui.Context, pal *palette) {
+	// Reading the plugins is off the UI goroutine; until it is done the
+	// page draws nothing rather than a list that is not there.
+	if !a.plugins.knownAt {
+		a.discoverPlugins()
+		return
+	}
 	a.loadPluginSettings()
 	plugins := a.knownPlugins()
 	settingsGroup(c, pal, locales.PluginSettingsGroup(), locales.PluginSettingsGroupDetail(), func() {

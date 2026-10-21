@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"kero/internal/plugin/protocol"
 	"kero/internal/plugin/registry"
@@ -75,6 +76,49 @@ func TestOldDaemonSaysRestartTheService(t *testing.T) {
 	other := errors.New("the daemon is not running")
 	if got := viewCallError(other); got != other.Error() {
 		t.Fatalf("message = %q", got)
+	}
+}
+
+// The first read of proto.Dir()/plugins can wait on a slow volume. It
+// happens off the UI goroutine, and drawing reads only the cache: a frame,
+// the palette or the chooser never waits for the folder.
+func TestPluginDiscoveryIsOffTheUI(t *testing.T) {
+	a := testApp(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	a.plugins.discover = func(string) []registry.Plugin {
+		close(started)
+		<-release
+		return nil
+	}
+	a.discoverPlugins()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the discovery did not start")
+	}
+	// The read is still waiting, and already nothing on the UI goroutine
+	// waits for it.
+	if got := a.knownPlugins(); len(got) != 0 {
+		t.Fatalf("the cache holds %d plugins before the read is done", len(got))
+	}
+	if got := a.pluginWidgets(); len(got) != 0 {
+		t.Fatalf("the widgets hold %d rows before the read is done", len(got))
+	}
+	close(release)
+	// The app applies the result with win.Update, which this app has no
+	// window for; the test applies the same call.
+	a.applyPlugins([]registry.Plugin{{
+		Manifest: protocol.Manifest{
+			ID:      "fake",
+			Name:    "Fake",
+			Version: "1.0.0",
+			Run:     []string{"fake"},
+			Widgets: []protocol.Widget{{Name: "main", Title: "Main"}},
+		},
+		Builtin: true,
+	}})
+	if got := a.pluginWidgets(); len(got) != 1 || got[0].plugin != "fake" {
+		t.Fatalf("the widgets after the read = %+v", got)
 	}
 }
 

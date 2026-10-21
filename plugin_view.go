@@ -29,15 +29,17 @@ func newPluginView() *pluginView { return &pluginView{} }
 // draw draws the tree the plugin last rendered, and sends the user's
 // gestures through send.
 func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send func(pluginEvent)) {
-	drawPluginTree(c, pal, tree, send)
+	drawPluginTree(c, v, pal, tree, send)
 }
 
-// drawPluginTree draws a plugin's tree.
+// drawPluginTree draws a plugin's tree, with what this pane's view keeps
+// between renders.
 //
 // Until Lane B's renderer lands, this draws what the tree holds: how many
 // nodes the plugin sent. The seam is this one function, and the call
 // above: the renderer replaces its body, and the panes keep working.
-func drawPluginTree(c *ui.Context, pal *palette, tree *protocol.Tree, send func(pluginEvent)) {
+func drawPluginTree(c *ui.Context, v *pluginView, pal *palette, tree *protocol.Tree, send func(pluginEvent)) {
+	_ = v
 	count := 0
 	var walk func(*protocol.Node)
 	walk = func(n *protocol.Node) {

@@ -142,6 +142,9 @@ func runApp() {
 		a.win.OnBlur(func() { a.update(func() { a.focused = false; a.reportView() }) })
 		// Settings, in the window, goes with it.
 		a.win.OnClosed(a.endSettings)
+		// The plugins the user installed are read off the UI goroutine,
+		// once the window exists to show them in.
+		a.discoverPlugins()
 		a.connect()
 		a.startUsage()
 		a.startResources()
