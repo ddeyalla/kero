@@ -1,0 +1,10 @@
+{
+  "id": "usage",
+  "name": "Usage",
+  "version": "1.0.0",
+  "description": "The account allowances of the coding agents on this Mac, and its CPU and memory.",
+  "run": ["kero", "plugin-run", "usage"],
+  "widgets": [
+    {"name": "usage", "title": "Usage", "minWidth": 280, "minHeight": 240}
+  ]
+}
