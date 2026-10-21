@@ -149,6 +149,8 @@ func TestCommandsUseTheirScripts(t *testing.T) {
 			func(ctx context.Context, p *Transport) error { return p.Next(ctx) }},
 		{"previous", `tell application "Spotify" to previous track`,
 			func(ctx context.Context, p *Transport) error { return p.Previous(ctx) }},
+		{"launch", `tell application "Spotify" to activate`,
+			func(ctx context.Context, p *Transport) error { return p.Launch(ctx) }},
 		{"seek", `tell application "Spotify" to set player position to 12.500`,
 			func(ctx context.Context, p *Transport) error { return p.Seek(ctx, 12500*time.Millisecond) }},
 		{"volume", `tell application "Spotify" to set sound volume to 35`,
@@ -175,7 +177,11 @@ func TestCommandsUseTheirScripts(t *testing.T) {
 			if len(calls) != 1 {
 				t.Fatalf("ran %d scripts, want 1", len(calls))
 			}
-			if want := guarded(test.body); calls[0] != want {
+			want := guarded(test.body)
+			if test.name == "launch" {
+				want = test.body
+			}
+			if calls[0] != want {
 				t.Errorf("script =\n%s\nwant\n%s", calls[0], want)
 			}
 		})

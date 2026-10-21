@@ -68,6 +68,12 @@ var All = []Action{
 	{ID: "text.bigger", Title: "Bigger", Menu: "View", Keys: "CmdOrCtrl+=", Remote: true},
 	{ID: "text.smaller", Title: "Smaller", Menu: "View", Keys: "CmdOrCtrl+-", Remote: true},
 	{ID: "text.reset", Title: "Actual Size", Menu: "View", Keys: "CmdOrCtrl+0", Remote: true},
+
+	// The Spotify player's commands. They have no menu item or shortcut:
+	// the palette and "kero do" reach them, and the media keys play.
+	{ID: "spotify.play-pause", Title: "Play or Pause Spotify", Remote: true},
+	{ID: "spotify.next", Title: "Next Spotify Track", Remote: true},
+	{ID: "spotify.previous", Title: "Previous Spotify Track", Remote: true},
 }
 
 // pcKeys are the defaults on Windows and Linux, where Control is the

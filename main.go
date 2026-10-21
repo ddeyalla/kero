@@ -25,6 +25,9 @@ import (
 	"kero/internal/cli"
 	"kero/internal/clilink"
 	"kero/internal/daemon"
+	// The Spotify plugin registers its runner in its init, which is what
+	// lets this executable serve "kero plugin-run spotify".
+	_ "kero/internal/plugin/builtin/spotify"
 	"kero/internal/plugin/registry"
 	"kero/internal/proto"
 )

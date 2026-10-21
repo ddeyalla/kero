@@ -161,6 +161,8 @@ func (a *App) run(id string, args map[string]string) {
 		a.zoom(-1, false)
 	case "text.reset":
 		a.zoom(0, true)
+	case "spotify.play-pause", "spotify.next", "spotify.previous":
+		a.spotifyCommand(id[len("spotify."):])
 	}
 	if a.win != nil {
 		a.win.Invalidate()
@@ -214,7 +216,10 @@ var actionTitles = map[string]func() string{
 	"sidebar.toggle":    locales.ActionToggleSidebar,
 	"text.bigger":       locales.ActionBigger,
 	"text.smaller":      locales.ActionSmaller,
-	"text.reset":        locales.ActionActualSize,
+	"text.reset":         locales.ActionActualSize,
+	"spotify.play-pause": locales.ActionSpotifyPlayPause,
+	"spotify.next":       locales.ActionSpotifyNext,
+	"spotify.previous":   locales.ActionSpotifyPrevious,
 }
 
 // actionTitle is an action's title as the menus, the palette and

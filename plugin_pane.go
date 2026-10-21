@@ -196,6 +196,41 @@ func (a *App) pluginHost() *host.Host {
 	return a.plugins.host
 }
 
+// spotifyCommand sends one of the Spotify player's commands to a
+// Spotify pane: the focused pane when it is one, else any pane in the
+// session, else any open pane. The palette and "kero do" run it, so the
+// action works whichever pane has the user's attention.
+func (a *App) spotifyCommand(command string) {
+	pane := ""
+	if s := a.session(a.selected); s != nil {
+		if id := a.focusOf(s); id != "" {
+			if st := a.plugins.panes[id]; st != nil && st.plugin == "spotify" {
+				pane = id
+			}
+		}
+		if pane == "" {
+			for _, p := range s.Panes {
+				if st := a.plugins.panes[p.ID]; st != nil && st.plugin == "spotify" {
+					pane = p.ID
+					break
+				}
+			}
+		}
+	}
+	if pane == "" {
+		for id, st := range a.plugins.panes {
+			if st.plugin == "spotify" {
+				pane = id
+				break
+			}
+		}
+	}
+	if pane == "" {
+		return
+	}
+	a.pluginHost().Command(pane, command)
+}
+
 // pluginPaneState is the app's state of one plugin pane, made on its first
 // draw and brought up to date with the pane's target.
 func (a *App) pluginPaneState(p *proto.Pane) *pluginPaneState {

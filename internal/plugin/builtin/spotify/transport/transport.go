@@ -4,7 +4,8 @@
 // A Transport runs one AppleScript at a time, each with a one second
 // timeout, and reads the whole player in a single call. A command waits
 // for the call in flight; a read that finds one is dropped. Every script
-// first checks that Spotify is running, so no command launches the app.
+// but Launch first checks that Spotify is running, so only the player's
+// Open Spotify button starts the app.
 // macOS can refuse the Apple events; a Transport reports that as
 // [ErrAutomation] with the way to allow it, and a missing app as
 // [ErrNotRunning], so callers do not parse message strings.
@@ -296,6 +297,13 @@ func (t *Transport) Next(ctx context.Context) error {
 // Previous goes back to the previous track.
 func (t *Transport) Previous(ctx context.Context) error {
 	return t.run(ctx, commandScript(`tell application "Spotify" to previous track`))
+}
+
+// Launch brings the Spotify app to the front, and starts it when it is
+// not running. Every other script refuses to start the app, so this is
+// the one command the player offers when Spotify is closed.
+func (t *Transport) Launch(ctx context.Context) error {
+	return t.run(ctx, `tell application "Spotify" to activate`)
 }
 
 // Seek moves within the current track.
