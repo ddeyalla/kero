@@ -124,7 +124,7 @@ func TestPluginTintSamplesOncePerPicture(t *testing.T) {
 		"red": ui.RGB(210, 60, 40),
 	}, &calls)
 	h.show(pluginTintTree("red"))
-	if !waitPluginPicture(t, h.view, pluginSource{url: "red"}) {
+	if !waitPluginPicture(t, h.view, pluginSource{url: "red", tint: true}) {
 		t.Fatal("the picture did not load")
 	}
 	h.frames()
@@ -153,7 +153,7 @@ func TestPluginTintClampsInBothAppearances(t *testing.T) {
 			h.pal = darkPalette
 		}
 		h.show(pluginTintTree("green"))
-		if !waitPluginPicture(t, h.view, pluginSource{url: "green"}) {
+		if !waitPluginPicture(t, h.view, pluginSource{url: "green", tint: true}) {
 			t.Fatal("the picture did not load")
 		}
 		h.frames()
@@ -180,7 +180,7 @@ func TestPluginTintCrossfadeSettles(t *testing.T) {
 	}, nil)
 	red, blue := "red", "blue"
 	h.show(pluginTintTree(red))
-	if !waitPluginPicture(t, h.view, pluginSource{url: red}) {
+	if !waitPluginPicture(t, h.view, pluginSource{url: red, tint: true}) {
 		t.Fatal("the red picture did not load")
 	}
 	h.frames()
@@ -188,7 +188,7 @@ func TestPluginTintCrossfadeSettles(t *testing.T) {
 		t.Fatalf("red wash = %v, want %v", got, want)
 	}
 	h.show(pluginTintTree(blue))
-	if !waitPluginPicture(t, h.view, pluginSource{url: blue}) {
+	if !waitPluginPicture(t, h.view, pluginSource{url: blue, tint: true}) {
 		t.Fatal("the blue picture did not load")
 	}
 	h.frames()
@@ -214,5 +214,94 @@ func TestPluginTintCrossfadeSettles(t *testing.T) {
 	}
 	if h.view.tintTarget != pluginTintClamp(ui.RGB(40, 60, 210), false) {
 		t.Errorf("blue target = %v", h.view.tintTarget)
+	}
+}
+
+// TestPluginTintHoldsWhileNextPictureLoads keeps the wash at the last
+// picture's color while the next picture loads, rather than fading it out
+// between the two, then crossfades to the new picture's color.
+func TestPluginTintHoldsWhileNextPictureLoads(t *testing.T) {
+	block := make(chan struct{})
+	h := newPluginTintHarness(t, map[string]ui.Color{
+		"red":  ui.RGB(210, 60, 40),
+		"blue": ui.RGB(40, 60, 210),
+	}, nil)
+	stub := h.view.fetch
+	h.view.fetch = func(src pluginSource) (*ui.Bitmap, image.Image, error) {
+		if src.url == "blue" {
+			<-block
+		}
+		return stub(src)
+	}
+	defer func() {
+		select {
+		case <-block:
+		default:
+			close(block)
+		}
+	}()
+	h.show(pluginTintTree("red"))
+	if !waitPluginPicture(t, h.view, pluginSource{url: "red", tint: true}) {
+		t.Fatal("the red picture did not load")
+	}
+	h.frames()
+	red := pluginTintClamp(ui.RGB(210, 60, 40), false)
+	if h.view.tintShown != red {
+		t.Fatalf("red wash = %v, want %v", h.view.tintShown, red)
+	}
+
+	// The blue picture is on its way: the wash holds red, frame after
+	// frame, and never dips towards transparent.
+	h.show(pluginTintTree("blue"))
+	for i := 0; i < 5; i++ {
+		if h.view.tintTarget != red || h.view.tintShown != red || !h.view.tinted {
+			t.Fatalf("while the next picture loads the wash is %v (target %v), want it held at %v", h.view.tintShown, h.view.tintTarget, red)
+		}
+		h.frames()
+	}
+
+	close(block)
+	if !waitPluginPicture(t, h.view, pluginSource{url: "blue", tint: true}) {
+		t.Fatal("the blue picture did not load")
+	}
+	h.tt.Frame()
+	blue := pluginTintClamp(ui.RGB(40, 60, 210), false)
+	if h.view.tintTarget != blue {
+		t.Fatalf("once it arrives the target = %v, want %v", h.view.tintTarget, blue)
+	}
+	h.tt.Advance(slide.Duration + 100*time.Millisecond)
+	h.tt.Frame()
+	if h.view.tintShown != blue {
+		t.Fatalf("after the crossfade the wash = %v, want %v", h.view.tintShown, blue)
+	}
+
+	// A tree without a tinted picture lets the wash go.
+	h.show(pluginTree(sdk.Column("root", sdk.Text("note", "A note"))))
+	h.tt.Advance(slide.Duration + 100*time.Millisecond)
+	h.tt.Frame()
+	if h.view.tinted || h.view.tintTarget.A != 0 {
+		t.Fatalf("without a tinted picture the wash is %v, want none", h.view.tintShown)
+	}
+}
+
+// TestPluginTintSampledOnlyForTintedPictures reads no color from a picture
+// that does not tint the pane.
+func TestPluginTintSampledOnlyForTintedPictures(t *testing.T) {
+	h := newPluginTintHarness(t, map[string]ui.Color{"red": ui.RGB(210, 60, 40)}, nil)
+	h.show(pluginTree(sdk.Column("root", sdk.Image("pic", "red"))))
+	if !waitPluginPicture(t, h.view, pluginSource{url: "red"}) {
+		t.Fatal("the picture did not load")
+	}
+	h.frames()
+	v := h.view
+	v.mu.Lock()
+	pic := v.pictures[pluginSourceKey(pluginSource{url: "red"})]
+	tinted := pic != nil && pic.tinted
+	v.mu.Unlock()
+	if tinted {
+		t.Fatal("the pane read the color of a picture that does not tint it")
+	}
+	if v.tinted {
+		t.Fatal("the pane is tinted by a picture that does not ask for it")
 	}
 }

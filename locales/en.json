@@ -625,6 +625,8 @@
     }
   },
   "pluginTreePlaceholder": "This plugin's interface is on its way",
+  "pluginPartSlider": "Slider",
+  "pluginPartProgress": "Progress",
   "pluginTreeCount": "{count, plural, one {# element} other {# elements}}",
   "@pluginTreeCount": {
     "placeholders": {
@@ -680,16 +682,30 @@
     }
   },
   "pluginSettingsGroup": "Plugins",
-  "pluginSettingsGroupDetail": "Plugins add panes of their own. Their settings are kept beside them in the configuration folder.",
+  "pluginSettingsGroupDetail": "Plugins add panes of their own. Their settings and secrets are kept in the data folder, apart from their code.",
   "pluginNone": "No plugins",
   "pluginNoneDetail": "Built-in plugins come with the app. Installed plugins live in the configuration folder's plugins folder.",
-  "pluginSpotifyGroup": "Spotify",
-  "pluginSpotifyGroupDetail": "The Spotify plugin plays your music beside your work.",
-  "pluginSpotifyClientID": "Client ID",
-  "pluginSpotifyClientIDDetail": "Your Spotify app's Client ID. The plugin uses it to sign you in.",
-  "pluginSpotifyClientIDPlaceholder": "Paste a Client ID",
-  "pluginSpotifyDashboard": "Spotify for Developers",
-  "pluginSpotifyOpen": "Open Dashboard",
+  "pluginSettingEmpty": "Not set",
+  "pluginSettingOpenLink": "Open Link",
+  "pluginNoCommand": "The {name} plugin has no command {command}.",
+  "@pluginNoCommand": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginCommandNoSession": "Open a session first: a {name} command runs in a pane of it.",
+  "@pluginCommandNoSession": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "pluginInstalled": "Installed",
   "pluginBuiltin": "Built-in",
   "pluginNoPermissions": "No permissions",

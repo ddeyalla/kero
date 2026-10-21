@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,14 @@ func TestFakePluginHelper(t *testing.T) {
 		fakeVersion()
 		return
 	}
+	if mode == "early" {
+		fakeEarly()
+		return
+	}
+	if mode == "prompt" {
+		fakePrompt()
+		return
+	}
 	if mode == "stall" {
 		// A plugin that stops reading its stdin: the app must not wait
 		// for it, and must end it instead.
@@ -48,6 +57,9 @@ func TestFakePluginHelper(t *testing.T) {
 			case "crash":
 				fmt.Fprintln(os.Stderr, "the fake plugin says bye")
 				os.Exit(1)
+			case "state":
+				// The state the pane came back with, as the plugin got it.
+				_ = c.Render(e.Pane, textTree("state:"+string(e.State)))
 			case "deny":
 				text := "the call was allowed"
 				if err := c.Notify("Hello", "from the fake plugin"); err != nil {
@@ -92,6 +104,84 @@ func fakeStall() {
 	}
 	time.Sleep(30 * time.Second)
 	os.Exit(0)
+}
+
+// fakeEarly calls the app before it answers the handshake, and waits for
+// the app's answer to that call before it answers hello. Then it draws
+// the answer in the first pane that opens.
+func fakeEarly() {
+	dec := protocol.NewDecoder(os.Stdin)
+	enc := protocol.NewEncoder(os.Stdout)
+	var hello protocol.Request
+	if err := dec.Decode(&hello); err != nil {
+		os.Exit(1)
+	}
+	early, err := protocol.NewRequest(7, protocol.MethodNotify, protocol.NotifyParams{Title: "Too", Body: "early"})
+	if err != nil {
+		os.Exit(1)
+	}
+	if err := enc.Encode(early); err != nil {
+		os.Exit(1)
+	}
+	var answer protocol.Response
+	if err := dec.Decode(&answer); err != nil {
+		os.Exit(1)
+	}
+	text := "the early call was allowed"
+	if answer.Error != nil {
+		text = answer.Error.Message
+	}
+	resp, err := protocol.NewResult(hello.ID, protocol.HelloResult{Protocol: protocol.Version})
+	if err != nil {
+		os.Exit(1)
+	}
+	if err := enc.Encode(resp); err != nil {
+		os.Exit(1)
+	}
+	for {
+		var req protocol.Request
+		if err := dec.Decode(&req); err != nil {
+			os.Exit(0)
+		}
+		if req.Method != protocol.MethodOpen {
+			continue
+		}
+		var open protocol.OpenParams
+		_ = json.Unmarshal(req.Params, &open)
+		render, err := protocol.NewNotification(protocol.MethodRender, protocol.RenderParams{Pane: open.Pane, Tree: textTree(text)})
+		if err != nil {
+			os.Exit(1)
+		}
+		_ = enc.Encode(render)
+	}
+}
+
+// fakePrompt answers hello and calls the app at once, in the same breath:
+// the call comes after the answer, so the app must take it.
+func fakePrompt() {
+	dec := protocol.NewDecoder(os.Stdin)
+	enc := protocol.NewEncoder(os.Stdout)
+	var hello protocol.Request
+	if err := dec.Decode(&hello); err != nil {
+		os.Exit(1)
+	}
+	resp, err := protocol.NewResult(hello.ID, protocol.HelloResult{Protocol: protocol.Version})
+	if err != nil {
+		os.Exit(1)
+	}
+	call, err := protocol.NewRequest(8, protocol.MethodNotify, protocol.NotifyParams{Title: "Right", Body: "after hello"})
+	if err != nil {
+		os.Exit(1)
+	}
+	if enc.Encode(resp) != nil || enc.Encode(call) != nil {
+		os.Exit(1)
+	}
+	for {
+		var line json.RawMessage
+		if err := dec.Decode(&line); err != nil {
+			os.Exit(0)
+		}
+	}
 }
 
 // fakeVersion answers the handshake with a protocol the app does not
@@ -422,10 +512,14 @@ func TestSettingsNeverCarryASecret(t *testing.T) {
 func TestSecretsLiveInAFileOnlyTheUserReads(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
+	// A folder that is there already, open to others, is closed.
+	folder := dir + "/fake"
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.SetSecret("fake", "token", "sekrit"); err != nil {
 		t.Fatal(err)
 	}
-	folder := dir + "/fake"
 	info, err := os.Stat(folder)
 	if err != nil {
 		t.Fatal(err)
@@ -527,5 +621,146 @@ func TestAPluginThatStopsReadingDoesNotBlockTheHost(t *testing.T) {
 	eventually(t, "the plugin to stop", func() bool { return !h.Running("fake") })
 	if err := h.Restart("fake"); err != nil {
 		t.Fatalf("restart: %v", err)
+	}
+}
+
+// The state a pane saved in its target reaches the plugin's open, through
+// the host, as it was saved.
+func TestStateFromTheTargetReachesOpen(t *testing.T) {
+	h, f := newFakeHost(t, fakeManifest(), "state")
+	state := json.RawMessage(`{"track":"one"}`)
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main", State: state}); err != nil {
+		t.Fatal(err)
+	}
+	call := waitRender(t, f)
+	if got := textOf(call.tree); got != `state:{"track":"one"}` {
+		t.Fatalf("the plugin opened with %q", got)
+	}
+}
+
+// A plugin answers hello before it calls the app. A call that comes
+// before the handshake is refused, not queued, even with its permission.
+func TestCallsBeforeTheHandshakeAreRefused(t *testing.T) {
+	manifest := fakeManifest()
+	manifest.Permissions = protocol.Permissions{protocol.PermNotify}
+	h, f := newFakeHost(t, manifest, "early")
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	call := waitRender(t, f)
+	if got := textOf(call.tree); !strings.Contains(got, "handshake") {
+		t.Fatalf("the early call got %q", got)
+	}
+	select {
+	case n := <-f.notify:
+		t.Fatalf("an early call notified: %v", n)
+	default:
+	}
+}
+
+// A call the plugin makes right after its answer to hello is taken, even
+// when the app reads both at once: only a call before the answer is early.
+func TestACallRightAfterTheHandshakeIsTaken(t *testing.T) {
+	manifest := fakeManifest()
+	manifest.Permissions = protocol.Permissions{protocol.PermNotify}
+	h, f := newFakeHost(t, manifest, "prompt")
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case n := <-f.notify:
+		if n[1] != "Right" {
+			t.Fatalf("notify = %v", n)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a call right after hello was refused")
+	}
+}
+
+// A process that is no longer the plugin's, as the one a restart
+// replaced, can end late: that end must not paint a crash over the
+// process that runs now.
+func TestAStaleCrashChangesNothing(t *testing.T) {
+	h, f := newFakeHost(t, fakeManifest(), "render")
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, f)
+	old := &proc{h: h, plugin: registry.Plugin{Manifest: fakeManifest()}, done: make(chan struct{})}
+	h.crashed(old, "the old process exited")
+	select {
+	case c := <-f.crashes:
+		t.Fatalf("a stale process crashed the plugin: %+v", c)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if !h.Running("fake") {
+		t.Fatal("a stale crash stopped the running plugin")
+	}
+}
+
+// A stop timer that fires late, after Close, Open and Close, stops
+// nothing: only the timer of the last Close may.
+func TestAStaleIdleTimerStopsNothing(t *testing.T) {
+	h, f := newFakeHost(t, fakeManifest(), "render")
+	h.stopDelay = time.Hour
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, f)
+	h.Close("p1")
+	h.mu.Lock()
+	stale := h.idle["fake"]
+	h.mu.Unlock()
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	h.Close("p1")
+	// The first timer, as if it had fired while the pane opened again.
+	h.stopIfIdle("fake", stale)
+	if !h.Running("fake") {
+		t.Fatal("a stale timer stopped the plugin before its delay")
+	}
+	h.mu.Lock()
+	current := h.idle["fake"]
+	h.mu.Unlock()
+	h.stopIfIdle("fake", current)
+	if h.Running("fake") {
+		t.Fatal("the last timer did not stop the plugin")
+	}
+}
+
+// The process can write its stderr after its log closed. The write is
+// dropped, and opens no file that nothing would close.
+func TestALogWriteAfterCloseIsDropped(t *testing.T) {
+	w, err := openLog(t.TempDir(), "fake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	n, err := w.Write([]byte("late\n"))
+	if err != nil || n != 5 {
+		t.Fatalf("Write after Close = %d, %v", n, err)
+	}
+	if w.file != nil {
+		t.Fatal("a write after Close opened the log again")
+	}
+}
+
+// The secrets live apart from the plugin's code: an install that replaces
+// proto.Dir()/plugins/<id> neither wipes them nor brings its own.
+func TestTheStoreIsApartFromThePluginsCode(t *testing.T) {
+	dir := t.TempDir()
+	h := New(Config{Dir: dir, Plugins: []registry.Plugin{{Manifest: fakeManifest(), Builtin: true}}})
+	t.Cleanup(h.Stop)
+	if err := h.Store().SetSecret("fake", "token", "sekrit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "plugin-data", "fake", secretsFile)); err != nil {
+		t.Fatalf("the secrets are not in the data folder: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "plugins", "fake")); !os.IsNotExist(err) {
+		t.Fatalf("the store wrote in the code folder: %v", err)
 	}
 }

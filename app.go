@@ -339,6 +339,9 @@ func (a *App) event(cl *client.Client, m proto.Message) {
 		}
 		if act, ok := actions.Find(m.Action); ok && act.Remote {
 			a.run(act.ID, m.Args)
+		} else if _, _, ok := actions.ParsePluginCommand(m.Action); ok {
+			// A plugin's command, which runs as its palette item does.
+			a.run(m.Action, m.Args)
 		}
 	case "notice":
 		// A program's own notification, as a terminal shows it: not

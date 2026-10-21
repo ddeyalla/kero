@@ -186,3 +186,51 @@ func TestPluginMarqueeResetsWhenTextChanges(t *testing.T) {
 		t.Fatalf("the new turn does not scroll on: offset %v", m.offset)
 	}
 }
+
+// TestPluginMarqueeStopsWhenWidened stops a text that scrolled in a narrow
+// pane once the pane widens so that the text fits: the room it measures is
+// the room it has, not the width it had.
+func TestPluginMarqueeStopsWhenWidened(t *testing.T) {
+	narrow := func(width int) *protocol.Tree {
+		return pluginTree(sdk.Column("root", sdk.Row("bar", sdk.Text("line", pluginMarqueeLong()).Marquee())).Size(width, 0))
+	}
+	for _, step := range []struct {
+		name string
+		tree func(int) *protocol.Tree
+	}{
+		{"a column", func(width int) *protocol.Tree { return pluginMarqueeTree(pluginMarqueeLong(), width) }},
+		{"a row", narrow},
+	} {
+		h := newPluginHarness(t, step.tree(120), nil)
+		h.frames()
+		m := h.view.marquees["line"]
+		if m == nil || !m.overflow {
+			t.Fatalf("%s: the long text fits a narrow pane: %+v", step.name, m)
+		}
+		h.atTime(m.since.Add(pluginMarqueePause + pluginMarqueeScroll(m.distance)/2))
+		if m.offset <= 0 || !m.moving {
+			t.Fatalf("%s: the long text does not scroll: %+v", step.name, m)
+		}
+
+		h.show(step.tree(800))
+		h.frames()
+		m = h.view.marquees["line"]
+		if m.avail < m.natural {
+			t.Fatalf("%s: widened, the text has %v of room for its %v", step.name, m.avail, m.natural)
+		}
+		if m.overflow || m.offset != 0 || m.moving {
+			t.Fatalf("%s: widened so the text fits, it still moves: %+v", step.name, m)
+		}
+		h.atTime(h.tt.Now().Add(3 * time.Second))
+		if m.offset != 0 || m.moving {
+			t.Fatalf("%s: after 3s the text that fits moves: %+v", step.name, m)
+		}
+
+		// Narrow again: it overflows, and scrolls again.
+		h.show(step.tree(120))
+		h.frames()
+		if !m.overflow {
+			t.Fatalf("%s: narrowed again, the text fits: %+v", step.name, m)
+		}
+	}
+}

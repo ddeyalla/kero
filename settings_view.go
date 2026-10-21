@@ -139,6 +139,10 @@ func (a *App) endSettings() {
 	a.setRecording("") // the menus take their shortcuts back
 	a.ss.query = ""
 	a.ss.linearKey = ""
+	// The plugin fields start again from the saved values the next time:
+	// a draft from before would show over a value saved since.
+	a.ss.pluginDraft = nil
+	a.plugins.pageLoaded = false
 }
 
 // invalidateMain draws the main window anew, which Settings is in.

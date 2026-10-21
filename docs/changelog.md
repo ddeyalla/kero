@@ -110,10 +110,16 @@ builds only. What each feature is and where it stands is tracked in the
   `logs/plugins/<id>.log`, rolled at 1 MB.
 - Plugin settings and secrets: Settings › Plugins lists the built-in and
   installed plugins with their version and permissions, and draws each
-  plugin's settings fields. Secret fields go to the plugin's `secrets.json`
-  (0600 in a 0700 folder), the other values to `settings.json`; the app sends
-  the non-secret values to the plugin on start and after every change, and the
-  plugin reads its secrets itself.
+  plugin's settings fields from its manifest, with their saved values, help
+  and link. Secret fields go to `plugin-data/<id>/secrets.json` under the data
+  folder (0600 in a 0700 folder), apart from the plugin's code; the other
+  values go to `settings.json` there. The app sends the non-secret values to
+  the plugin on start and after every change, and the plugin reads its secrets
+  itself.
+- A plugin's commands are command palette items and `kero do` actions
+  (`kero do plugin.<id>.<command>`; `kero actions` lists them). A command runs
+  on a pane of its plugin, and opens one when there is none. A click on a
+  plugin's notification shows a pane of the plugin.
 - An old terminal service that answers `no view "plugin"` is caught: the pane
   asks you to restart the terminal service instead of showing the raw error.
 - Text in a plugin part can marquee: it stays still when it fits, and

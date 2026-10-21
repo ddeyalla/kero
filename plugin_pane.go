@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/plugin/host"
@@ -30,8 +31,18 @@ type pluginState struct {
 	// means registry.Known; a test sets it to watch the read happen off
 	// the UI goroutine.
 	discover func(dir string) []registry.Plugin
+	// The other hooks a test sets, as discover: command starts a plugin
+	// (nil: the registry's argv), post applies what a plugin or a read did
+	// on the UI goroutine (nil: win.Update), and saveTarget writes a pane's
+	// target (nil: the daemon's pane.target).
+	command    func(registry.Plugin) ([]string, error)
+	post       func(func())
+	saveTarget func(pane, target string)
 
 	panes map[string]*pluginPaneState
+	// pending are the commands of each plugin that wait for a pane of it
+	// to open: the palette or `kero do` ran them while it had none.
+	pending map[string][]string
 
 	// settings and hasSecret are what the settings page shows, read once
 	// off the UI goroutine: a secret is shown as set, never as its value.
@@ -92,8 +103,18 @@ func (a *App) discoverPlugins() {
 	dir := filepath.Join(proto.Dir(), "plugins")
 	go func() {
 		plugins := discover(dir)
-		a.update(func() { a.applyPlugins(plugins) })
+		a.pluginPost(func() { a.applyPlugins(plugins) })
 	}()
+}
+
+// pluginPost runs fn on the UI goroutine: what a plugin's process or a read
+// off the UI goroutine found.
+func (a *App) pluginPost(fn func()) {
+	if a.plugins.post != nil {
+		a.plugins.post(fn)
+		return
+	}
+	a.update(fn)
 }
 
 // applyPlugins caches the plugins the discovery found. It runs on the UI
@@ -102,9 +123,7 @@ func (a *App) applyPlugins(plugins []registry.Plugin) {
 	a.plugins.known = plugins
 	a.plugins.knownAt = true
 	a.plugins.discovering = false
-	if a.win != nil {
-		a.win.Invalidate()
-	}
+	a.invalidateMain()
 }
 
 // pluginByID finds one of the plugins the app knows.
@@ -140,60 +159,74 @@ func (a *App) pluginHost() *host.Host {
 	a.plugins.host = host.New(host.Config{
 		Dir:     proto.Dir(),
 		Plugins: a.knownPlugins(),
+		Command: a.plugins.command,
 		Callbacks: host.Callbacks{
 			Ready: func(plugin string) {
-				a.update(func() {
-					for _, st := range a.plugins.panes {
-						if st.plugin == plugin {
-							st.opened = false
-						}
-					}
-					a.win.Invalidate()
-				})
+				a.pluginPost(func() { a.pluginReady(plugin) })
 			},
 			Render: func(plugin, pane string, tree *protocol.Tree) {
-				a.update(func() {
-					st := a.plugins.panes[pane]
-					if st == nil || st.plugin != plugin {
-						return
-					}
-					st.tree = tree
-					delete(a.plugins.crashed, plugin)
-					a.win.Invalidate()
-				})
+				a.pluginPost(func() { a.pluginRendered(plugin, pane, tree) })
 			},
 			State: func(plugin, pane string, state json.RawMessage) {
-				a.update(func() { a.pluginStateSaved(plugin, pane, state) })
+				a.pluginPost(func() { a.pluginStateSaved(plugin, pane, state) })
 			},
 			Notify: func(plugin, title, body string) {
-				a.update(func() { a.showNotification(plugin, title, body) })
+				a.pluginPost(func() { a.showPluginNotification(plugin, title, body) })
 			},
 			OpenURL: func(plugin, url string) {
-				a.update(func() { openPath(url) })
+				a.pluginPost(func() { openPath(url) })
 			},
 			Crash: func(plugin, message, logPath string) {
-				a.update(func() {
-					if a.plugins.crashed == nil {
-						a.plugins.crashed = map[string]string{}
-					}
-					if a.plugins.logs == nil {
-						a.plugins.logs = map[string]string{}
-					}
-					a.plugins.crashed[plugin] = message
-					a.plugins.logs[plugin] = logPath
-					for _, st := range a.plugins.panes {
-						if st.plugin == plugin {
-							st.err = message
-							st.opened = false
-							st.tree = nil
-						}
-					}
-					a.win.Invalidate()
-				})
+				a.pluginPost(func() { a.pluginCrashed(plugin, message, logPath) })
 			},
 		},
 	})
 	return a.plugins.host
+}
+
+// pluginReady is a plugin that answered the handshake, after a start or a
+// restart: its panes open again on the new process.
+func (a *App) pluginReady(plugin string) {
+	for _, st := range a.plugins.panes {
+		if st.plugin == plugin {
+			st.opened = false
+		}
+	}
+	a.invalidateMain()
+}
+
+// pluginRendered is a tree a plugin drew for one of its panes.
+func (a *App) pluginRendered(plugin, pane string, tree *protocol.Tree) {
+	st := a.plugins.panes[pane]
+	if st == nil || st.plugin != plugin {
+		return
+	}
+	st.tree = tree
+	delete(a.plugins.crashed, plugin)
+	a.invalidateMain()
+}
+
+// pluginCrashed shows why a plugin stopped in each of its panes. The panes
+// are neither open nor shown on a process now, so a restart tells the new
+// one both again.
+func (a *App) pluginCrashed(plugin, message, logPath string) {
+	if a.plugins.crashed == nil {
+		a.plugins.crashed = map[string]string{}
+	}
+	if a.plugins.logs == nil {
+		a.plugins.logs = map[string]string{}
+	}
+	a.plugins.crashed[plugin] = message
+	a.plugins.logs[plugin] = logPath
+	for _, st := range a.plugins.panes {
+		if st.plugin == plugin {
+			st.err = message
+			st.opened = false
+			st.visible = false
+			st.tree = nil
+		}
+	}
+	a.invalidateMain()
 }
 
 // pluginPaneState is the app's state of one plugin pane, made on its first
@@ -247,6 +280,10 @@ func (a *App) pluginStateSaved(plugin, pane string, state json.RawMessage) {
 		return
 	}
 	st.saved = state
+	if a.plugins.saveTarget != nil {
+		a.plugins.saveTarget(pane, target)
+		return
+	}
 	a.call("pane.target", proto.TargetParams{Pane: pane, Target: target}, nil)
 }
 
@@ -293,14 +330,10 @@ func (a *App) pluginPane(c *ui.Context, pal *palette, s *proto.Session, p *proto
 		a.pluginHost().SetTheme(theme)
 	}
 
-	size := protocol.Size{Width: max(int(a.cardSize[p.ID].W), 1), Height: max(int(a.cardSize[p.ID].H), 1)}
+	size := a.pluginPaneSize(p.ID)
 	h := a.pluginHost()
 	if !st.opened {
-		if err := h.Open(plugin.Manifest.ID, host.Pane{ID: p.ID, Widget: st.widget, State: st.state, Size: size}); err != nil {
-			a.toast(err.Error())
-		} else {
-			st.opened = true
-		}
+		a.openOnHost(p.ID, st, size)
 	} else if st.size != size {
 		h.Resize(p.ID, size)
 	}
@@ -320,6 +353,28 @@ func (a *App) pluginPane(c *ui.Context, pal *palette, s *proto.Session, p *proto
 	st.view.draw(c, pal, st.tree, func(ev pluginEvent) {
 		a.pluginHost().Event(p.ID, ev.Node, ev.Kind, ev.Value)
 	})
+}
+
+// pluginPaneSize is the size the app gives a plugin pane: its card's, at
+// least one point.
+func (a *App) pluginPaneSize(pane string) protocol.Size {
+	return protocol.Size{Width: max(int(a.cardSize[pane].W), 1), Height: max(int(a.cardSize[pane].H), 1)}
+}
+
+// openOnHost opens a pane on its plugin's process, which starts when it is
+// not running, and hands it the commands that waited for a pane of the
+// plugin. The host keeps their order: the open goes first.
+func (a *App) openOnHost(pane string, st *pluginPaneState, size protocol.Size) {
+	h := a.pluginHost()
+	if err := h.Open(st.plugin, host.Pane{ID: pane, Widget: st.widget, State: st.state, Size: size}); err != nil {
+		a.toast(err.Error())
+		return
+	}
+	st.opened = true
+	for _, id := range a.plugins.pending[st.plugin] {
+		h.Command(pane, id)
+	}
+	delete(a.plugins.pending, st.plugin)
 }
 
 // pluginCrash draws why a plugin stopped, with the Restart button. Nothing
@@ -353,10 +408,13 @@ func (a *App) restartPlugin(plugin string) {
 		if st.plugin == plugin {
 			st.err = ""
 			st.opened = false
+			// The new process has not heard that the pane shows: the next
+			// frame tells it, after the open.
+			st.visible = false
 			st.tree = nil
 		}
 	}
-	a.win.Invalidate()
+	a.invalidateMain()
 }
 
 // beginPluginFrame marks every plugin pane as not drawn, so that the end
@@ -496,6 +554,144 @@ func (a *App) newPluginPane() {
 	a.chooser = chooserState{open: true, index: len(paneKinds), plugin: true}
 }
 
+// --- Commands ---
+
+// pluginCommands is every command of every plugin the app knows, in the
+// order the palette shows them.
+func (a *App) pluginCommands() []pluginCommand {
+	var cmds []pluginCommand
+	for _, p := range a.knownPlugins() {
+		for _, c := range p.Manifest.Commands {
+			cmds = append(cmds, pluginCommand{plugin: p.Manifest.ID, name: p.Manifest.Name, id: c.ID, title: c.Title})
+		}
+	}
+	return cmds
+}
+
+// pluginCommand is one command of a plugin, as the palette offers it.
+type pluginCommand struct {
+	plugin, name, id, title string
+}
+
+// pluginPaneOf finds a pane of a plugin: the focused pane of the session
+// shown, another pane of it, then a pane of another session. It is nil
+// when no session has one.
+func (a *App) pluginPaneOf(plugin string) (*proto.Session, *proto.Pane) {
+	is := func(p *proto.Pane) bool {
+		if p.View != proto.PanePlugins || p.Target == "" {
+			return false
+		}
+		t, err := protocol.DecodeTarget(p.Target)
+		return err == nil && t.Plugin == plugin
+	}
+	if s := a.session(a.selected); s != nil {
+		if p := s.PaneByID(a.focusOf(s)); p != nil && is(p) {
+			return s, p
+		}
+		for i := range s.Panes {
+			if is(&s.Panes[i]) {
+				return s, &s.Panes[i]
+			}
+		}
+	}
+	for i := range a.st.Sessions {
+		s := &a.st.Sessions[i]
+		for j := range s.Panes {
+			if is(&s.Panes[j]) {
+				return s, &s.Panes[j]
+			}
+		}
+	}
+	return nil, nil
+}
+
+// runPluginCommand runs one of a plugin's commands, from the palette or
+// `kero do`. The plugin hears it on a pane of its own (see pluginPaneOf),
+// which opens on its process if it has not yet: a pane of a session not
+// shown since the app started. With no pane of the plugin anywhere, the
+// command opens one in the session shown, and waits for it to open.
+func (a *App) runPluginCommand(plugin, command string) {
+	p, ok := a.pluginByID(plugin)
+	if !ok {
+		a.toast(locales.PluginUnknownDetail(plugin))
+		return
+	}
+	known := false
+	for _, c := range p.Manifest.Commands {
+		known = known || c.ID == command
+	}
+	if !known {
+		a.toast(locales.PluginNoCommand(p.Manifest.Name, command))
+		return
+	}
+	// A plugin that crashed waits for its Restart button: a command does
+	// not start it behind the user's back.
+	if _, crashed := a.plugins.crashed[plugin]; crashed {
+		a.toast(locales.PluginCrashTitle(p.Manifest.Name))
+		return
+	}
+	_, pane := a.pluginPaneOf(plugin)
+	if pane == nil {
+		s := a.session(a.selected)
+		if s == nil {
+			a.toast(locales.PluginCommandNoSession(p.Manifest.Name))
+			return
+		}
+		if a.plugins.pending == nil {
+			a.plugins.pending = map[string][]string{}
+		}
+		a.plugins.pending[plugin] = append(a.plugins.pending[plugin], command)
+		a.openPluginPane(s, "", plugin, "", false)
+		return
+	}
+	st := a.pluginPaneState(pane)
+	if st.widget == "" {
+		st.widget = a.firstWidget(plugin)
+	}
+	if !st.opened {
+		a.openOnHost(pane.ID, st, a.pluginPaneSize(pane.ID))
+		if !st.opened {
+			return
+		}
+	}
+	a.pluginHost().Command(pane.ID, command)
+}
+
+// showPluginNotification shows a notification a plugin asked for. A click
+// on it shows a pane of the plugin, found when the user clicks: the pane
+// may have moved, or closed, since.
+func (a *App) showPluginNotification(plugin, title, body string) {
+	if !mygo.NotificationsSupported() {
+		return
+	}
+	if title == "" {
+		title = a.pluginName(plugin)
+	}
+	n := mygo.NewNotification(mygo.NotificationOptions{ID: "plugin/" + plugin, Group: "plugin/" + plugin, Title: title, Body: body, Silent: !a.set.NotifySound})
+	n.OnClick(func() {
+		a.update(func() {
+			a.focusPluginPane(plugin)
+			a.win.Show()
+			a.win.Focus()
+		})
+		n.Close()
+	})
+	go n.Show()
+}
+
+// focusPluginPane shows a pane of a plugin, as a click on its notification
+// does. A plugin with no pane leaves the selection as it is.
+func (a *App) focusPluginPane(plugin string) {
+	s, p := a.pluginPaneOf(plugin)
+	if s == nil {
+		return
+	}
+	a.selectSession(s.ID)
+	if s = a.session(s.ID); s != nil {
+		a.setFocus(s, p.ID)
+	}
+}
+
 // --- Settings > Plugins ---
 
 // loadPluginSettings reads the settings and the set secrets of every
@@ -510,42 +706,35 @@ func (a *App) loadPluginSettings() {
 	go func() {
 		settings := map[string]map[string]string{}
 		hasSecret := map[string]map[string]bool{}
-		ids := []string{}
 		for _, p := range plugins {
-			ids = append(ids, p.Manifest.ID)
-		}
-		if _, ok := registry.Find(plugins, "spotify"); !ok {
-			ids = append(ids, "spotify")
-		}
-		for _, id := range ids {
-			values := h.Store().Settings(id)
-			settings[id] = values
+			id := p.Manifest.ID
+			settings[id] = h.Store().Settings(id)
 			secrets := map[string]bool{}
-			for _, p := range plugins {
-				if p.Manifest.ID != id {
-					continue
-				}
-				for _, setting := range p.Manifest.Settings {
-					if setting.Secret && h.Store().HasSecret(id, setting.Key) {
-						secrets[setting.Key] = true
-					}
+			for _, setting := range p.Manifest.Settings {
+				if setting.Secret && h.Store().HasSecret(id, setting.Key) {
+					secrets[setting.Key] = true
 				}
 			}
 			hasSecret[id] = secrets
 		}
-		a.update(func() {
+		a.pluginPost(func() {
 			a.plugins.settings = settings
 			a.plugins.hasSecret = hasSecret
 			a.plugins.loading = false
 			a.plugins.pageLoaded = true
-			a.win.Invalidate()
+			a.invalidateMain()
 		})
 	}()
 }
 
 // pluginField is the text field of one plugin setting, kept between
-// frames.
+// frames. It starts with the saved value, so it is made only once the page
+// has read them: a field made before would start empty, and Return on it
+// would save the empty value over the saved one.
 func (a *App) pluginField(key, value string) *string {
+	if !a.plugins.pageLoaded {
+		return new(string)
+	}
 	if a.ss.pluginDraft == nil {
 		a.ss.pluginDraft = map[string]*string{}
 	}
@@ -567,6 +756,8 @@ func (a *App) pluginsPage(c *ui.Context, pal *palette) {
 	}
 	a.loadPluginSettings()
 	plugins := a.knownPlugins()
+	// Every field comes from a manifest's settings: the page knows no
+	// plugin by name.
 	settingsGroup(c, pal, locales.PluginSettingsGroup(), locales.PluginSettingsGroupDetail(), func() {
 		if len(plugins) == 0 {
 			settingRow(c, pal, locales.PluginNone(), locales.PluginNoneDetail(), func() {})
@@ -575,21 +766,6 @@ func (a *App) pluginsPage(c *ui.Context, pal *palette) {
 			a.pluginCard(c, pal, p)
 		}
 	})
-	if _, ok := registry.Find(plugins, "spotify"); !ok {
-		settingsGroup(c, pal, locales.PluginSpotifyGroup(), locales.PluginSpotifyGroupDetail(), func() {
-			key := "spotify.clientId"
-			draft := a.pluginField(key, a.plugins.settings["spotify"]["clientId"])
-			settingRow(c, pal, locales.PluginSpotifyClientID(), locales.PluginSpotifyClientIDDetail(), func() {
-				in := textField(c, "plugin-spotify-client", draft, locales.PluginSpotifyClientIDPlaceholder(), 260, pal)
-				in.OnSubmit(func() { a.savePluginSetting("spotify", "clientId", *draft) })
-			})
-			settingRow(c, pal, locales.PluginSpotifyDashboard(), "", func() {
-				if button(c, "plugin-spotify-dashboard", locales.PluginSpotifyOpen(), "", false, pal) {
-					openPath("https://developer.spotify.com/dashboard")
-				}
-			})
-		})
-	}
 	if a.plugins.notice != "" {
 		ui.Text(c, a.plugins.notice).FontSize(12).TextColor(pal.textFaint).Padding(4, 0)
 	}
@@ -618,6 +794,10 @@ func (a *App) pluginCard(c *ui.Context, pal *palette, p registry.Plugin) {
 			ui.Text(c, m.Description).FontSize(12).TextColor(pal.textMuted).MaxWidth(520)
 		}
 		ui.Text(c, locales.PluginPermissionsLine(permissions)).FontSize(11.5).TextColor(pal.textFaint)
+		// The fields wait for the saved values, read off the UI goroutine.
+		if !a.plugins.pageLoaded {
+			return
+		}
 		for _, setting := range m.Settings {
 			a.pluginSettingRow(c, pal, p, setting)
 		}
@@ -631,17 +811,26 @@ func (a *App) pluginSettingRow(c *ui.Context, pal *palette, p registry.Plugin, s
 		label = s.Key
 	}
 	settingRow(c, pal, label, s.Help, func() {
-		if s.Secret {
-			placeholder := locales.PluginSecretEmpty()
-			if a.plugins.hasSecret[p.Manifest.ID][s.Key] {
-				placeholder = locales.PluginSecretSet()
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			if s.Secret {
+				placeholder := locales.PluginSecretEmpty()
+				if a.plugins.hasSecret[p.Manifest.ID][s.Key] {
+					placeholder = locales.PluginSecretSet()
+				}
+				in := pluginSecretField(c, "plugin-secret-"+key, a.pluginField(key, ""), placeholder, pal)
+				in.OnSubmit(func() { a.savePluginSecret(p.Manifest.ID, s.Key, *a.pluginField(key, "")) })
+			} else {
+				in := textField(c, "plugin-field-"+key, a.pluginField(key, a.plugins.settings[p.Manifest.ID][s.Key]), locales.PluginSettingEmpty(), 260, pal)
+				in.OnSubmit(func() { a.savePluginSetting(p.Manifest.ID, s.Key, *a.pluginField(key, "")) })
 			}
-			in := pluginSecretField(c, "plugin-secret-"+key, a.pluginField(key, ""), placeholder, pal)
-			in.OnSubmit(func() { a.savePluginSecret(p.Manifest.ID, s.Key, *a.pluginField(key, "")) })
-			return
-		}
-		in := textField(c, "plugin-field-"+key, a.pluginField(key, a.plugins.settings[p.Manifest.ID][s.Key]), s.Help, 260, pal)
-		in.OnSubmit(func() { a.savePluginSetting(p.Manifest.ID, s.Key, *a.pluginField(key, "")) })
+			// A field's link is where its value comes from, as a
+			// developer dashboard: a web page, never a file.
+			if s.Link != "" && webOnly(s.Link) {
+				if button(c, "plugin-link-"+key, locales.PluginSettingOpenLink(), "", false, pal) {
+					openPath(s.Link)
+				}
+			}
+		})
 	})
 }
 
@@ -665,7 +854,7 @@ func (a *App) savePluginSetting(plugin, key, value string) {
 		if err == nil {
 			h.SendSettings(plugin)
 		}
-		a.update(func() {
+		a.pluginPost(func() {
 			if err != nil {
 				a.plugins.notice = err.Error()
 			} else {
@@ -678,7 +867,7 @@ func (a *App) savePluginSetting(plugin, key, value string) {
 				a.plugins.settings[plugin][key] = value
 				a.plugins.notice = locales.PluginSettingsSaved()
 			}
-			a.win.Invalidate()
+			a.invalidateMain()
 		})
 	}()
 }
@@ -688,7 +877,7 @@ func (a *App) savePluginSecret(plugin, key, value string) {
 	value = strings.TrimSpace(value)
 	go func() {
 		err := h.Store().SetSecret(plugin, key, value)
-		a.update(func() {
+		a.pluginPost(func() {
 			if err != nil {
 				a.plugins.notice = err.Error()
 			} else {
@@ -706,7 +895,7 @@ func (a *App) savePluginSecret(plugin, key, value string) {
 				*a.pluginField(plugin+"."+key, "") = ""
 				a.plugins.notice = locales.PluginSecretSaved()
 			}
-			a.win.Invalidate()
+			a.invalidateMain()
 		})
 	}()
 }

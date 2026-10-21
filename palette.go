@@ -73,6 +73,13 @@ func (a *App) paletteItems() []paletteItem {
 				}
 			}})
 	}
+	// A plugin's commands run on a pane of the plugin, which they open
+	// when it has none.
+	for _, pc := range a.pluginCommands() {
+		id := actions.PluginCommand(pc.plugin, pc.id)
+		cmds = append(cmds, paletteItem{title: pc.title, detail: pc.name,
+			run: func() { a.run(id, map[string]string{"via": "palette"}) }})
+	}
 	for _, page := range settingsPages {
 		id := page.id
 		cmds = append(cmds, paletteItem{title: locales.PaletteSettingsPage(page.title()), run: func() { a.openSettings(id) }})

@@ -19,6 +19,10 @@ type logWriter struct {
 	path string
 	file *os.File
 	size int64
+	// closed drops what the process writes after its log closed. The
+	// copy of its stderr can still run then, and a write must not open
+	// the file again: nothing would close it.
+	closed bool
 }
 
 // openLog opens the log of a plugin, under dir, making the folders it
@@ -71,6 +75,11 @@ func (w *logWriter) rotate() error {
 func (w *logWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.closed {
+		// Dropped, not refused: an error would end the copy of the
+		// stderr with a failure of its own.
+		return len(p), nil
+	}
 	if w.file == nil {
 		if err := w.open(); err != nil {
 			return 0, err
@@ -89,10 +98,11 @@ func (w *logWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// Close closes the log.
+// Close closes the log. A write after it is dropped.
 func (w *logWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.closed = true
 	if w.file == nil {
 		return nil
 	}

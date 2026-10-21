@@ -161,6 +161,10 @@ func (a *App) run(id string, args map[string]string) {
 		a.zoom(-1, false)
 	case "text.reset":
 		a.zoom(0, true)
+	default:
+		if plugin, command, ok := actions.ParsePluginCommand(id); ok {
+			a.runPluginCommand(plugin, command)
+		}
 	}
 	if a.win != nil {
 		a.win.Invalidate()

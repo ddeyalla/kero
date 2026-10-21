@@ -120,6 +120,12 @@ kero do pane.split.right
 kero do sidebar.toggle
 ```
 
+A plugin's commands are actions too, as `plugin.<id>.<command>`. `kero actions` lists them with the app's own. A command runs on a pane of its plugin, and opens one when there is none.
+
+```sh
+kero do plugin.example.refresh
+```
+
 ## Exit status
 
 | Code | Meaning                              |

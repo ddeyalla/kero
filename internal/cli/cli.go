@@ -19,6 +19,7 @@ import (
 	"kero/internal/actions"
 	"kero/internal/client"
 	"kero/internal/plugin/protocol"
+	"kero/internal/plugin/registry"
 	"kero/internal/proto"
 	"kero/internal/settings"
 )
@@ -208,6 +209,11 @@ func run(args []string) error {
 		for _, a := range actions.All {
 			if a.Remote {
 				fmt.Fprintf(w, "%s\t%s\t%s\n", a.ID, actions.Glyphs(a.Keys), strings.TrimSuffix(a.Title, "…"))
+			}
+		}
+		for _, p := range knownPlugins() {
+			for _, c := range p.Manifest.Commands {
+				fmt.Fprintf(w, "%s\t\t%s\n", actions.PluginCommand(p.Manifest.ID, c.ID), c.Title)
 			}
 		}
 		return w.Flush()
@@ -589,9 +595,11 @@ func run(args []string) error {
 		if len(args) < 1 {
 			return usageErr("kero do <action> [key=value…] (see kero actions)")
 		}
-		a, ok := actions.Find(args[0])
-		if !ok || !a.Remote {
-			return fmt.Errorf("%w: no action %q (see kero actions)", errNotFound, args[0])
+		id := args[0]
+		if a, ok := actions.Find(id); !ok || !a.Remote {
+			if !pluginCommand(id) {
+				return fmt.Errorf("%w: no action %q (see kero actions)", errNotFound, id)
+			}
 		}
 		kv := map[string]string{}
 		for _, arg := range args[1:] {
@@ -602,7 +610,7 @@ func run(args []string) error {
 			kv[k] = v
 		}
 		var delivered bool
-		if err := c.Call("do", proto.DoParams{Action: a.ID, Args: kv}, &delivered); err != nil {
+		if err := c.Call("do", proto.DoParams{Action: id, Args: kv}, &delivered); err != nil {
 			return err
 		}
 		if !delivered {
@@ -962,4 +970,29 @@ func unescape(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// knownPlugins are the plugins the app knows, as it reads them: its own,
+// and the ones installed under the data folder.
+func knownPlugins() []registry.Plugin {
+	return registry.Known(filepath.Join(proto.Dir(), "plugins"))
+}
+
+// pluginCommand tells whether id is the action of a command of a plugin
+// the app knows: plugin.<plugin>.<command>, as kero actions lists them.
+func pluginCommand(id string) bool {
+	plugin, command, ok := actions.ParsePluginCommand(id)
+	if !ok {
+		return false
+	}
+	p, ok := registry.Find(knownPlugins(), plugin)
+	if !ok {
+		return false
+	}
+	for _, c := range p.Manifest.Commands {
+		if c.ID == command {
+			return true
+		}
+	}
+	return false
 }

@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -24,6 +25,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/plugin/protocol"
+	"kero/locales"
 )
 
 // pluginEvent is what a part of the tree sends the plugin: the id of the
@@ -35,10 +37,12 @@ type pluginEvent struct {
 }
 
 // pluginSource is where a picture comes from: a URL to fetch, or a data:
-// URI to read.
+// URI to read. A picture the pane takes its tint from is read for its
+// color as well, and is its own entry in the cache.
 type pluginSource struct {
 	url  string
 	data string
+	tint bool
 }
 
 // pluginPicture is one picture of the tree, as the pane shows it: nil
@@ -55,12 +59,13 @@ type pluginPicture struct {
 	tinted  bool
 }
 
-// The pictures a pane keeps, in the number of them and in the draws they
-// may go unasked before they are dropped: a data: URI can be large, so the
-// pane does not keep every picture it has ever seen for the session.
+// The pictures a pane keeps: those the tree shows, and as many of those it
+// no longer shows as fit the budget, the most recent first. A data: URI can
+// be large, so the pane does not keep every picture it has ever seen for
+// the session; a picture it shows it keeps, whatever their number, or it
+// would fetch them again in every draw.
 const (
 	pluginPictureBudget = 48
-	pluginPictureStale  = 8
 	pluginPictureTries  = 3
 	pluginPictureRetry  = 2 * time.Second
 )
@@ -92,7 +97,7 @@ type pluginSearch struct {
 // fetches and decodes off the UI goroutine. A pane keeps one pluginView.
 type pluginView struct {
 	mu       sync.Mutex
-	focus    string
+	focus    string // the part that has the focus, bound with FocusBind
 	scroll   map[string]*ui.ScrollState
 	sliders  map[string]*pluginSlider
 	searches map[string]*pluginSearch
@@ -101,10 +106,12 @@ type pluginView struct {
 	pictures map[string]*pluginPicture
 	frame    uint64 // the draw this state was last used in
 
-	// The tint the pane washes itself with: the picture's color, held at
-	// the last frame's value while the wash crossfades to the new one.
+	// The tint the pane washes itself with: the tinted picture's color,
+	// which the pane holds while the next picture loads, and the wash's
+	// color this frame, on its crossfade to that target.
+	tintColor  ui.Color // the last tinted picture's color, unclamped
+	tintTarget ui.Color // that color, clamped for the appearance
 	tintShown  ui.Color
-	tintTarget ui.Color
 	tinted     bool
 
 	// fetch loads a picture, off the UI goroutine; tests replace it. The
@@ -114,6 +121,9 @@ type pluginView struct {
 	invalidate func()
 
 	ids map[string]bool // the parts drawn this frame
+	// The controls that can take the focus, by part id: this frame's, and
+	// the last frame's, which tell a part that MyGo sees anew.
+	controls, lastControls map[string]uint64
 }
 
 // drawPluginTree draws tree for one frame in the pane pal belongs to,
@@ -149,12 +159,13 @@ func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send
 	v.invalidate = c.Invalidate
 	v.mu.Unlock()
 	v.ids = make(map[string]bool, 64)
+	v.lastControls, v.controls = v.controls, make(map[string]uint64, len(v.controls))
 	v.frame++
 	// The root's own key holds the pane's place: a tree of the same root
 	// id keeps its controls, and their state, from one render to the next.
 	ui.Column(c.Key("plugin-" + tree.Root.ID)).Fill().MinWidth(0).MinHeight(0).Children(func() {
-		tint, ok := v.treeTint(tree.Root)
-		v.drawTint(c, pal, tint, ok)
+		tint, ok, pending := v.treeTint(tree.Root)
+		v.drawTint(c, pal, tint, ok, pending)
 		v.part(c, pal, tree.Root, true, send)
 	})
 	v.forget()
@@ -308,7 +319,7 @@ func pluginTextColor(pal *palette, n *protocol.Node) ui.Color {
 // image draws a picture part: the picture once it is loaded, at its own
 // size, or the one the plugin asks for, rounded as it says.
 func (v *pluginView) image(c *ui.Context, pal *palette, n *protocol.Node) {
-	bm := v.picture(c, pluginSource{url: n.URL, data: n.Data})
+	bm := v.picture(c, pluginImageSource(n))
 	r := float32(n.Radius)
 	var w, h float32
 	if n.Width > 0 {
@@ -352,6 +363,7 @@ func (v *pluginView) button(c *ui.Context, pal *palette, n *protocol.Node, horiz
 		icon, ok := pluginIcon(n.Icon)
 		b := ui.ButtonBase(c.Key(n.ID)).Size(28, 26).Radius(6).Center().Shrink(0).Label(label).Tooltip(label)
 		b.AlignSelf(ui.Start)
+		v.bindFocus(b, n.ID)
 		bg := ui.Transparent
 		switch {
 		case b.Pressed():
@@ -377,6 +389,7 @@ func (v *pluginView) button(c *ui.Context, pal *palette, n *protocol.Node, horiz
 		return
 	}
 	b := ui.ButtonBase(c.Key(n.ID)).Height(30).Padding(0, 14).Gap(8).Radius(8).AlignItems(ui.Center).Shrink(0).Label(label)
+	v.bindFocus(b, n.ID)
 	bg, fg := pal.control, pal.text
 	if n.Primary {
 		bg, fg = pal.accent, ui.Hex("#ffffff")
@@ -423,7 +436,11 @@ func (v *pluginView) slider(c *ui.Context, pal *palette, n *protocol.Node, horiz
 	if width <= 0 {
 		width = 150
 	}
-	s := slider(c, n.ID, &st.value, n.Min, n.Max, width, pal).Label(n.ID)
+	s := slider(c, n.ID, &st.value, n.Min, n.Max, width, pal).Label(pluginPartLabel(n, locales.PluginPartSlider()))
+	if n.Step > 0 {
+		s.Step(n.Step)
+	}
+	v.bindFocus(s, n.ID)
 	if horizontal {
 		s.Grow(1).MinWidth(120)
 	} else {
@@ -437,11 +454,28 @@ func (v *pluginView) slider(c *ui.Context, pal *palette, n *protocol.Node, horiz
 	case n.Enabled != nil && !*n.Enabled:
 	case s.Changed():
 		v.emit(send, n.ID, protocol.KindChange, st.value)
+		if !pressed && !st.pressed {
+			// A key moved it, not the pointer: each press of an arrow is
+			// a value the user settled on, so it commits at once.
+			v.emit(send, n.ID, protocol.KindCommit, st.value)
+		}
 	}
 	if st.pressed && !pressed {
 		v.emit(send, n.ID, protocol.KindCommit, st.value)
 	}
 	st.pressed = pressed
+}
+
+// pluginPartLabel is what assistive technology calls a part: its label,
+// or its text, as the plugin gives them, or the name of its kind.
+func pluginPartLabel(n *protocol.Node, kind string) string {
+	switch {
+	case n.Label != "":
+		return n.Label
+	case n.Text != "":
+		return n.Text
+	}
+	return kind
 }
 
 // pluginProgressValue is the value a progress bar shows: the one the
@@ -474,7 +508,7 @@ func (v *pluginView) progressBar(c *ui.Context, pal *palette, n *protocol.Node) 
 	if n.Color != "" {
 		fill = pluginTextColor(pal, n)
 	}
-	e := ui.Box(c.Key(n.ID)).Height(h).MinHeight(h).MinWidth(0).AlignSelf(ui.Stretch).Label(n.ID)
+	e := ui.Box(c.Key(n.ID)).Height(h).MinHeight(h).MinWidth(0).AlignSelf(ui.Stretch).Label(pluginPartLabel(n, locales.PluginPartProgress()))
 	e.Draw(func(p *ui.Painter, r ui.Rect) {
 		p.Fill(r, track, h/2)
 		if value > 0 {
@@ -520,14 +554,16 @@ func (v *pluginView) listRow(c *ui.Context, pal *palette, n *protocol.Node, item
 		bg = pal.rowHover
 	}
 	r.Background(r.AnimateColor("bg", bg, row))
-	if item.Image != "" {
-		if bm := v.picture(c, pluginSource{url: item.Image}); bm != nil {
-			ui.Image(c.Key("pic"), bm).Size(28, 28).Fit(ui.Cover).Radius(6).Shrink(0)
-		} else {
-			ui.Box(c.Key("pic")).Size(28, 28).Radius(6).Shrink(0).Background(pal.chip)
-		}
-	}
 	r.Children(func() {
+		// The picture leads the row, inside it: each row's own "pic" key,
+		// so that two rows with pictures do not share one.
+		if item.Image != "" {
+			if bm := v.picture(c, pluginSource{url: item.Image}); bm != nil {
+				ui.Image(c.Key("pic"), bm).Size(28, 28).Fit(ui.Cover).Radius(6).Shrink(0)
+			} else {
+				ui.Box(c.Key("pic")).Size(28, 28).Radius(6).Shrink(0).Background(pal.chip)
+			}
+		}
 		ui.Column(c.Key("text")).Grow(1).MinWidth(0).Gap(1).Children(func() {
 			ui.Text(c.Key("title"), item.Title).FontSize(13).TextColor(pal.text).SingleLine().Ellipsis("…")
 			if item.Subtitle != "" {
@@ -559,10 +595,8 @@ func (v *pluginView) searchField(c *ui.Context, pal *palette, n *protocol.Node, 
 		ui.Icon(c, searchIcon).Size(12, 12).TextColor(pal.textFaint).Shrink(0)
 		in = ui.TextInputBase(c.Key("in"), &st.query).Grow(1).MinWidth(0).FontSize(13).Placeholder(n.Placeholder).Label(n.Placeholder)
 	})
+	v.bindFocus(in, n.ID)
 	field(c, frame, in.Focused(), pal)
-	if in.Focused() {
-		v.focus = n.ID
-	}
 	in.OnChange(func() {
 		// The change waits for the typing to pause. Ask for the frame
 		// after this one, in which the wait is what the field shows, so
@@ -609,6 +643,23 @@ func (v *pluginView) emptyState(c *ui.Context, pal *palette, n *protocol.Node, s
 	})
 }
 
+// bindFocus ties the focus of e to the part id: the pane keeps the id the
+// user gave the focus to, and gives it back to the part of that id when
+// the part is drawn again under a new parent, or a new root, where MyGo
+// sees a new control and the focus would be lost with the old one. An id
+// this frame already bound, which a valid tree does not repeat, keeps its
+// first part.
+func (v *pluginView) bindFocus(e ui.Element, id string) {
+	if _, ok := v.controls[id]; ok {
+		return
+	}
+	v.controls[id] = e.ID()
+	if last, ok := v.lastControls[id]; ok && last != e.ID() && v.focus == id {
+		e.Focus()
+	}
+	e.FocusBind(&v.focus, id)
+}
+
 // emit sends an event, if the pane has somewhere to send it.
 func (v *pluginView) emit(send func(pluginEvent), node, kind string, value any) {
 	if send != nil {
@@ -616,9 +667,18 @@ func (v *pluginView) emit(send func(pluginEvent), node, kind string, value any) 
 	}
 }
 
+// pluginImageSource is the source of an image part.
+func pluginImageSource(n *protocol.Node) pluginSource {
+	return pluginSource{url: n.URL, data: n.Data, tint: n.Tint}
+}
+
 // pluginSourceKey names a picture's source in the pane's cache.
 func pluginSourceKey(src pluginSource) string {
-	return src.url + "\x00" + src.data
+	key := src.url + "\x00" + src.data
+	if src.tint {
+		key += "\x00tint"
+	}
+	return key
 }
 
 // picture returns the picture of src, starting its fetch the first time
@@ -661,10 +721,10 @@ func (v *pluginView) startPicture(key string, pic *pluginPicture, started time.T
 	go func() {
 		bm, img, err := fetch(pic.src)
 		var tint ui.Color
-		tinted := err == nil && img != nil
+		tinted := err == nil && img != nil && pic.src.tint
 		if tinted {
-			// The picture's color is read here, off the UI goroutine,
-			// once for this picture.
+			// The color of a picture the pane is tinted from is read
+			// here, off the UI goroutine, once for this picture.
 			tint = pluginDominantColor(img)
 		}
 		v.mu.Lock()
@@ -685,24 +745,16 @@ func (v *pluginView) startPicture(key string, pic *pluginPicture, started time.T
 	}()
 }
 
-// prunePictures drops the pictures the tree has not asked for in a few
-// draws, and the oldest over the budget, so a long session does not keep
-// every picture it has ever shown.
+// prunePictures drops the pictures the tree no longer asks for, the
+// longest unasked first, while the pane keeps more than its budget. A
+// picture this draw asked for, or one still on its way, stays.
 func (v *pluginView) prunePictures() {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	for key, pic := range v.pictures {
-		if pic.loading {
-			continue
-		}
-		if v.frame-pic.used > pluginPictureStale {
-			delete(v.pictures, key)
-		}
-	}
 	for len(v.pictures) > pluginPictureBudget {
 		oldestKey, oldest := "", uint64(0)
 		for key, pic := range v.pictures {
-			if pic.loading {
+			if pic.loading || pic.used == v.frame {
 				continue
 			}
 			if oldestKey == "" || pic.used < oldest {
@@ -717,39 +769,54 @@ func (v *pluginView) prunePictures() {
 }
 
 // pictureTint returns the color the picture was read for, once it is
-// loaded.
-func (v *pluginView) pictureTint(src pluginSource) (ui.Color, bool) {
+// loaded, and whether the picture is still on its way: a picture the pane
+// has not asked for yet, one that loads, and one that failed but will be
+// tried again all have no color yet, which is not the same as none.
+func (v *pluginView) pictureTint(src pluginSource) (tint ui.Color, ok, pending bool) {
 	key := pluginSourceKey(src)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	pic := v.pictures[key]
-	if pic == nil || pic.loading || !pic.tinted {
-		return ui.Transparent, false
+	switch {
+	case pic == nil || pic.loading:
+		return ui.Transparent, false, true
+	case pic.tinted:
+		return pic.tint, true, false
+	case pic.bm == nil && pic.tries < pluginPictureTries:
+		return ui.Transparent, false, true
 	}
-	return pic.tint, true
+	return ui.Transparent, false, false
 }
 
-// pluginMaxImageBytes keeps a huge picture from being fetched whole.
-const pluginMaxImageBytes = 32 << 20
+// pluginMaxImageBytes keeps a huge picture from being fetched whole, and
+// pluginMaxImagePixels from being decoded whole: a small file can declare
+// a picture of many gigabytes.
+const (
+	pluginMaxImageBytes  = 32 << 20
+	pluginMaxImagePixels = 4096 * 4096
+)
 
 // pluginFetch loads a picture off the UI goroutine: a data: URI's bytes,
-// or a URL's, decoded to a bitmap for the pane and to an image for its
-// colors.
+// or a URL's, decoded once, to an image for its colors and a bitmap of it
+// for the pane. Its size is read from its header first, so a picture too
+// large to decode is turned away before it takes the memory.
 func pluginFetch(src pluginSource) (*ui.Bitmap, image.Image, error) {
 	data, err := pluginPictureBytes(src)
 	if err != nil {
 		return nil, nil, err
 	}
-	bm, err := ui.DecodeBitmap(data)
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, nil, err
 	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > pluginMaxImagePixels {
+		return nil, nil, fmt.Errorf("plugin image: %dx%d is larger than %d pixels", cfg.Width, cfg.Height, pluginMaxImagePixels)
+	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		// The picture shows; it just has no color the pane can sample.
-		return bm, nil, nil
+		return nil, nil, err
 	}
-	return bm, img, nil
+	return ui.NewBitmap(img), img, nil
 }
 
 // pluginPictureBytes is the bytes of a picture: a data: URI's, or a URL's

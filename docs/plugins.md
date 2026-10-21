@@ -24,9 +24,13 @@ A plugin ships a `kero-plugin.json` next to it:
     { "name": "main", "title": "Example", "minWidth": 280, "minHeight": 150 }
   ],
   "commands": [{ "id": "refresh", "title": "Refresh Example" }],
-  "permissions": { "secrets": true, "notify": false, "openURL": true },
+  "permissions": ["secrets", "openURL"],
   "settings": [
-    { "key": "apiKey", "label": "API Key", "kind": "text", "secret": true },
+    {
+      "key": "apiKey", "label": "API Key", "kind": "text", "secret": true,
+      "help": "The key of your Example account.",
+      "link": "https://example.com/account/keys"
+    },
     { "key": "project", "label": "Project", "kind": "text" }
   ]
 }
@@ -34,17 +38,29 @@ A plugin ships a `kero-plugin.json` next to it:
 
 | Field | Meaning |
 | --- | --- |
-| `id` | The plugin's id: lowercase letters, digits and dashes, 2 to 41 characters, starting with a letter or digit. It names the plugin's folder in the data directory. |
+| `id` | The plugin's id: lowercase letters, digits and dashes, 2 to 41 characters, starting with a letter or digit. It names the plugin's code folder and its data folder. |
 | `name`, `version`, `description` | What Settings › Plugins shows. |
 | `run` | The argv that starts the plugin process. A built-in plugin's run is the app's own executable with `plugin-run <id>`. |
 | `widgets` | Each widget has a `name` (unique), a `title` and a least size. |
-| `commands` | Ids and titles the app can send with `command`. Ids are unique. |
+| `commands` | Ids and titles the app sends with `command`. Ids are unique. Each command is an item of the command palette, titled as the manifest says, and the `kero do plugin.<id>.<command>` action, which `kero actions` lists. |
 | `permissions` | `secrets` (read and write its own secrets), `notify` (post a notification) and `openURL` (open a URL in the browser). A call without its permission is refused. |
-| `settings` | Optional fields shown in Settings › Plugins: `key`, `label`, `kind` (currently `text`), `secret`, `help` and `link`. |
+| `settings` | Optional fields shown in Settings › Plugins: `key`, `label`, `kind` (currently `text`), `secret`, `help` (the line under the label) and `link` (an http or https page, opened by the field's **Open Link** button). The page draws only what the manifests declare. |
 
 Built-in plugins are roles of the app's binary: `kero plugin-run <id>`. An
-installed plugin lives in `plugins/<id>/` under the Shibu data folder
+installed plugin's code lives in `plugins/<id>/` under the Shibu data folder
 (`~/Library/Application Support/kero-local` unless `KERO_HOME` overrides it).
+What the user gave it, its settings and secrets, lives apart, in
+`plugin-data/<id>/`: an install that replaces the code keeps them.
+
+## Commands
+
+A command runs on a pane of its plugin: the focused pane of the session
+shown, another pane of that session, then a pane of another session. A pane
+that has not opened on the plugin's process yet opens for the command. With no
+pane of the plugin anywhere, the command opens the plugin's first widget in
+the session shown, and the plugin hears the command right after that pane's
+`open`. A plugin that crashed waits for its **Restart** button: a command does
+not start it.
 
 ## The pane and its target
 
@@ -75,7 +91,7 @@ The app sends `hello {protocol, host}` first, and the plugin answers
 | `theme {dark, accent}` | The appearance or the accent changed. |
 | `settings {values}` | The plugin starts or its settings change; secret values are never sent. |
 | `event {pane, node, kind, value}` | A part was pressed, changed, committed, selected or submitted. |
-| `command {id}` | The user ran one of the manifest's commands. |
+| `command {id}` | The user ran one of the manifest's commands, from the palette or `kero do`. |
 
 | The plugin sends | The app answers with |
 | --- | --- |
@@ -117,15 +133,19 @@ cached; a progress part with a `rate` (fraction of the work per second) and an
 ## Settings, secrets and logs
 
 Settings › Plugins lists the built-in and installed plugins with their version
-and permissions and draws each plugin's fields. A `secret` field is written to
-the plugin's `secrets.json` (file `0600`, folder `0700`); the other fields go
-to `settings.json` in the same folder. The app sends only the non-secret
+and permissions and draws each plugin's fields, each with its saved value. A
+`secret` field is written to the plugin's `plugin-data/<id>/secrets.json` (file
+`0600`; the folder is made, or closed, to `0700`); the other fields go to
+`settings.json` in the same folder. The app sends only the non-secret
 values in the `settings` message; the plugin reads its secrets with
 `secret.get`, and it can read only its own.
 
 A plugin's stderr goes to `logs/plugins/<id>.log` under the data folder,
 rolled at 1 MB. A crash shows an error and a **Restart** button in the pane,
 once; a plugin that stops reading its input is stopped after five seconds.
+
+A plugin's `notify` shows a system notification. A click on it shows a pane
+of the plugin, found at the click.
 
 ## Not here yet
 

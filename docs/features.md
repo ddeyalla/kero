@@ -49,6 +49,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | The plugin platform: manifest, JSON-RPC process host, one process per plugin, permission checks, crash with **Restart** | Automatic when a plugin pane opens | Unreleased | Untried |
 | Plugin parts: rows, columns, text, images, buttons, sliders, progress, lists, a search field, an empty state, spacers and dividers, in the app's palette and motion | A plugin's widget pane | Unreleased | Untried |
 | Plugin settings and secrets: Settings › Plugins lists plugins, versions, permissions and fields; secrets in a 0600 file | Settings › Plugins | Unreleased | Untried |
+| Plugin commands: each manifest command in the palette and as a `kero do` action; runs on a pane of its plugin, opening one if needed | Command palette, `kero do plugin.<id>.<command>`, `kero actions` | Unreleased | Untried |
 | Marquee text only when it overflows; static ellipsis with Reduce Motion | `marquee` on a text part | Unreleased | Untried |
 | Image tint: a soft gradient of the picture's own color behind the pane, crossfaded and contrast clamped | `tint` on an image part | Unreleased | Untried |
 | A plugin's stderr log, rolled at 1 MB, and a failed plugin's error with a **Restart** button | Automatic | Unreleased | Untried |

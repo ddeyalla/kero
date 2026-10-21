@@ -125,6 +125,33 @@ func init() {
 	}
 }
 
+// PluginPrefix starts the id of a plugin's command as an action:
+// plugin.<plugin>.<command>. A plugin's id and its commands' ids have no
+// dot, so the id splits one way only.
+//
+// A plugin's commands are not in All: they come and go with the plugins the
+// app knows, which the app and the command line each read.
+const PluginPrefix = "plugin."
+
+// PluginCommand is the action id of one of a plugin's commands.
+func PluginCommand(plugin, command string) string {
+	return PluginPrefix + plugin + "." + command
+}
+
+// ParsePluginCommand splits the action id of a plugin's command into the
+// plugin and the command. It tells false for any other id.
+func ParsePluginCommand(id string) (plugin, command string, ok bool) {
+	rest, ok := strings.CutPrefix(id, PluginPrefix)
+	if !ok {
+		return "", "", false
+	}
+	plugin, command, ok = strings.Cut(rest, ".")
+	if !ok || plugin == "" || command == "" || strings.Contains(command, ".") {
+		return "", "", false
+	}
+	return plugin, command, true
+}
+
 // Find returns an action by its id.
 func Find(id string) (Action, bool) {
 	for _, a := range All {

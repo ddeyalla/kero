@@ -112,33 +112,38 @@ func pluginTintClamp(c ui.Color, dark bool) ui.Color {
 }
 
 // treeTint finds the first tinted picture of the tree, and returns the
-// color the pane takes from it. A picture still loading has no color yet.
-func (v *pluginView) treeTint(n *protocol.Node) (ui.Color, bool) {
+// color the pane takes from it, and whether that picture is still on its
+// way: one that loads has no color yet, but the pane is still tinted.
+func (v *pluginView) treeTint(n *protocol.Node) (tint ui.Color, ok, pending bool) {
 	if n == nil {
-		return ui.Transparent, false
+		return ui.Transparent, false, false
 	}
 	if n.Type == protocol.NodeImage && n.Tint {
-		if c, ok := v.pictureTint(pluginSource{url: n.URL, data: n.Data}); ok {
-			return c, true
-		}
-		return ui.Transparent, false
+		return v.pictureTint(pluginImageSource(n))
 	}
 	for _, child := range n.Children {
-		if c, ok := v.treeTint(child); ok {
-			return c, true
+		if tint, ok, pending := v.treeTint(child); ok || pending {
+			return tint, ok, pending
 		}
 	}
-	return ui.Transparent, false
+	return ui.Transparent, false, false
 }
 
 // drawTint paints the picture's wash behind the plugin's parts, and
-// crossfades it when the picture, and so the color, changes.
-func (v *pluginView) drawTint(c *ui.Context, pal *palette, target ui.Color, ok bool) {
-	if !ok {
-		target = ui.Transparent
-	} else {
-		target = pluginTintClamp(target, pal.dark)
+// crossfades it when the picture, and so the color, changes. While the
+// next picture loads the wash holds the last one's color, so it does not
+// fade out between two pictures and back in.
+func (v *pluginView) drawTint(c *ui.Context, pal *palette, color ui.Color, ok, pending bool) {
+	switch {
+	case ok:
+		v.tintColor = color
+	case pending:
+		color = v.tintColor
+	default:
+		v.tintColor = ui.Transparent
+		color = ui.Transparent
 	}
+	target := pluginTintClamp(color, pal.dark)
 	box := ui.Box(c.Key("plugin-tint")).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Radius(14)
 	shown := box.AnimateColor("tint", target, slide)
 	v.tintTarget, v.tintShown = target, shown

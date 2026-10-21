@@ -326,6 +326,87 @@ func TestRenderFailureReachesTheHandler(t *testing.T) {
 	waitEnd(t, errs)
 }
 
+// A handler that waits for the answer to a render, while the host sends
+// more calls than any buffer holds, still gets its answer: the read loop
+// never waits for the handlers, and the calls run after, in their order.
+func TestAWaitingHandlerDoesNotStopTheReadLoop(t *testing.T) {
+	h := newHost()
+	defer h.close()
+	rendered := make(chan error, 1)
+	widths := make(chan int, 32)
+	errs := runPlugin(t, h, Handlers{
+		Open: func(c *Conn, e OpenEvent) {
+			rendered <- c.Render(e.Pane, Text("t", "hi").Tree())
+		},
+		Resize: func(c *Conn, pane string, size protocol.Size) {
+			widths <- size.Width
+		},
+	})
+	if resp := h.hello(t, protocol.Version); resp.Error != nil {
+		t.Fatalf("hello: %v", resp.Error)
+	}
+	open, err := protocol.NewNotification(protocol.MethodOpen, protocol.OpenParams{Pane: "p1", Widget: "player"})
+	if err != nil {
+		t.Fatalf("NewNotification: %v", err)
+	}
+	h.send(t, open)
+	req := h.request(t, 5*time.Second)
+	if req.Method != protocol.MethodRender {
+		t.Fatalf("method = %q, want %q", req.Method, protocol.MethodRender)
+	}
+
+	// The pipe is synchronous: a plugin that stopped reading would hold
+	// these writes forever, so they run off the test's goroutine.
+	const resizes = 20
+	sent := make(chan error, 1)
+	go func() {
+		for i := 1; i <= resizes; i++ {
+			resize, err := protocol.NewNotification(protocol.MethodResize, protocol.ResizeParams{Pane: "p1", Size: protocol.Size{Width: i, Height: 1}})
+			if err == nil {
+				err = h.enc.Encode(resize)
+			}
+			if err != nil {
+				sent <- err
+				return
+			}
+		}
+		resp, err := protocol.NewResult(req.ID, struct{}{})
+		if err == nil {
+			err = h.enc.Encode(resp)
+		}
+		sent <- err
+	}()
+	select {
+	case err := <-sent:
+		if err != nil {
+			t.Fatalf("send: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the plugin stopped reading while a handler waited")
+	}
+	select {
+	case err := <-rendered:
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the render never got its answer")
+	}
+	for i := 1; i <= resizes; i++ {
+		select {
+		case w := <-widths:
+			if w != i {
+				t.Fatalf("resize %d came as width %d: out of order", i, w)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("resize %d never reached its handler", i)
+		}
+	}
+
+	h.in.Close()
+	waitEnd(t, errs)
+}
+
 func TestBadVersionIsRefused(t *testing.T) {
 	h := newHost()
 	defer h.close()

@@ -56,9 +56,11 @@ func RunIO(r io.Reader, w io.Writer, handlers Handlers) error {
 		handlers: handlers,
 		pending:  map[string]chan *protocol.Response{},
 		done:     make(chan struct{}),
-		requests: make(chan *protocol.Request, 16),
+		incoming: make(chan *protocol.Request),
+		requests: make(chan *protocol.Request),
 	}
 	go c.readLoop()
+	go c.queue()
 	var running sync.WaitGroup
 	running.Add(1)
 	go func() {
@@ -78,6 +80,11 @@ func RunIO(r io.Reader, w io.Writer, handlers Handlers) error {
 // Conn is one plugin's connection to its host. The loop reads on its
 // own goroutine, so that a handler can call the host and wait for the
 // answer.
+//
+// The read loop never waits on a handler. It hands the host's calls to a
+// queue with no bound, and the handlers take them from it in order: a
+// handler that waits for the answer to a render, while the host sends more
+// calls than any buffer holds, still gets its answer.
 type Conn struct {
 	enc      *protocol.Encoder
 	dec      *protocol.Decoder
@@ -86,7 +93,8 @@ type Conn struct {
 	next     atomic.Int64
 	mu       sync.Mutex
 	pending  map[string]chan *protocol.Response
-	requests chan *protocol.Request
+	incoming chan *protocol.Request // from the read loop to the queue
+	requests chan *protocol.Request // from the queue to the handlers
 
 	done      chan struct{}
 	closeOnce sync.Once
@@ -140,7 +148,7 @@ func (c *Conn) readLoop() {
 				continue
 			}
 			select {
-			case c.requests <- &req:
+			case c.incoming <- &req:
 			case <-c.done:
 				return
 			}
@@ -155,6 +163,29 @@ func (c *Conn) readLoop() {
 			continue
 		}
 		ch <- &protocol.Response{JSONRPC: "2.0", ID: probe.ID, Result: probe.Result, Error: probe.Error}
+	}
+}
+
+// queue holds the host's calls between the read loop and the handlers, in
+// the order they came. It takes a call whenever one comes, so the read loop
+// waits for it only as long as one append takes, never for a handler.
+func (c *Conn) queue() {
+	var calls []*protocol.Request
+	for {
+		var out chan *protocol.Request
+		var head *protocol.Request
+		if len(calls) > 0 {
+			out, head = c.requests, calls[0]
+		}
+		select {
+		case req := <-c.incoming:
+			calls = append(calls, req)
+		case out <- head:
+			calls[0] = nil
+			calls = calls[1:]
+		case <-c.done:
+			return
+		}
 	}
 }
 

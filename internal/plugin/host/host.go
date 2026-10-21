@@ -122,6 +122,11 @@ type Host struct {
 	panes   map[string]map[string]Pane
 	owner   map[string]string
 	timers  map[string]*time.Timer
+	// idle counts each plugin's turns between in use and idle. A stop timer
+	// carries the count it was set at, and stops nothing once it changed: a
+	// timer that fired as a pane opened, after a Close, Open and Close,
+	// must not end the plugin before its own delay.
+	idle    map[string]uint64
 	theme   Theme
 	stopped bool
 }
@@ -138,13 +143,14 @@ func New(cfg Config) *Host {
 		helloTimeout: cfg.HelloTimeout,
 		stallTimeout: cfg.StallTimeout,
 		cbs:          cfg.Callbacks,
-		store:        NewStore(filepath.Join(dir, "plugins")),
+		store:        NewStore(filepath.Join(dir, "plugin-data")),
 		command:      cfg.Command,
 		plugins:      map[string]registry.Plugin{},
 		procs:        map[string]*proc{},
 		panes:        map[string]map[string]Pane{},
 		owner:        map[string]string{},
 		timers:       map[string]*time.Timer{},
+		idle:         map[string]uint64{},
 	}
 	if h.stopDelay <= 0 {
 		h.stopDelay = DefaultStopDelay
@@ -200,10 +206,7 @@ func (h *Host) Open(plugin string, pane Pane) error {
 	previous, existed := h.panes[plugin][pane.ID]
 	h.panes[plugin][pane.ID] = pane
 	h.owner[pane.ID] = plugin
-	if t := h.timers[plugin]; t != nil {
-		t.Stop()
-		delete(h.timers, plugin)
-	}
+	h.cancelIdleLocked(plugin)
 	pr := h.procs[plugin]
 	fresh := false
 	if pr == nil {
@@ -237,7 +240,9 @@ func (h *Host) Close(pane string) {
 		delete(panes, pane)
 		if len(panes) == 0 {
 			delete(h.panes, plugin)
-			h.timers[plugin] = time.AfterFunc(h.stopDelay, func() { h.stopIfIdle(plugin) })
+			h.cancelIdleLocked(plugin)
+			gen := h.idle[plugin]
+			h.timers[plugin] = time.AfterFunc(h.stopDelay, func() { h.stopIfIdle(plugin, gen) })
 		}
 	}
 	pr := h.procs[plugin]
@@ -349,10 +354,7 @@ func (h *Host) Restart(plugin string) error {
 			delete(h.owner, pane)
 		}
 	}
-	if t := h.timers[plugin]; t != nil {
-		t.Stop()
-		delete(h.timers, plugin)
-	}
+	h.cancelIdleLocked(plugin)
 	h.mu.Unlock()
 	if old != nil {
 		old.stop()
@@ -381,14 +383,23 @@ func (h *Host) Stop() {
 	h.procs = map[string]*proc{}
 	h.panes = map[string]map[string]Pane{}
 	h.owner = map[string]string{}
-	for id, t := range h.timers {
-		t.Stop()
-		delete(h.timers, id)
+	for id := range h.timers {
+		h.cancelIdleLocked(id)
 	}
 	h.mu.Unlock()
 	for _, pr := range procs {
 		pr.stop()
 	}
+}
+
+// cancelIdleLocked stops a plugin's stop timer, and turns its count, so
+// that a timer already firing stops nothing. The caller holds the lock.
+func (h *Host) cancelIdleLocked(plugin string) {
+	if t := h.timers[plugin]; t != nil {
+		t.Stop()
+		delete(h.timers, plugin)
+	}
+	h.idle[plugin]++
 }
 
 func (h *Host) procListLocked() []*proc {
@@ -415,10 +426,11 @@ func (h *Host) startLocked(p registry.Plugin) *proc {
 	return pr
 }
 
-// stopIfIdle stops a plugin whose last pane has stayed closed long enough.
-func (h *Host) stopIfIdle(plugin string) {
+// stopIfIdle stops a plugin whose last pane has stayed closed long enough,
+// if nothing used it since the timer of gen was set.
+func (h *Host) stopIfIdle(plugin string, gen uint64) {
 	h.mu.Lock()
-	if h.stopped || len(h.panes[plugin]) > 0 {
+	if h.stopped || len(h.panes[plugin]) > 0 || h.idle[plugin] != gen {
 		h.mu.Unlock()
 		return
 	}
@@ -469,22 +481,25 @@ func (h *Host) ready(plugin string) {
 
 // crashed forgets a plugin that died, and tells the app. Nothing restarts
 // it: the app shows the reason and a restart button.
+//
+// A process that is no longer the plugin's, as the one a restart replaced
+// or a stop let go, changes nothing: its late end must not paint a crash
+// over the process that runs now.
 func (h *Host) crashed(pr *proc, message string) {
 	plugin := pr.plugin.Manifest.ID
 	h.mu.Lock()
-	if h.procs[plugin] == pr {
-		delete(h.procs, plugin)
+	if h.procs[plugin] != pr {
+		h.mu.Unlock()
+		return
 	}
+	delete(h.procs, plugin)
 	delete(h.panes, plugin)
 	for pane, owner := range h.owner {
 		if owner == plugin {
 			delete(h.owner, pane)
 		}
 	}
-	if t := h.timers[plugin]; t != nil {
-		t.Stop()
-		delete(h.timers, plugin)
-	}
+	h.cancelIdleLocked(plugin)
 	stopped := h.stopped
 	h.mu.Unlock()
 	if stopped {
@@ -596,6 +611,11 @@ type (
 	stopCmd     struct{}
 	incomingCmd struct {
 		req *protocol.Request
+		// early is a call the plugin made before it answered hello. The
+		// reader knows, as it reads the lines in their order; the run
+		// loop does not, since it may take a call before the answer that
+		// came first.
+		early bool
 	}
 )
 
@@ -683,6 +703,11 @@ func (p *proc) run() {
 		p.crash(fmt.Errorf("could not start the %s plugin: %w", name, err))
 		return
 	}
+	// A pane that closed as the process was about to start leaves
+	// nothing to start, and no log to open.
+	if p.stopped() {
+		return
+	}
 	dir := p.h.logDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		p.crash(fmt.Errorf("could not make the plugin log folder: %w", err))
@@ -694,6 +719,11 @@ func (p *proc) run() {
 		return
 	}
 	p.setLog(logw)
+	// The stop that came while the log opened saw no log to close.
+	if p.stopped() {
+		_ = logw.Close()
+		return
+	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	if p.plugin.Dir != "" && !p.plugin.Builtin {
 		cmd.Dir = p.plugin.Dir
@@ -719,6 +749,9 @@ func (p *proc) run() {
 	if p.stopped() {
 		_ = cmd.Process.Kill()
 		_ = stdin.Close()
+		// The wait reaps the process, which would stay a zombie
+		// without it.
+		go func() { _ = cmd.Wait() }()
 		return
 	}
 	wait := make(chan error, 1)
@@ -743,6 +776,15 @@ func (p *proc) run() {
 		select {
 		case c := <-p.cmds:
 			if !ready {
+				// What the app sent waits for the handshake, as does a
+				// call the plugin made after its answer. A call made
+				// before the answer is refused instead: the plugin answers
+				// hello first, and one that talks before it must not fill
+				// the queue.
+				if in, ok := c.(incomingCmd); ok && in.early {
+					p.fail(in.req.ID, protocol.CodeInvalidRequest, "the handshake is not done")
+					continue
+				}
 				queue = append(queue, c)
 				continue
 			}
@@ -814,6 +856,9 @@ func (p *proc) run() {
 // the plugin makes. A line that is not JSON gets a parse error back and the
 // plugin keeps its process; a line too long is refused the same way.
 func (p *proc) read(dec *protocol.Decoder) {
+	// greeted is the plugin's answer to hello read: the only call of the
+	// host's with an id before the handshake is done.
+	greeted := false
 	for {
 		var raw json.RawMessage
 		err := dec.Decode(&raw)
@@ -847,6 +892,7 @@ func (p *proc) read(dec *protocol.Decoder) {
 				p.parseFail(protocol.CodeParse, "parse error")
 				continue
 			}
+			greeted = true
 			select {
 			case p.hello <- &resp:
 			default:
@@ -858,7 +904,7 @@ func (p *proc) read(dec *protocol.Decoder) {
 			p.parseFail(protocol.CodeParse, "parse error")
 			continue
 		}
-		p.send(incomingCmd{req: &req})
+		p.send(incomingCmd{req: &req, early: !greeted})
 	}
 }
 

@@ -662,8 +662,10 @@ plugin), `widgets` (each with a name, a title and a least size), `commands`,
 The id must match `^[a-z0-9][a-z0-9-]{1,40}$`; widget names and command ids are
 unique. Built-in plugins are roles of the app's own binary: their `run` is the
 app's executable with `plugin-run <id>`, and their manifests are embedded in
-it. An installed plugin lives in `plugins/<id>/` under the Shibu data folder;
-the app reads it but, for now, does not install one.
+it. An installed plugin's code lives in `plugins/<id>/` under the Shibu data
+folder; the app reads it but, for now, does not install one. Its settings and
+secrets live apart, in `plugin-data/<id>/`, so that a later install that
+replaces the code neither wipes them nor brings its own.
 
 **A plugin pane is a normal pane.** Its view is `plugin`, and its
 `proto.Pane.Target` is the JSON
@@ -711,11 +713,28 @@ scroll, pause, reset; a static ellipsis under Reduce Motion), and `image.tint`
 samples the picture's dominant color once, draws a soft gradient behind the
 card, crossfades it, and clamps the lightness for contrast in light and dark.
 
+**Commands.** Each manifest command is a command palette item and the
+`kero do plugin.<id>.<command>` action (`ParsePluginCommand` in
+`internal/actions`; `kero do` and `kero actions` read the known plugins with
+`registry.Known`). Plugin commands are not in `actions.All`, because they come
+and go with the plugins. The app sends a command to a pane of its plugin: the
+focused pane of the session shown, then another of its panes, then a pane of
+another session (`pluginPaneOf`). A pane that is not open on the process yet
+opens for it. With no pane, the command opens the plugin's first widget in the
+session shown and waits in `pluginState.pending` until that pane's `open`,
+which the host sends first. A crashed plugin is not started by a command. A
+plugin's `notify` is a notification whose click focuses a pane of the plugin,
+found at the click (`showPluginNotification`).
+
 **Settings and secrets.** Settings › Plugins lists the built-in and installed
 plugins with their version and their permissions, and draws each plugin's
-settings fields. A field with `secret: true` is written to the plugin's
-`secrets.json` (file `0600`, folder `0700`); the other fields go to
-`settings.json` in the same folder. The app sends the non-secret values to the
+settings fields from its manifest, with `help` under the label and an
+**Open Link** button for an http or https `link`; no plugin is named in the
+code. The fields are made only after the saved values are read off the UI
+goroutine, and closing Settings drops them, so a field never shows empty over
+a saved value. A field with `secret: true` is written to
+`plugin-data/<id>/secrets.json` (file `0600`; the folder is made, or closed,
+to `0700`); the other fields go to `settings.json` in the same folder. The app sends the non-secret values to the
 plugin in the `settings` message on start and after every change, and never
 sends a secret value: the plugin reads its own secrets with `secret.get`. Each
 plugin can read only its own files.
@@ -726,7 +745,8 @@ contract: manifest, messages, line framing, target, tree validation),
 handshake, the run loop and the part builders), [`internal/plugin/host/`](../internal/plugin/host/)
 (one process per plugin, permissions, logging, crash and restart),
 [`internal/plugin/registry/`](../internal/plugin/registry/) (the built-in
-manifests and their run functions), [`plugin_pane.go`](../plugin_pane.go) and
+manifests and their run functions), [`internal/actions/`](../internal/actions/)
+(the action ids of plugin commands), [`plugin_pane.go`](../plugin_pane.go) and
 [`plugin_view.go`](../plugin_view.go) (the pane and the renderer),
 [`plugin_marquee.go`](../plugin_marquee.go), [`plugin_tint.go`](../plugin_tint.go),
 [`pane_chooser.go`](../pane_chooser.go), [`actions.go`](../actions.go),

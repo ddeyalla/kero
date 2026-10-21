@@ -10,8 +10,8 @@ import (
 	"sync"
 )
 
-// A plugin's folder holds what the user chose for it, and what it was
-// trusted with:
+// A plugin's data folder, proto.Dir()/plugin-data/<id>, holds what the
+// user chose for it, and what it was trusted with:
 //
 //	settings.json  the values of its manifest's fields
 //	secrets.json   the values of the fields it marked secret
@@ -19,13 +19,17 @@ import (
 // The two are apart because only the first ever leaves the app for the
 // plugin; a secret reaches the plugin only when it asks for it by name, if
 // its manifest grants the secrets permission.
+//
+// The folder is not the plugin's code folder, proto.Dir()/plugins/<id>: an
+// install that replaces the code must neither wipe the secrets nor bring
+// its own.
 const (
 	settingsFile = "settings.json"
 	secretsFile  = "secrets.json"
 )
 
 // Store keeps the settings and secrets of plugins, under the app's plugin
-// folder. Each call reads the files anew, as credentials do: an edit by
+// data folder. Each call reads the files anew, as credentials do: an edit by
 // hand shows up on the next read, and the lock covers a read, a change and
 // a write as one.
 type Store struct {
@@ -33,7 +37,7 @@ type Store struct {
 	dir string
 }
 
-// NewStore keeps plugins' files under dir: proto.Dir()/plugins.
+// NewStore keeps plugins' files under dir: proto.Dir()/plugin-data.
 func NewStore(dir string) *Store { return &Store{dir: dir} }
 
 // validName tells a name that is safe as one folder: a plugin's id, or a
@@ -53,13 +57,27 @@ func validName(s string) bool {
 	return true
 }
 
-// folder is where a plugin's files live, made when missing.
-func (s *Store) folder(plugin string) (string, error) {
+// path is where a plugin's files live. A read looks there and makes
+// nothing: a plugin that never saved a value has no folder.
+func (s *Store) path(plugin string) (string, error) {
 	if !validName(plugin) {
 		return "", fmt.Errorf("invalid plugin id %q", plugin)
 	}
-	dir := filepath.Join(s.dir, plugin)
+	return filepath.Join(s.dir, plugin), nil
+}
+
+// folder is where a plugin's files live, made when missing, for a write.
+// It is the owner's alone even when it was there before with looser modes:
+// MkdirAll leaves an existing folder as it is.
+func (s *Store) folder(plugin string) (string, error) {
+	dir, err := s.path(plugin)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -68,7 +86,7 @@ func (s *Store) folder(plugin string) (string, error) {
 // read reads a plugin's file as a map. A missing file is an empty map; a
 // file that does not parse is an error, and is left as it is.
 func (s *Store) read(plugin, name string) (map[string]string, error) {
-	dir, err := s.folder(plugin)
+	dir, err := s.path(plugin)
 	if err != nil {
 		return nil, err
 	}

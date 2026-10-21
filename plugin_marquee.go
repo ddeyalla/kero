@@ -64,8 +64,10 @@ func (v *pluginView) text(c *ui.Context, pal *palette, n *protocol.Node, horizon
 
 // marquee draws a text part that scrolls when it does not fit its room.
 // The text is measured at its own width, and the room it has is the width
-// the row around it had last frame, so the first frame shows it still and
-// the next one knows whether it must move.
+// its window had last frame, so the first frame shows it still and the
+// next one knows whether it must move. The window takes the room its parent
+// gives it, never the width it had: a room that grows, as the pane widens,
+// is the room the text has next frame, and a text that now fits stops.
 func (v *pluginView) marquee(c *ui.Context, pal *palette, n *protocol.Node, horizontal bool, size float32, weight int, family string) {
 	m := v.marquees[n.ID]
 	if m == nil {
@@ -91,9 +93,17 @@ func (v *pluginView) marquee(c *ui.Context, pal *palette, n *protocol.Node, hori
 	m.text, m.natural, m.overflow, m.reduce = n.Text, natural, overflow, reduce
 	m.offset, m.moving = 0, false
 
-	clip := ui.Row(c.Key("plugin/window:" + n.ID)).Clip().Grow(1).Shrink(1).MinWidth(0).AlignItems(ui.Center)
-	if avail > 0 {
-		clip.Width(avail)
+	clip := ui.Row(c.Key("plugin/window:" + n.ID)).Clip().MinWidth(0).AlignItems(ui.Center)
+	if horizontal {
+		// In a row the window starts at its text's width, grows into
+		// the row's free room, and shrinks to the room the row has.
+		clip.Grow(1).Shrink(1)
+	} else {
+		// In a column the window is as wide as the column.
+		clip.AlignSelf(ui.Stretch)
+	}
+	if n.Width > 0 {
+		clip.Width(float32(n.Width)).Shrink(0)
 	}
 	if n.Grow > 0 {
 		clip.Grow(float32(n.Grow))
