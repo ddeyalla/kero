@@ -59,8 +59,16 @@ func RunIO(r io.Reader, w io.Writer, handlers Handlers) error {
 		requests: make(chan *protocol.Request, 16),
 	}
 	go c.readLoop()
-	go c.work()
+	var running sync.WaitGroup
+	running.Add(1)
+	go func() {
+		defer running.Done()
+		c.work()
+	}()
 	<-c.done
+	// Wait for the handler loop, so that no handler runs after RunIO
+	// returns and reads or logs on a connection that is gone.
+	running.Wait()
 	if err := c.Err(); err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
@@ -302,16 +310,28 @@ func (c *Conn) call(method string, params any, result any) error {
 	}
 	select {
 	case resp := <-ch:
-		if resp.Error != nil {
-			return resp.Error
-		}
-		if result != nil && len(resp.Result) > 0 {
-			return json.Unmarshal(resp.Result, result)
-		}
-		return nil
+		return decodeResult(resp, result)
 	case <-c.done:
-		return ErrClosed
+		// The host can answer in the same moment it closes the
+		// connection. A response that is already here wins.
+		select {
+		case resp := <-ch:
+			return decodeResult(resp, result)
+		default:
+			return ErrClosed
+		}
 	}
+}
+
+// decodeResult turns one JSON-RPC response into the call's result.
+func decodeResult(resp *protocol.Response, out any) error {
+	if resp.Error != nil {
+		return resp.Error
+	}
+	if out != nil && len(resp.Result) > 0 {
+		return json.Unmarshal(resp.Result, out)
+	}
+	return nil
 }
 
 // Render replaces what one pane draws.
