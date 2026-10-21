@@ -476,7 +476,7 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 		grip.Children(func() {
 			switch {
 			case p.IsView():
-				ui.Icon(c, paneViewIcon(p.View)).Size(14, 14).TextColor(pal.textMuted)
+				paneViewMark(c, p.View, 14, pal.textMuted, pal.dark)
 			case multi && (p.Status != proto.Idle || p.Unread):
 				statusIconP(c, pal, p.Status, p.Unread, p.Progress, 0, 13)
 			case multi:

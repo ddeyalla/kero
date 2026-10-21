@@ -254,6 +254,16 @@ func (msgs Messages) ActionNewBrowserPane() string {
 	return Catalog.Format(msgs.locale, "actionNewBrowserPane", nil)
 }
 
+// ActionNewAttentionPane says "New Attention Pane"
+// in the language the app shows.
+func ActionNewAttentionPane() string { return In(i18n.Locale()).ActionNewAttentionPane() }
+
+// ActionNewAttentionPane says "New Attention Pane"
+// in the language of msgs.
+func (msgs Messages) ActionNewAttentionPane() string {
+	return Catalog.Format(msgs.locale, "actionNewAttentionPane", nil)
+}
+
 // ActionEvenPanes says "Make Panes Even"
 // in the language the app shows.
 func ActionEvenPanes() string { return In(i18n.Locale()).ActionEvenPanes() }
@@ -1344,6 +1354,26 @@ func StatusDone() string { return In(i18n.Locale()).StatusDone() }
 // in the language of msgs.
 func (msgs Messages) StatusDone() string {
 	return Catalog.Format(msgs.locale, "statusDone", nil)
+}
+
+// StatusUnread says "Unread"
+// in the language the app shows.
+func StatusUnread() string { return In(i18n.Locale()).StatusUnread() }
+
+// StatusUnread says "Unread"
+// in the language of msgs.
+func (msgs Messages) StatusUnread() string {
+	return Catalog.Format(msgs.locale, "statusUnread", nil)
+}
+
+// StatusIdle says "Idle"
+// in the language the app shows.
+func StatusIdle() string { return In(i18n.Locale()).StatusIdle() }
+
+// StatusIdle says "Idle"
+// in the language of msgs.
+func (msgs Messages) StatusIdle() string {
+	return Catalog.Format(msgs.locale, "statusIdle", nil)
 }
 
 // UpdateRestartTip says "Kero was updated: restart the background service to run the new version"
@@ -4694,6 +4724,16 @@ func (msgs Messages) PaneBrowser() string {
 	return Catalog.Format(msgs.locale, "paneBrowser", nil)
 }
 
+// PaneAttention says "Attention"
+// in the language the app shows.
+func PaneAttention() string { return In(i18n.Locale()).PaneAttention() }
+
+// PaneAttention says "Attention"
+// in the language of msgs.
+func (msgs Messages) PaneAttention() string {
+	return Catalog.Format(msgs.locale, "paneAttention", nil)
+}
+
 // PaneTerminal says "Terminal"
 // in the language the app shows.
 func PaneTerminal() string { return In(i18n.Locale()).PaneTerminal() }
@@ -4752,6 +4792,106 @@ func PaneBrowserDetail() string { return In(i18n.Locale()).PaneBrowserDetail() }
 // in the language of msgs.
 func (msgs Messages) PaneBrowserDetail() string {
 	return Catalog.Format(msgs.locale, "paneBrowserDetail", nil)
+}
+
+// PaneAttentionDetail says "Every session that needs you, in one list"
+// in the language the app shows.
+func PaneAttentionDetail() string { return In(i18n.Locale()).PaneAttentionDetail() }
+
+// PaneAttentionDetail says "Every session that needs you, in one list"
+// in the language of msgs.
+func (msgs Messages) PaneAttentionDetail() string {
+	return Catalog.Format(msgs.locale, "paneAttentionDetail", nil)
+}
+
+// AttentionAll says "All"
+// in the language the app shows.
+func AttentionAll() string { return In(i18n.Locale()).AttentionAll() }
+
+// AttentionAll says "All"
+// in the language of msgs.
+func (msgs Messages) AttentionAll() string {
+	return Catalog.Format(msgs.locale, "attentionAll", nil)
+}
+
+// AttentionSearch says "Search attention"
+// in the language the app shows.
+func AttentionSearch() string { return In(i18n.Locale()).AttentionSearch() }
+
+// AttentionSearch says "Search attention"
+// in the language of msgs.
+func (msgs Messages) AttentionSearch() string {
+	return Catalog.Format(msgs.locale, "attentionSearch", nil)
+}
+
+// AttentionSearchPlaceholder says "Search"
+// in the language the app shows.
+func AttentionSearchPlaceholder() string { return In(i18n.Locale()).AttentionSearchPlaceholder() }
+
+// AttentionSearchPlaceholder says "Search"
+// in the language of msgs.
+func (msgs Messages) AttentionSearchPlaceholder() string {
+	return Catalog.Format(msgs.locale, "attentionSearchPlaceholder", nil)
+}
+
+// AttentionClearFilter says "Clear Filter"
+// in the language the app shows.
+func AttentionClearFilter() string { return In(i18n.Locale()).AttentionClearFilter() }
+
+// AttentionClearFilter says "Clear Filter"
+// in the language of msgs.
+func (msgs Messages) AttentionClearFilter() string {
+	return Catalog.Format(msgs.locale, "attentionClearFilter", nil)
+}
+
+// AttentionEmptyTitle says "Nothing needs you"
+// in the language the app shows.
+func AttentionEmptyTitle() string { return In(i18n.Locale()).AttentionEmptyTitle() }
+
+// AttentionEmptyTitle says "Nothing needs you"
+// in the language of msgs.
+func (msgs Messages) AttentionEmptyTitle() string {
+	return Catalog.Format(msgs.locale, "attentionEmptyTitle", nil)
+}
+
+// AttentionEmptyDetail says "Sessions that work, wait on you or end unseen show here, with the pane to open."
+// in the language the app shows.
+func AttentionEmptyDetail() string { return In(i18n.Locale()).AttentionEmptyDetail() }
+
+// AttentionEmptyDetail says "Sessions that work, wait on you or end unseen show here, with the pane to open."
+// in the language of msgs.
+func (msgs Messages) AttentionEmptyDetail() string {
+	return Catalog.Format(msgs.locale, "attentionEmptyDetail", nil)
+}
+
+// AttentionEmptyFilteredTitle says "Nothing in this filter"
+// in the language the app shows.
+func AttentionEmptyFilteredTitle() string { return In(i18n.Locale()).AttentionEmptyFilteredTitle() }
+
+// AttentionEmptyFilteredTitle says "Nothing in this filter"
+// in the language of msgs.
+func (msgs Messages) AttentionEmptyFilteredTitle() string {
+	return Catalog.Format(msgs.locale, "attentionEmptyFilteredTitle", nil)
+}
+
+// AttentionEmptyFilteredDetail says "Another filter, or no search, may show what you look for."
+// in the language the app shows.
+func AttentionEmptyFilteredDetail() string { return In(i18n.Locale()).AttentionEmptyFilteredDetail() }
+
+// AttentionEmptyFilteredDetail says "Another filter, or no search, may show what you look for."
+// in the language of msgs.
+func (msgs Messages) AttentionEmptyFilteredDetail() string {
+	return Catalog.Format(msgs.locale, "attentionEmptyFilteredDetail", nil)
+}
+
+// AttentionApprove says "Focus pane to approve"
+// in the language the app shows.
+func AttentionApprove() string { return In(i18n.Locale()).AttentionApprove() }
+
+// AttentionApprove says "Focus pane to approve"
+// in the language of msgs.
+func (msgs Messages) AttentionApprove() string {
+	return Catalog.Format(msgs.locale, "attentionApprove", nil)
 }
 
 // PaneShow says "Show in This Pane"

@@ -12,6 +12,21 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Added
 
+- An **Attention** pane: every session that needs the user, in one list,
+  the most urgent first — what it is doing or asking, the session and its
+  project, the agent, the line that came with it, and how long it has been
+  so. A row puts the keyboard in the pane the state came from, where the
+  decision is, without zooming. Chips narrow it to **Needs you**,
+  **Working**, **Unread** or **Done** and count each; a plain-text search
+  finds a row by its words. A Codex wait whose message the agent did not
+  give says **Focus pane to approve** rather than nothing. `Cmd+Alt+A`,
+  the New Pane chooser's `A`, or `kero split --attention`. It reads the
+  attention state kerod already sends, so it needs no protocol change, and
+  it keeps the filter and search while the pane is open.
+- New icons are SF Symbols, drawn by macOS through AppKit and cached as
+  bitmaps, so they match the system at any size and in the light and the
+  dark (`symbols_darwin.go`). The Attention pane's mark and its rows'
+  states are the first. No cgo.
 - kerod keeps one attention state for every session — running,
   waiting-user, unread, done or idle — folded from its panes: the most
   urgent of them, one line of what it says, the pane it came from and the
