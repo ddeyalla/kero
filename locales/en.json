@@ -196,6 +196,7 @@
   "statusWorking": "Working",
   "statusNeedsYou": "Needs you",
   "statusExited": "Exited",
+  "statusInactive": "Inactive",
   "statusFailed": "Failed",
   "statusDone": "Done",
   "updateRestartTip": "Kero was updated: restart the background service to run the new version",

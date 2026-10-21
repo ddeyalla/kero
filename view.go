@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/egoist/mygo/plugins/loading"
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/actions"
@@ -643,7 +644,8 @@ func ago(ms int64, now time.Time) string {
 
 // statusIcon draws a session's status, as the sidebar shows it: a ring
 // turning while it works, an amber ring when it needs the user, a filled
-// check when it finished unseen, a faint check once seen.
+// check when it finished unseen, a faint check once seen, and a half moon
+// once its shell has gone.
 func statusIcon(c *ui.Context, pal *palette, st proto.Status, unread bool, size float32) ui.Element {
 	return statusIconP(c, pal, st, unread, -1, size)
 }
@@ -658,39 +660,43 @@ func statusIconP(c *ui.Context, pal *palette, st proto.Status, unread bool, prog
 	case st == proto.Waiting:
 		box.Label(locales.StatusNeedsYou())
 	case st == proto.Exited:
-		box.Label(locales.StatusExited())
+		box.Label(locales.StatusInactive())
 	case st == proto.Failed:
 		box.Label(locales.StatusFailed())
 	case unread:
 		box.Label(locales.StatusDone())
 	}
+	// Working, before a program reports how far it has got, turns: MyGo's
+	// ring draws the faint track and the arc going round it, and stands
+	// still where the desktop asks for less motion. Nothing else moves.
+	if st == proto.Working && progress < 0 {
+		box.Children(func() {
+			loading.Ring(c, loading.Options{Size: size, Color: pal.text})
+		})
+		return box
+	}
 	box.Draw(func(p *ui.Painter, r ui.Rect) {
 		cx, cy := r.X+r.W/2, r.Y+r.H/2
-		rad := min(r.W, r.H)/2 - 1
+		// The plugin's ring draws its track at 10 of 24 across, and its
+		// stroke at 2.5: a session that starts reporting progress keeps
+		// the ring the size it was.
+		side := min(r.W, r.H)
+		rad, w := side*10/24, side*2.5/24
 		switch {
-		case st == proto.Working && progress >= 0:
+		case st == proto.Working:
 			var track ui.Path
 			track.Circle(cx, cy, rad)
-			p.StrokePath(&track, 1.7, pal.text.Alpha(0.13))
+			p.StrokePath(&track, w, pal.text.Alpha(0.2))
 			// From the top, clockwise: the circle starts at 3 o'clock.
 			p.Transform(ui.Rotation(-90), cx, cy, func() {
 				var arc ui.Path
 				arc.Circle(cx, cy, rad)
-				p.StrokePath(arc.Trim(0, max(0.02, float32(progress)/100)), 1.7, pal.text)
-			})
-		case st == proto.Working:
-			var track ui.Path
-			track.Circle(cx, cy, rad)
-			p.StrokePath(&track, 1.7, pal.text.Alpha(0.13))
-			p.Transform(ui.Rotation(-90), cx, cy, func() {
-				var arc ui.Path
-				arc.Circle(cx, cy, rad)
-				p.StrokePath(arc.Trim(0, 0.3), 1.7, pal.text)
+				p.StrokePath(arc.Trim(0, max(0.02, float32(progress)/100)), w, pal.text)
 			})
 		case st == proto.Waiting:
 			var ring ui.Path
 			ring.Circle(cx, cy, rad)
-			p.StrokePath(&ring, 1.7, pal.attention)
+			p.StrokePath(&ring, w*1.4, pal.attention)
 			var dot ui.Path
 			dot.Circle(cx, cy, rad*0.42)
 			p.FillPath(&dot, pal.attention)
@@ -707,16 +713,10 @@ func statusIconP(c *ui.Context, pal *palette, st proto.Status, unread bool, prog
 			dot.Circle(cx, cy+rad*0.42, 1)
 			p.FillPath(&dot, pal.onDone)
 		case st == proto.Exited:
-			col := pal.textFaint
-			if unread {
-				col = pal.danger
-			}
-			var ring ui.Path
-			ring.Circle(cx, cy, rad)
-			p.StrokePath(&ring, 1.5, col)
-			k := rad * 0.38
-			p.Line(cx-k, cy-k, cx+k, cy+k, 1.5, col)
-			p.Line(cx+k, cy-k, cx-k, cy+k, 1.5, col)
+			// A moon, filled: it reads over the sidebar's material as
+			// it reads over the card.
+			moon := moonPath(cx, cy, rad)
+			p.FillPath(moon, pal.textFaint)
 		case unread:
 			var disc ui.Path
 			disc.Circle(cx, cy, rad+0.5)
@@ -729,6 +729,47 @@ func statusIconP(c *ui.Context, pal *palette, st proto.Status, unread bool, prog
 		}
 	})
 	return box
+}
+
+// moonPath is a half moon at (cx, cy) of radius r: the rim of the circle,
+// and the bite a smaller one takes from it, closed as one outline, so it
+// fills in a solid shape rather than cutting one out of the sidebar.
+func moonPath(cx, cy, r float32) *ui.Path {
+	const bite, reach = 0.86, 0.52 // of the radius, as the design's
+	d, br := r*reach, r*bite
+	// Where the bite's circle crosses the rim's.
+	x := (d*d + r*r - br*br) / (2 * d)
+	y := float32(math.Sqrt(float64(max(0, r*r-x*x))))
+	deg := func(dy, dx float32) float32 {
+		return float32(math.Atan2(float64(dy), float64(dx)) * 180 / math.Pi)
+	}
+	up, low := deg(-y, x), deg(y, x)
+	upBite, lowBite := deg(-y, x-d), deg(y, x-d)
+	p := &ui.Path{}
+	p.MoveTo(cx+x, cy-y)
+	// The rim, round the outside from the upper tip to the lower one, and
+	// the bite back, its arc running the other way round.
+	arcPath(p, cx, cy, r, up, low-360)
+	arcPath(p, cx+d, cy, br, lowBite, upBite+360)
+	return p.Close()
+}
+
+// arcPath adds to p the arc of the circle at (cx, cy) of radius r, from
+// the angle from to to, in degrees clockwise on the screen, in cubic
+// curves of a quarter turn at most, from where the pen is.
+func arcPath(p *ui.Path, cx, cy, r, from, to float32) {
+	steps := int(math.Ceil(math.Abs(float64(to-from)) / 90))
+	step := (to - from) / float32(steps)
+	// The tangent's length that makes a cubic follow its arc.
+	k := r * 4 / 3 * float32(math.Tan(float64(step)*math.Pi/720))
+	for range steps {
+		sin, cos := math.Sincos(float64(from) * math.Pi / 180)
+		sin2, cos2 := math.Sincos(float64(from+step) * math.Pi / 180)
+		x, y := cx+r*float32(cos), cy+r*float32(sin)
+		nx, ny := cx+r*float32(cos2), cy+r*float32(sin2)
+		p.CubeTo(x-k*float32(sin), y+k*float32(cos), nx+k*float32(sin2), ny-k*float32(cos2), nx, ny)
+		from += step
+	}
 }
 
 // --- the card ---

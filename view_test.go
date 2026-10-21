@@ -335,6 +335,81 @@ func TestSidebarFooter(t *testing.T) {
 	}
 }
 
+// Each session's state has an icon named for it: a ring turning while it
+// works, an amber ring when it needs the user, a filled check unseen, a
+// faint check once seen, and a half moon once its shell has gone. The
+// foot's chips wear the same icons ($KERO_SHOTS).
+func TestSessionStatusIcons(t *testing.T) {
+	a := testApp(t)
+	a.conn = connReady
+	base := a.st.Sessions[0]
+	add := func(id, name string, st proto.Status, unread bool, progress int) {
+		s := base
+		s.ID, s.Name, s.Status, s.Unread, s.Progress = id, name, st, unread, progress
+		a.st.Sessions = append(a.st.Sessions, s)
+	}
+	add("s2", "compile", proto.Working, false, -1)
+	add("s3", "report", proto.Working, false, 40)
+	add("s4", "deploy", proto.Waiting, true, -1)
+	add("s5", "tests", proto.Idle, true, -1)
+	add("s6", "scratch", proto.Exited, false, -1)
+	add("s7", "broken", proto.Failed, true, -1)
+	tt := ui.NewTester(a.view, 1100, 700)
+	tt.Frame()
+	// One frame draws the spinner where it is: a test never waits for it
+	// to finish, as it never finishes.
+	shot(t, tt, "session-statuses")
+	tt.SetDark(true)
+	tt.Frame()
+	shot(t, tt, "session-statuses-dark")
+	tt.SetDark(false)
+	tt.Frame()
+	for _, label := range []string{
+		locales.StatusWorking(), locales.StatusNeedsYou(), locales.StatusDone(),
+		locales.StatusInactive(), locales.StatusFailed(),
+	} {
+		if _, ok := tt.Find(label); !ok {
+			t.Errorf("no icon labeled %q; labels %q", label, tt.Texts())
+		}
+	}
+	// The foot counts them, with the same icons: two working, one needing
+	// the user and one done unseen.
+	for _, label := range []string{"2 sessions working", "1 session needs you", "1 session done, unseen"} {
+		if _, ok := tt.Find(label); !ok {
+			t.Errorf("no %q in the foot; texts %q", label, tt.Texts())
+		}
+	}
+}
+
+// The determinate ring draws the part a program reported, where a working
+// session without a report turns.
+func TestStatusIconProgress(t *testing.T) {
+	pal := lightPalette
+	count := func(progress int) int {
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Row(c).Padding(10).Children(func() {
+				statusIconP(c, &pal, proto.Working, false, progress, 24)
+			})
+		}, 64, 44)
+		tt.Frame()
+		img, n := tt.Image(), 0
+		// The ring's own ink, not its faint track.
+		for y := 10; y < 34; y++ {
+			for x := 10; x < 34; x++ {
+				r, g, b, _ := img.At(x, y).RGBA()
+				if int(r>>8)+int(g>>8)+int(b>>8) < 3*150 {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	full, little := count(100), count(2)
+	if full <= little*2 {
+		t.Errorf("a ring at 100%% drew %d pixels, at 2%% %d", full, little)
+	}
+}
+
 // A session's tooltip shows below the pointer where it rested, as macOS
 // shows tooltips, not centered over the row ($KERO_SHOTS).
 func TestSessionTooltipAtPointer(t *testing.T) {
