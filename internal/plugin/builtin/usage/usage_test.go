@@ -12,6 +12,7 @@ import (
 	"kero/internal/plugin/registry"
 	"kero/internal/resources"
 	accountusage "kero/internal/usage"
+	"kero/locales"
 )
 
 // fakeSource stands in for internal/usage and internal/resources: a test
@@ -173,6 +174,44 @@ func TestUsageCompactTree(t *testing.T) {
 		t.Errorf("the Claude bar is %v, want 0.42", bar.Value)
 	}
 	treeNode(t, tree, "usage-refresh")
+}
+
+// TestUsageCompactChecksBeforeTheFirstRead is a narrow pane that opens before
+// the accounts have been read: the head says it is checking, and a configured
+// account waits instead of asking to connect.
+func TestUsageCompactChecksBeforeTheFirstRead(t *testing.T) {
+	now := time.Now()
+	pending := []accountusage.Report{{ID: "claude", Name: "Claude", URL: "https://claude.ai/settings/usage"}}
+	tree := widgetTree(&view{size: protocol.Size{Width: 280, Height: 150}, reports: pending}, now)
+	if err := tree.ValidateTree(); err != nil {
+		t.Fatalf("the tree is invalid: %v", err)
+	}
+
+	text := treeText(tree)
+	if !strings.Contains(text, locales.UsagePluginChecking()) {
+		t.Errorf("the short form does not say it is checking:\n%s", text)
+	}
+	if strings.Contains(text, locales.UsagePluginConnect()) {
+		t.Errorf("an account with no reading says connect:\n%s", text)
+	}
+	if got := treeNode(t, tree, "usage-checking"); got.Text != locales.UsagePluginChecking() {
+		t.Errorf("the checking label says %q", got.Text)
+	}
+
+	// Once a report arrives, the short form keeps its usual summary.
+	read := []accountusage.Report{{
+		ID:      "claude",
+		Name:    "Claude",
+		Windows: []accountusage.Window{{Label: "Weekly", Used: 42}},
+		Checked: now,
+	}}
+	text = treeText(widgetTree(&view{size: protocol.Size{Width: 280, Height: 150}, reports: read}, now))
+	if strings.Contains(text, locales.UsagePluginChecking()) {
+		t.Errorf("the short form still says it is checking after a read:\n%s", text)
+	}
+	if !strings.Contains(text, "42%") {
+		t.Errorf("the short form does not show the reading:\n%s", text)
+	}
 }
 
 // TestUsageLargeTree is the full card: the plan, each window with its reset,

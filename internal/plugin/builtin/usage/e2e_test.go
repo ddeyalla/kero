@@ -96,7 +96,7 @@ func TestUsageThroughTheRealHost(t *testing.T) {
 	}
 
 	ready := make(chan string, 1)
-	renders := make(chan protocol.Tree, 32)
+	renders := make(chan renderEvent, 32)
 	crashes := make(chan string, 4)
 	h := host.New(host.Config{
 		Dir:     dir,
@@ -113,9 +113,9 @@ func TestUsageThroughTheRealHost(t *testing.T) {
 				default:
 				}
 			},
-			Render: func(_, _ string, tree *protocol.Tree) {
+			Render: func(_, pane string, tree *protocol.Tree) {
 				select {
-				case renders <- *tree:
+				case renders <- renderEvent{pane: pane, tree: *tree}:
 				default:
 				}
 			},
@@ -138,7 +138,7 @@ func TestUsageThroughTheRealHost(t *testing.T) {
 	}
 
 	waitForEvent(t, "the plugin to say hello", ready)
-	first := waitForRender(t, renders, "42% used")
+	first := waitForRender(t, renders, "pane-1", "42% used")
 	if err := first.ValidateTree(); err != nil {
 		t.Fatalf("the first tree is invalid: %v", err)
 	}
@@ -150,10 +150,26 @@ func TestUsageThroughTheRealHost(t *testing.T) {
 	// time with the machine sample the visible pane takes.
 	h.Visible("pane-1", true)
 	drain(renders)
-	second := waitForRender(t, renders, "This Mac")
+	second := waitForRender(t, renders, "pane-1", "This Mac")
 	if err := second.ValidateTree(); err != nil {
 		t.Fatalf("the visible tree is invalid: %v", err)
 	}
+
+	// A second pane stays hidden while the first is on screen. The reads the
+	// visible pane asks for draw it alone, not the hidden one.
+	h.Open("usage", host.Pane{
+		ID:     "pane-2",
+		Widget: "usage",
+		Size:   protocol.Size{Width: 280, Height: 150},
+	})
+	waitForRender(t, renders, "pane-2", "Claude")
+	h.Visible("pane-2", false)
+
+	drain(renders)
+	h.Event("pane-1", "usage-refresh", protocol.KindPress, nil)
+	waitForRender(t, renders, "pane-1", "42% used")
+	time.Sleep(300 * time.Millisecond)
+	assertNoRender(t, renders, "pane-2")
 
 	// Hiding it leaves the process up, and it stays up: the plugin stops
 	// reading instead of exiting.
@@ -249,23 +265,45 @@ func waitForEvent(t *testing.T, what string, ch <-chan string) string {
 	}
 }
 
-func waitForRender(t *testing.T, ch <-chan protocol.Tree, contains string) protocol.Tree {
+// renderEvent is one tree the host received, and the pane it drew.
+type renderEvent struct {
+	pane string
+	tree protocol.Tree
+}
+
+func waitForRender(t *testing.T, ch <-chan renderEvent, pane, contains string) protocol.Tree {
 	t.Helper()
 	deadline := time.After(10 * time.Second)
 	for {
 		select {
-		case tree := <-ch:
-			if strings.Contains(treeText(tree), contains) {
-				return tree
+		case event := <-ch:
+			if event.pane == pane && strings.Contains(treeText(event.tree), contains) {
+				return event.tree
 			}
 		case <-deadline:
-			t.Fatalf("no tree said %q", contains)
+			t.Fatalf("no %s tree said %q", pane, contains)
 			return protocol.Tree{}
 		}
 	}
 }
 
-func drain(ch <-chan protocol.Tree) {
+// assertNoRender checks that a pane the host is not drawing got no frame
+// in the ones already queued.
+func assertNoRender(t *testing.T, ch <-chan renderEvent, pane string) {
+	t.Helper()
+	for {
+		select {
+		case event := <-ch:
+			if event.pane == pane {
+				t.Fatalf("the hidden pane %s was drawn:\n%s", pane, treeText(event.tree))
+			}
+		default:
+			return
+		}
+	}
+}
+
+func drain(ch <-chan renderEvent) {
 	for {
 		select {
 		case <-ch:

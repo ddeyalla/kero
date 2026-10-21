@@ -288,18 +288,25 @@ func (p *plugin) closeAll() {
 	p.work.Wait()
 }
 
-// renderAll redraws every pane, because the accounts and the machine are
-// shared.
+// renderAll redraws the panes on screen, because the accounts and the
+// machine are shared. A hidden pane is drawn when it is shown again.
 func (p *plugin) renderAll() {
-	p.mu.Lock()
-	ids := make([]string, 0, len(p.panes))
-	for id := range p.panes {
-		ids = append(ids, id)
-	}
-	p.mu.Unlock()
-	for _, id := range ids {
+	for _, id := range p.visiblePanes() {
 		p.render(id)
 	}
+}
+
+// visiblePanes is the panes a shared read draws: the ones on screen.
+func (p *plugin) visiblePanes() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ids := make([]string, 0, len(p.panes))
+	for id, st := range p.panes {
+		if st.visible {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // render draws one pane. The connection writes one message at a time, so the
