@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -275,5 +276,53 @@ func TestSignInTokenRequestFails(t *testing.T) {
 	client := New(Config{ClientID: "client-id", AccountsURL: accounts.URL, OpenURL: b, Secrets: MapSecrets{}})
 	if err := client.SignIn(context.Background()); !errors.Is(err, ErrTokenRefused) {
 		t.Fatalf("SignIn = %v, want ErrTokenRefused", err)
+	}
+}
+
+func TestSignOutWaitsForSignIn(t *testing.T) {
+	now := testNow()
+	tokenStarted := make(chan struct{})
+	releaseToken := make(chan struct{})
+	var once sync.Once
+	accounts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		once.Do(func() { close(tokenStarted) })
+		<-releaseToken
+		io.WriteString(w, `{"access_token":"access-1","expires_in":3600,"refresh_token":"refresh-1"}`)
+	}))
+	defer accounts.Close()
+
+	secrets := MapSecrets{}
+	client := New(Config{
+		ClientID:    "client-id",
+		AccountsURL: accounts.URL,
+		OpenURL:     &browser{t: t, code: "the-code"},
+		Secrets:     secrets,
+		Now:         func() time.Time { return now },
+	})
+
+	signInErr := make(chan error, 1)
+	go func() { signInErr <- client.SignIn(context.Background()) }()
+	<-tokenStarted
+
+	signOutErr := make(chan error, 1)
+	go func() { signOutErr <- client.SignOut() }()
+	select {
+	case err := <-signOutErr:
+		t.Fatalf("SignOut returned before the sign-in finished: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseToken)
+	if err := <-signInErr; err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if err := <-signOutErr; err != nil {
+		t.Fatalf("SignOut: %v", err)
+	}
+	if client.SignedIn() {
+		t.Error("SignedIn = true after SignOut")
+	}
+	if got := secrets[TokensKey]; got != "" {
+		t.Errorf("tokens secret = %q after SignOut", got)
 	}
 }

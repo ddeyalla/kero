@@ -124,10 +124,14 @@ type Client struct {
 	clientID string
 
 	tokenMu     sync.Mutex
-	tokens      *Token
+	tok         *Token
 	tokenLoaded bool
 
-	signInMu sync.Mutex
+	// loadMu makes the one-time read of the tokens secret single.
+	loadMu sync.Mutex
+	// refreshMu makes one refresh serve every caller.
+	refreshMu sync.Mutex
+	signInMu  sync.Mutex
 
 	cacheMu          sync.Mutex
 	lastSearch       SearchResult
@@ -208,9 +212,7 @@ func (c *Client) SetClientID(id string) {
 
 // SignedIn tells whether the client holds tokens.
 func (c *Client) SignedIn() bool {
-	c.tokenMu.Lock()
-	defer c.tokenMu.Unlock()
-	t, err := c.loadTokensLocked()
+	t, err := c.tokens()
 	if err != nil {
 		return false
 	}
@@ -230,9 +232,19 @@ func (c *Client) Current() string {
 }
 
 // SignOut forgets the tokens and the last results.
+//
+// It waits for a sign-in to finish and for a refresh to answer, so that
+// neither can bring the tokens back after they are gone.
 func (c *Client) SignOut() error {
+	c.signInMu.Lock()
+	defer c.signInMu.Unlock()
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+	c.loadMu.Lock()
+	defer c.loadMu.Unlock()
+
 	c.tokenMu.Lock()
-	c.tokens = nil
+	c.tok = nil
 	c.tokenLoaded = true
 	c.tokenMu.Unlock()
 

@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -209,12 +208,8 @@ func (c *Client) exchange(ctx context.Context, clientID, redirectURI, code, veri
 	if out.AccessToken == "" || out.RefreshToken == "" {
 		return fmt.Errorf("%w: Spotify returned no token", ErrSignInFailed)
 	}
-	c.tokenMu.Lock()
-	defer c.tokenMu.Unlock()
 	t := out.token(c.now())
-	c.tokens = &t
-	c.tokenLoaded = true
-	return c.saveTokensLocked(&t)
+	return c.adoptToken(&t)
 }
 
 // Token is what the client keeps between runs. It is a secret.
@@ -261,12 +256,12 @@ func (c *Client) tokenRequest(ctx context.Context, form url.Values, out *tokenRe
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return networkError(err)
+		return networkError(ctx, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
 	if err != nil {
-		return networkError(err)
+		return networkError(ctx, err)
 	}
 	if len(raw) > maxResponse {
 		return fmt.Errorf("spotify: token response is too large")
@@ -293,112 +288,158 @@ func (c *Client) AccessToken(ctx context.Context) (string, error) {
 	if c.ClientID() == "" {
 		return "", ErrNoClientID
 	}
-	c.tokenMu.Lock()
-	defer c.tokenMu.Unlock()
-	return c.accessTokenLocked(ctx)
-}
-
-func (c *Client) accessTokenLocked(ctx context.Context) (string, error) {
-	t, err := c.loadTokensLocked()
+	t, err := c.tokens()
 	if err != nil {
 		return "", err
 	}
 	if t == nil || (t.AccessToken == "" && t.RefreshToken == "") {
 		return "", ErrSignedOut
 	}
-	if t.AccessToken != "" && c.now().Before(t.ExpiresAt.Add(-refreshLeeway)) {
+	if c.valid(t) {
 		return t.AccessToken, nil
 	}
-	t, err = c.refreshLocked(ctx, t)
-	if err != nil {
-		return "", err
-	}
-	return t.AccessToken, nil
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+	return c.refreshToken(ctx, false)
 }
 
-// refreshRefused gets a fresh token after the API refused the access
-// token, so that one stale token does not look like a revoked grant.
-func (c *Client) refreshRefused(ctx context.Context) (string, error) {
+// valid tells whether a token is usable now, with the refresh leeway.
+func (c *Client) valid(t *Token) bool {
+	return t != nil && t.AccessToken != "" && c.now().Before(t.ExpiresAt.Add(-refreshLeeway))
+}
+
+// refreshAfterRefused gets a fresh token after the API refused the
+// access token, so that one stale token does not look like a revoked
+// grant. It refreshes only while the refused token is still the current
+// one, so two calls that both saw a refusal share one refresh.
+func (c *Client) refreshAfterRefused(ctx context.Context, refused string) (string, error) {
 	if c.ClientID() == "" {
 		return "", ErrNoClientID
 	}
-	c.tokenMu.Lock()
-	defer c.tokenMu.Unlock()
-	t, err := c.loadTokensLocked()
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+	t, err := c.tokens()
 	if err != nil {
 		return "", err
 	}
-	if t == nil {
+	if t == nil || (t.AccessToken == "" && t.RefreshToken == "") {
 		return "", ErrSignedOut
 	}
-	t, err = c.refreshLocked(ctx, t)
-	if err != nil {
-		return "", err
+	if t.AccessToken != "" && t.AccessToken != refused {
+		return t.AccessToken, nil
 	}
-	return t.AccessToken, nil
+	return c.refreshToken(ctx, true)
 }
 
-// refreshLocked redeems the refresh token. The caller holds tokenMu.
-func (c *Client) refreshLocked(ctx context.Context, old *Token) (*Token, error) {
+// refreshToken redeems the refresh token. The caller holds refreshMu, so
+// one refresh serves every caller that needs a token. It forces a
+// refresh when the API refused a token that has not expired yet.
+//
+// tokenMu guards the token itself for a local swap only: it is not held
+// across the token request, so SignedIn and Current never wait for the
+// network.
+func (c *Client) refreshToken(ctx context.Context, force bool) (string, error) {
+	c.tokenMu.Lock()
+	t := c.tok
+	c.tokenMu.Unlock()
+	if t == nil || (t.AccessToken == "" && t.RefreshToken == "") {
+		return "", ErrSignedOut
+	}
+	if !force && c.valid(t) {
+		return t.AccessToken, nil
+	}
 	clientID := c.ClientID()
 	if clientID == "" {
-		return nil, ErrNoClientID
+		return "", ErrNoClientID
 	}
-	if old.RefreshToken == "" {
-		return nil, fmt.Errorf("%w: no refresh token", ErrTokenRefused)
+	if t.RefreshToken == "" {
+		return "", fmt.Errorf("%w: no refresh token", ErrTokenRefused)
 	}
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", old.RefreshToken)
+	form.Set("refresh_token", t.RefreshToken)
 	form.Set("client_id", clientID)
 	var out tokenResponse
 	if err := c.tokenRequest(ctx, form, &out); err != nil {
-		return nil, err
+		return "", err
 	}
 	if out.AccessToken == "" {
-		return nil, fmt.Errorf("%w: Spotify returned no access token", ErrTokenRefused)
+		return "", fmt.Errorf("%w: Spotify returned no access token", ErrTokenRefused)
 	}
-	t := out.token(c.now())
-	if t.RefreshToken == "" {
-		t.RefreshToken = old.RefreshToken
+	next := out.token(c.now())
+	if next.RefreshToken == "" {
+		next.RefreshToken = t.RefreshToken
 	}
-	if t.Scope == "" {
-		t.Scope = old.Scope
+	if next.Scope == "" {
+		next.Scope = t.Scope
 	}
-	c.tokens = &t
-	c.tokenLoaded = true
-	if err := c.saveTokensLocked(&t); err != nil {
-		return nil, err
+
+	c.tokenMu.Lock()
+	current := c.tok
+	c.tokenMu.Unlock()
+	if current != t {
+		// A sign-in replaced the tokens while this refresh was in
+		// flight; the newer token wins.
+		if current != nil && current.AccessToken != "" {
+			return current.AccessToken, nil
+		}
+		return "", ErrSignedOut
 	}
-	return &t, nil
+	if err := c.adoptToken(&next); err != nil {
+		return "", err
+	}
+	return next.AccessToken, nil
 }
 
-// loadTokensLocked reads the tokens from the secrets once. The caller
-// holds tokenMu.
-func (c *Client) loadTokensLocked() (*Token, error) {
+// tokens returns the tokens, loading them from the secrets once. The
+// secret read is a host call and runs outside tokenMu, so a state read
+// waits only for the local swap.
+func (c *Client) tokens() (*Token, error) {
+	c.tokenMu.Lock()
 	if c.tokenLoaded {
-		return c.tokens, nil
+		t := c.tok
+		c.tokenMu.Unlock()
+		return t, nil
 	}
+	c.tokenMu.Unlock()
+
+	c.loadMu.Lock()
+	defer c.loadMu.Unlock()
+
+	c.tokenMu.Lock()
+	if c.tokenLoaded {
+		t := c.tok
+		c.tokenMu.Unlock()
+		return t, nil
+	}
+	c.tokenMu.Unlock()
+
 	raw, err := c.secrets.Get(TokensKey)
 	if err != nil {
 		return nil, fmt.Errorf("spotify: read the tokens: %w", err)
 	}
-	c.tokenLoaded = true
-	if strings.TrimSpace(raw) == "" {
-		return nil, nil
-	}
-	var t Token
-	if err := json.Unmarshal([]byte(raw), &t); err != nil {
+	var loaded *Token
+	if strings.TrimSpace(raw) != "" {
+		var t Token
 		// A broken secret is the same as no tokens: sign in again.
-		return nil, nil
+		if json.Unmarshal([]byte(raw), &t) == nil {
+			loaded = &t
+		}
 	}
-	c.tokens = &t
-	return c.tokens, nil
+
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	if !c.tokenLoaded {
+		c.tok = loaded
+		c.tokenLoaded = true
+	}
+	return c.tok, nil
 }
 
-// saveTokensLocked writes the tokens to the secrets. The caller holds
-// tokenMu.
-func (c *Client) saveTokensLocked(t *Token) error {
+// adoptToken saves a new token and then swaps it in. It saves first, so
+// a failure does not leave memory ahead of the secrets, and it swaps
+// under tokenMu only for the local assignment.
+func (c *Client) adoptToken(t *Token) error {
 	raw, err := json.Marshal(t)
 	if err != nil {
 		return err
@@ -406,14 +447,21 @@ func (c *Client) saveTokensLocked(t *Token) error {
 	if err := c.secrets.Set(TokensKey, string(raw)); err != nil {
 		return fmt.Errorf("spotify: save the tokens: %w", err)
 	}
+	c.tokenMu.Lock()
+	c.tok = t
+	c.tokenLoaded = true
+	c.tokenMu.Unlock()
 	return nil
 }
 
-// networkError wraps a transport failure as ErrNetworkDown. A canceled
-// context is not a network failure: it is the caller going away.
-func networkError(err error) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
+// networkError wraps a transport failure as ErrNetworkDown. A caller
+// that canceled its context is not a network failure: it gets its own
+// context error back. The HTTP client's own timeout does not cancel the
+// request's context, so it stays ErrNetworkDown and the pane keeps its
+// last results.
+func networkError(ctx context.Context, err error) error {
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	return fmt.Errorf("%w: %v", ErrNetworkDown, err)
 }

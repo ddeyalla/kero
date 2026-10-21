@@ -227,7 +227,7 @@ func (c *Client) get(ctx context.Context, path string, params url.Values, out an
 	}
 	err = c.doGet(ctx, path, params, token, out)
 	if errors.Is(err, errTokenStale) {
-		token, err = c.refreshRefused(ctx)
+		token, err = c.refreshAfterRefused(ctx, token)
 		if err != nil {
 			return err
 		}
@@ -252,12 +252,12 @@ func (c *Client) doGet(ctx context.Context, path string, params url.Values, toke
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return networkError(err)
+		return networkError(ctx, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
 	if err != nil {
-		return networkError(err)
+		return networkError(ctx, err)
 	}
 	if len(raw) > maxResponse {
 		return fmt.Errorf("spotify: the response is too large")
@@ -270,8 +270,12 @@ func (c *Client) doGet(ctx context.Context, path string, params url.Values, toke
 		if premiumProblem(message) {
 			return fmt.Errorf("%w: %s", ErrPremiumLapsed, message)
 		}
-		return fmt.Errorf("%w: %s", ErrTokenRefused, message)
-	case resp.StatusCode >= 500, resp.StatusCode == http.StatusTooManyRequests:
+		// The token is valid, but the app or the user may not use this
+		// endpoint. That is not the same as a refused token.
+		return fmt.Errorf("spotify: forbidden (HTTP 403): %s", message)
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return fmt.Errorf("%w: Spotify rate limit (HTTP 429): %s", ErrNetworkDown, spotifyMessage(raw))
+	case resp.StatusCode >= 500:
 		return fmt.Errorf("%w: HTTP %d: %s", ErrNetworkDown, resp.StatusCode, spotifyMessage(raw))
 	case resp.StatusCode < 200 || resp.StatusCode > 299:
 		return fmt.Errorf("spotify: request failed (HTTP %d): %s", resp.StatusCode, spotifyMessage(raw))

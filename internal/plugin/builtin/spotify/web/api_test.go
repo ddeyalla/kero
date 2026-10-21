@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -502,8 +503,14 @@ func TestForbiddenWithoutPremium(t *testing.T) {
 		Now:      func() time.Time { return now },
 	})
 	_, err := client.Albums(context.Background())
-	if !errors.Is(err, ErrTokenRefused) {
-		t.Fatalf("Albums = %v, want ErrTokenRefused", err)
+	if err == nil || !strings.Contains(err.Error(), "forbidden") {
+		t.Fatalf("Albums = %v, want a forbidden error", err)
+	}
+	if errors.Is(err, ErrTokenRefused) {
+		t.Errorf("Albums = %v, must not be ErrTokenRefused", err)
+	}
+	if got := State(err); got != StateFailed {
+		t.Errorf("State = %q, want StateFailed", got)
 	}
 }
 
@@ -686,6 +693,187 @@ func TestSetClientID(t *testing.T) {
 	}
 	if got := client.Current(); got != StateSignedOut {
 		t.Errorf("Current = %q", got)
+	}
+}
+
+func TestClientTimeoutIsNetworkDown(t *testing.T) {
+	now := testNow()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		io.WriteString(w, `{"items": []}`)
+	}))
+	defer api.Close()
+
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, liveToken(now)),
+		Now:      func() time.Time { return now },
+		HTTP:     &http.Client{Timeout: 20 * time.Millisecond},
+	})
+	_, err := client.Playlists(context.Background())
+	if !errors.Is(err, ErrNetworkDown) {
+		t.Fatalf("Playlists = %v, want ErrNetworkDown", err)
+	}
+	if got := State(err); got != StateNetworkDown {
+		t.Errorf("State = %q, want StateNetworkDown", got)
+	}
+}
+
+func TestCanceledRequestIsNotNetworkDown(t *testing.T) {
+	now := testNow()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("the API must not answer a canceled request")
+	}))
+	defer api.Close()
+
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, liveToken(now)),
+		Now:      func() time.Time { return now },
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := client.Playlists(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Playlists = %v, want context.Canceled", err)
+	}
+	if errors.Is(err, ErrNetworkDown) {
+		t.Errorf("Playlists = %v, must not be ErrNetworkDown", err)
+	}
+	if got := State(err); got != StateFailed {
+		t.Errorf("State = %q, want StateFailed", got)
+	}
+}
+
+func TestRateLimited(t *testing.T) {
+	now := testNow()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, `{"error": {"status": 429, "message": "API rate limit exceeded"}}`)
+	}))
+	defer api.Close()
+
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, liveToken(now)),
+		Now:      func() time.Time { return now },
+	})
+	_, err := client.Playlists(context.Background())
+	if !errors.Is(err, ErrNetworkDown) {
+		t.Fatalf("Playlists = %v, want ErrNetworkDown", err)
+	}
+	if got := State(err); got != StateNetworkDown {
+		t.Errorf("State = %q, want StateNetworkDown", got)
+	}
+	if message := err.Error(); !strings.Contains(strings.ToLower(message), "rate limit") {
+		t.Errorf("Playlists = %q, want it to mention the rate limit", message)
+	}
+}
+
+func TestStateReadsDoNotWaitForRefresh(t *testing.T) {
+	now := testNow()
+	var refreshes int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	accounts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&refreshes, 1)
+		once.Do(func() { close(started) })
+		<-release
+		io.WriteString(w, `{"access_token": "fresh", "expires_in": 3600}`)
+	}))
+	defer accounts.Close()
+
+	client := New(Config{
+		ClientID:    "client-id",
+		AccountsURL: accounts.URL,
+		Secrets: seededSecrets(t, Token{
+			AccessToken:  "stale",
+			RefreshToken: "refresh",
+			ExpiresAt:    now.Add(-time.Minute),
+		}),
+		Now: func() time.Time { return now },
+	})
+
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := client.AccessToken(context.Background())
+			errs <- err
+		}()
+	}
+	<-started
+
+	stateDone := make(chan struct{})
+	go func() {
+		defer close(stateDone)
+		if !client.SignedIn() {
+			t.Error("SignedIn = false during a refresh")
+		}
+		if got := client.Current(); got != StateReady {
+			t.Errorf("Current = %q during a refresh", got)
+		}
+	}()
+	select {
+	case <-stateDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a state read waited for the token request")
+	}
+
+	close(release)
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Errorf("AccessToken: %v", err)
+		}
+	}
+	if got := atomic.LoadInt32(&refreshes); got != 1 {
+		t.Errorf("refreshes = %d, want 1", got)
+	}
+}
+
+func TestStaleRefreshDoesNotReplaceNewerTokens(t *testing.T) {
+	now := testNow()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	accounts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		io.WriteString(w, `{"access_token": "refreshed", "expires_in": 3600}`)
+	}))
+	defer accounts.Close()
+
+	secrets := seededSecrets(t, Token{
+		AccessToken:  "stale",
+		RefreshToken: "refresh",
+		ExpiresAt:    now.Add(-time.Minute),
+	})
+	client := New(Config{
+		ClientID:    "client-id",
+		AccountsURL: accounts.URL,
+		Secrets:     secrets,
+		Now:         func() time.Time { return now },
+	})
+	got := make(chan string, 1)
+	go func() {
+		token, _ := client.AccessToken(context.Background())
+		got <- token
+	}()
+	<-started
+
+	newer := Token{AccessToken: "signed-in", RefreshToken: "new-refresh", ExpiresAt: now.Add(time.Hour)}
+	if err := client.adoptToken(&newer); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+
+	if token := <-got; token != "signed-in" {
+		t.Errorf("AccessToken = %q, want the newer token", token)
+	}
+	if client.SignedIn() == false {
+		t.Error("SignedIn = false")
 	}
 }
 
