@@ -5,11 +5,12 @@
 // in a single call. Each script may run for one second from the moment
 // it starts. A command waits for the call in flight, for at most as long
 // again; a read that finds one is dropped, and a Monitor reads again as
-// soon as the call ends. Every script first checks that Spotify is
-// running, so no command launches the app. macOS can refuse the Apple
-// events; a Transport reports that as [ErrAutomation] with the way to
-// allow it, a stopped app as [ErrNotRunning] and a missing one as
-// [ErrNotInstalled], so callers do not parse message strings.
+// soon as the call ends. Every script but Launch first checks that
+// Spotify is running, so only the player's Open Spotify button starts
+// the app. macOS can refuse the Apple events; a Transport reports that
+// as [ErrAutomation] with the way to allow it, a stopped app as
+// [ErrNotRunning] and a missing one as [ErrNotInstalled], so callers do
+// not parse message strings.
 //
 // A Monitor reads only while a pane shows the player. It reads about
 // once a second. While a [Source] listens for Spotify's
@@ -365,6 +366,13 @@ func (t *Transport) Next(ctx context.Context) error {
 // Previous goes back to the previous track.
 func (t *Transport) Previous(ctx context.Context) error {
 	return t.run(ctx, commandScript(`tell application "Spotify" to previous track`))
+}
+
+// Launch brings the Spotify app to the front, and starts it when it is
+// not running. Every other script refuses to start the app, so this is
+// the one command the player offers when Spotify is closed.
+func (t *Transport) Launch(ctx context.Context) error {
+	return t.run(ctx, `tell application "Spotify" to activate`)
 }
 
 // Seek moves within the current track.

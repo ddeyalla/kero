@@ -654,7 +654,9 @@ func (a *App) runPluginCommand(plugin, command string) {
 			return
 		}
 	}
-	a.pluginHost().Command(pane.ID, command)
+	if err := a.pluginHost().Command(pane.ID, command); err != nil {
+		a.toast(locales.PluginCommandFailed())
+	}
 }
 
 // showPluginNotification shows a notification a plugin asked for. A click

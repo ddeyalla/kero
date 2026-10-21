@@ -295,15 +295,22 @@ func (h *Host) Event(pane, node, kind string, value any) {
 	}
 }
 
-// Command tells a plugin the user ran one of its commands.
-func (h *Host) Command(pane, id string) {
+// Command tells a plugin the user ran one of its commands. It returns an
+// error when the pane has no running plugin process, so that the app can
+// say the command was not delivered.
+func (h *Host) Command(pane, id string) error {
 	h.mu.Lock()
 	plugin, ok := h.owner[pane]
 	pr := h.procs[plugin]
 	h.mu.Unlock()
-	if ok && pr != nil {
-		pr.send(commandCmd{pane: pane, id: id})
+	if !ok {
+		return fmt.Errorf("plugin host: pane %q is not open", pane)
 	}
+	if pr == nil {
+		return fmt.Errorf("plugin host: plugin %q is not running", plugin)
+	}
+	pr.send(commandCmd{pane: pane, id: id})
+	return nil
 }
 
 // SetTheme tells every running plugin how the app looks now.
