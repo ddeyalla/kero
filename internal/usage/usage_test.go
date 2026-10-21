@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -133,5 +134,51 @@ func TestDeepSeekBalance(t *testing.T) {
 	}
 	if _, err := parse("deepseek", []byte(`{"balance_infos":[{"currency":"USD","total_balance":"oops"}]}`), time.Now()); err == nil {
 		t.Fatal("accepted invalid balance")
+	}
+}
+
+// Installed lists the harnesses this Mac has set up, from their command or
+// their sign-in, and every provider when it has none.
+func TestInstalled(t *testing.T) {
+	home := t.TempDir()
+	for _, env := range []string{"HOME", "XDG_DATA_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "KERO_HOME"} {
+		t.Setenv(env, filepath.Join(home, env))
+	}
+	t.Setenv("PATH", filepath.Join(home, "bin"))
+	t.Setenv("OPENCODE_API_KEY", "")
+	t.Setenv("DEEPSEEK_API_KEY", "")
+
+	all := []string{"claude", "codex", "opencode", "deepseek"}
+	if got := Installed(); !slices.Equal(got, all) {
+		t.Fatalf("nothing set up: %v", got)
+	}
+
+	codex := filepath.Join(home, "CODEX_HOME")
+	if err := os.MkdirAll(codex, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codex, "auth.json"), []byte(`{"tokens":{"access_token":"test"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := Installed(); !slices.Equal(got, []string{"codex"}) {
+		t.Fatalf("a sign-in file was missed: %v", got)
+	}
+
+	if err := SaveKey("deepseek", "test-key"); err != nil {
+		t.Fatal(err)
+	}
+	if got := Installed(); !slices.Equal(got, []string{"codex", "deepseek"}) {
+		t.Fatalf("a saved key was missed: %v", got)
+	}
+
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := Installed(); !slices.Equal(got, []string{"claude", "codex", "deepseek"}) {
+		t.Fatalf("a command on PATH was missed: %v", got)
 	}
 }
