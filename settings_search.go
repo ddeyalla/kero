@@ -2,7 +2,6 @@ package main
 
 import (
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -143,7 +142,7 @@ var (
 // title, as a tint wider than it by dx on each side, and taller by dy.
 func searchHighlight(c *ui.Context, el ui.Element, label string, pal *palette, dx, dy float32) {
 	hit := searchHits[label]
-	t := el.Animate("hit", b2f(hit), 180*time.Millisecond)
+	t := el.Animate("hit", b2f(hit), row.Duration)
 	if label == searchReveal {
 		el.ScrollIntoView()
 	}

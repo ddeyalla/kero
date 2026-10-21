@@ -195,6 +195,9 @@ type linearModel struct {
 	byState map[string][]proto.LinearIssue
 	marks   map[string]stateMark
 	dark    bool
+	// doneHidden is how many issues the rest would show that hideDone
+	// leaves out.
+	doneHidden int
 }
 
 // linearModelKey is what the model depends on. The daemon's issues are
@@ -235,8 +238,11 @@ func (a *App) linearModel(pal *palette) *linearModel {
 		if key.project != "" && i.Project != key.project ||
 			key.milestone != "" && i.Milestone != key.milestone ||
 			key.state != "" && i.State != key.state ||
-			key.find != "" && !strings.Contains(strings.ToLower(i.Identifier+" "+i.Title), key.find) ||
-			key.hideDone && linearDone(i.StateType) {
+			key.find != "" && !strings.Contains(strings.ToLower(i.Identifier+" "+i.Title), key.find) {
+			continue
+		}
+		if key.hideDone && linearDone(i.StateType) {
+			m.doneHidden++
 			continue
 		}
 		m.issues = append(m.issues, i)
@@ -544,6 +550,8 @@ func (a *App) linearStatusLabel(m *linearModel) string {
 		return locales.LinearStatusRateLimited()
 	case proto.LinearUnreachable:
 		return locales.LinearStatusUnreachable()
+	case proto.LinearDisabled:
+		return locales.LinearStatusDisabled()
 	}
 	count := fmt.Sprintf("%d %s", len(st.Issues), locales.LinearIssues())
 	if m != nil && len(m.issues) != len(st.Issues) {
@@ -809,20 +817,43 @@ func (a *App) linearNothing(c *ui.Context, pal *palette, title, detail string) {
 	a.linearNothingThen(c, pal, title, detail, nil)
 }
 
-// linearNothingAction is an empty state that says what to do about it: set
-// the key, clear what is filtered, or read the workspace again.
-func (a *App) linearNothingAction(c *ui.Context, pal *palette, title, detail string) {
+// linearEmpty is what an empty state of the workspace is about.
+type linearEmpty int
+
+const (
+	// linearUnread: the workspace was not read, for want of a key, a
+	// refused one, the integration off, or a Linear out of reach.
+	linearUnread linearEmpty = iota
+	// linearNoIssues: the workspace was read, and no issue shows.
+	linearNoIssues
+)
+
+// linearNothingAction is an empty state that says what to do about it.
+// A workspace not read sends the user to Settings for the key or the
+// integration, or reads it again; one read with no issue clears what the
+// user filtered, when they did, or reads it again.
+func (a *App) linearNothingAction(c *ui.Context, pal *palette, kind linearEmpty, title, detail string) {
 	a.linearNothingThen(c, pal, title, detail, func() {
-		lin := a.st.Linear
-		if lin == nil || lin.Status == proto.LinearNoToken || lin.Status == proto.LinearAuthFailed {
-			if button(c, "linear-open-settings", locales.CommonOpenSettings(), "", true, pal) {
-				a.openSettings("linear")
+		if kind == linearUnread {
+			if lin := a.st.Linear; lin == nil || lin.Status == proto.LinearNoToken || lin.Status == proto.LinearAuthFailed || lin.Status == proto.LinearDisabled {
+				if button(c, "linear-open-settings", locales.CommonOpenSettings(), "", true, pal) {
+					a.openSettings("linear")
+				}
+				return
+			}
+		}
+		if kind == linearNoIssues && !a.linearFiltered() && a.lin.pane && a.lin.model.doneHidden > 0 {
+			if button(c, "linear-empty-show-done", locales.TasksShowDone(), "", true, pal) {
+				a.lin.hideDone = false
 			}
 			return
 		}
-		if a.linearFiltered() {
+		if kind == linearNoIssues && a.linearFiltered() {
 			if button(c, "linear-empty-clear", locales.LinearClearFilters(), "", true, pal) {
-				a.lin.project, a.lin.milestone, a.lin.state, a.lin.query = "", "", "", ""
+				a.lin.milestone, a.lin.state, a.lin.query = "", "", ""
+				if !a.lin.pane {
+					a.lin.project = ""
+				}
 				a.lin.filterNotice = ""
 			}
 			return
@@ -833,9 +864,10 @@ func (a *App) linearNothingAction(c *ui.Context, pal *palette, title, detail str
 	})
 }
 
-// linearFiltered reports whether a filter narrows the workspace.
+// linearFiltered reports whether a filter the user set narrows the
+// workspace. A Tasks pane's project is its link's, not a filter.
 func (a *App) linearFiltered() bool {
-	return a.lin.project != "" || a.lin.milestone != "" || a.lin.state != "" || a.lin.query != ""
+	return !a.lin.pane && a.lin.project != "" || a.lin.milestone != "" || a.lin.state != "" || a.lin.query != ""
 }
 
 // linearNothingThen is linearNothing with what can be done about it,
@@ -859,7 +891,22 @@ func (a *App) linearEmptyDetail() string {
 	if a.st.Linear == nil || a.st.Linear.Status != proto.LinearOK {
 		return a.linearStatusLabel(nil)
 	}
-	return locales.LinearNoneFiltered()
+	if a.linearFiltered() {
+		return locales.LinearNoneFiltered()
+	}
+	if a.lin.pane && a.lin.model.doneHidden > 0 {
+		return locales.TasksAllDone()
+	}
+	return locales.LinearNoneDetail()
+}
+
+// linearUnreadDetail says why the workspace was not read: how to set the
+// key, when there is none, or what its status says.
+func (a *App) linearUnreadDetail() string {
+	if lin := a.st.Linear; lin == nil || lin.Status == proto.LinearNoToken {
+		return locales.LinearNotReadDetail()
+	}
+	return a.linearStatusLabel(nil)
 }
 
 // linearOpen opens an issue in the detail, and reads it.

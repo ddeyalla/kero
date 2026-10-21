@@ -461,7 +461,7 @@ func (a *App) settingsNav(c *ui.Context, pal *palette, p settingsPage, narrow bo
 	case item.Hovered():
 		bg = pal.rowHover
 	}
-	item.Background(item.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond}))
+	item.Background(item.AnimateColor("bg", bg, hover))
 	if item.Pressed() && !sel {
 		a.ss.page = p.id
 		a.setRecording("")

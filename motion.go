@@ -28,8 +28,6 @@ var (
 	// frame, which whole pixels turn into hops and holds, a shake as it
 	// settles. This one lands in about 13 frames, moving in every one.
 	slide = ui.Animation{Duration: 260 * time.Millisecond, Ease: ui.CubicBezier(0.25, 1, 0.5, 1)}
-	// settle is how a big pose settles: a popover's, a preview's.
-	settle = ui.Animation{Duration: 280 * time.Millisecond}
 	// springDrag is how what the user dragged arrives where it went: a
 	// pane springs into its new place.
 	springDrag = ui.Animation{Spring: ui.SpringOptions{Duration: 420 * time.Millisecond, Bounce: 0.18}}
@@ -39,11 +37,12 @@ var (
 
 // rowTransition is how session rows arrive and go as a project collapses:
 // each folds to nothing along the list's direction, as its neighbours
-// make room, and unfolds as it comes back. It moves position and size
-// only: the row's colors ease as they did, and twice would be twice.
+// make room, and unfolds as it comes back. It moves position only, and
+// the fold: the row's colors ease as they did, and twice would be twice,
+// and its width follows the sidebar's divider at once, as the headers do.
 var rowTransition = ui.ElementTransition{
-	Position: true, Size: true,
-	Enter: &ui.Motion{Collapse: true}, Exit: &ui.Motion{Collapse: true},
+	Position: true,
+	Enter:    &ui.Motion{Collapse: true}, Exit: &ui.Motion{Collapse: true},
 	Duration: row.Duration,
 }
 

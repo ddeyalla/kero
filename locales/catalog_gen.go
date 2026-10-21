@@ -744,13 +744,13 @@ func (msgs Messages) ToastCopiedToClipboard() string {
 	return Catalog.Format(msgs.locale, "toastCopiedToClipboard", nil)
 }
 
-// ToastSaveSettingsFailed says "Couldn’t save the settings. Fix the value and try again: {error}"
+// ToastSaveSettingsFailed says "Couldn’t save the settings. Check that the configuration folder is writable: {error}"
 // in the language the app shows.
 func ToastSaveSettingsFailed(error string) string {
 	return In(i18n.Locale()).ToastSaveSettingsFailed(error)
 }
 
-// ToastSaveSettingsFailed says "Couldn’t save the settings. Fix the value and try again: {error}"
+// ToastSaveSettingsFailed says "Couldn’t save the settings. Check that the configuration folder is writable: {error}"
 // in the language of msgs.
 func (msgs Messages) ToastSaveSettingsFailed(error string) string {
 	return Catalog.Format(msgs.locale, "toastSaveSettingsFailed", map[string]any{"error": error})
@@ -776,14 +776,14 @@ func (msgs Messages) ToastNothingNeedsYou() string {
 	return Catalog.Format(msgs.locale, "toastNothingNeedsYou", nil)
 }
 
-// CliInstallFailed says "Couldn’t install the command line tool. Check that /usr/local/bin is writable and try again."
+// CliInstallFailed says "Couldn’t install the kero command: {error}"
 // in the language the app shows.
-func CliInstallFailed() string { return In(i18n.Locale()).CliInstallFailed() }
+func CliInstallFailed(error string) string { return In(i18n.Locale()).CliInstallFailed(error) }
 
-// CliInstallFailed says "Couldn’t install the command line tool. Check that /usr/local/bin is writable and try again."
+// CliInstallFailed says "Couldn’t install the kero command: {error}"
 // in the language of msgs.
-func (msgs Messages) CliInstallFailed() string {
-	return Catalog.Format(msgs.locale, "cliInstallFailed", nil)
+func (msgs Messages) CliInstallFailed(error string) string {
+	return Catalog.Format(msgs.locale, "cliInstallFailed", map[string]any{"error": error})
 }
 
 // CliInstalledIn says "Installed the kero command in {dir}"
@@ -3636,11 +3636,11 @@ func (msgs Messages) LinearStatusUnreachable() string {
 	return Catalog.Format(msgs.locale, "linearStatusUnreachable", nil)
 }
 
-// LinearStatusDisabled says "Linear is off."
+// LinearStatusDisabled says "Linear is turned off. Turn it on in Settings › Linear."
 // in the language the app shows.
 func LinearStatusDisabled() string { return In(i18n.Locale()).LinearStatusDisabled() }
 
-// LinearStatusDisabled says "Linear is off."
+// LinearStatusDisabled says "Linear is turned off. Turn it on in Settings › Linear."
 // in the language of msgs.
 func (msgs Messages) LinearStatusDisabled() string {
 	return Catalog.Format(msgs.locale, "linearStatusDisabled", nil)
@@ -3874,6 +3874,26 @@ func LinearNoneFiltered() string { return In(i18n.Locale()).LinearNoneFiltered()
 // in the language of msgs.
 func (msgs Messages) LinearNoneFiltered() string {
 	return Catalog.Format(msgs.locale, "linearNoneFiltered", nil)
+}
+
+// LinearNoneDetail says "Linear has no issues to show here."
+// in the language the app shows.
+func LinearNoneDetail() string { return In(i18n.Locale()).LinearNoneDetail() }
+
+// LinearNoneDetail says "Linear has no issues to show here."
+// in the language of msgs.
+func (msgs Messages) LinearNoneDetail() string {
+	return Catalog.Format(msgs.locale, "linearNoneDetail", nil)
+}
+
+// TasksAllDone says "Every issue here is done; Show Done lists them."
+// in the language the app shows.
+func TasksAllDone() string { return In(i18n.Locale()).TasksAllDone() }
+
+// TasksAllDone says "Every issue here is done; Show Done lists them."
+// in the language of msgs.
+func (msgs Messages) TasksAllDone() string {
+	return Catalog.Format(msgs.locale, "tasksAllDone", nil)
 }
 
 // LinearNotRead says "The workspace was not read"
@@ -4854,11 +4874,11 @@ func (msgs Messages) BrowserHint() string {
 	return Catalog.Format(msgs.locale, "browserHint", nil)
 }
 
-// FilesCantRead says "Can't read this file. Check that it still exists."
+// FilesCantRead says "Can’t read this. Check that it still exists and that you may open it."
 // in the language the app shows.
 func FilesCantRead() string { return In(i18n.Locale()).FilesCantRead() }
 
-// FilesCantRead says "Can't read this file. Check that it still exists."
+// FilesCantRead says "Can’t read this. Check that it still exists and that you may open it."
 // in the language of msgs.
 func (msgs Messages) FilesCantRead() string {
 	return Catalog.Format(msgs.locale, "filesCantRead", nil)

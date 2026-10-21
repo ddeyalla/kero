@@ -355,11 +355,13 @@ section here because they are one taste: how the window looks as it moves.
 
 **Motion tokens.** [`motion.go`](../motion.go) holds the app's durations
 and curves as tokens: `press` 90 ms, `hover` 120, `row` 160, `focus` 160,
-`slide` 260 over `CubicBezier(.25, 1, .5, 1)`, `settle` 280, and the
-springs `springDrag` 420 ms with a bounce of .18 and `springUI` 300 ms
-with .12.
+`slide` 260 over `CubicBezier(.25, 1, .5, 1)`, and the springs
+`springDrag` 420 ms with a bounce of .18 and `springUI` 300 ms with .12.
 Call sites use the token, not the number, so a change to how the app moves
-is one edit. The sidebar's own animation and the panes' layout motion were
+is one edit. A few literals stay where no token fits, among them a
+switch's track (150 ms) and its knob's spring (260 ms, .15) in
+[`elevation.go`](../elevation.go), the Settings header's scroll edge
+(160 ms) and the drop preview's fade-in (140 ms). The sidebar's own animation and the panes' layout motion were
 the same 220–260 ms curve; both are `slide`. The chevron turned with a
 500 ms spring; it turns with `row`. `Reduce Motion` is mygo's own.
 
@@ -369,9 +371,11 @@ expresses itself as a different tree, not hidden geometry). What changed
 is that the rows carry `Transition`: a row that stops being built folds to
 nothing along the list's direction while its parent still shows, and a row
 coming back unfolds from there; the header carries a Position transition
-and moves with them. The transition moves position and size only — the
-row's background keeps its own `AnimateColor`, and easing the colors twice
-would ease them twice.
+and moves with them. The transition moves position only, besides the
+fold, which mygo's Enter and Exit animate whatever the transition moves:
+the row's background keeps its own `AnimateColor`, as easing the colors
+twice would ease them twice, and a row's width follows the sidebar's
+divider at once, as the headers' does, rather than lagging it.
 
 **Accent presets.** [`accentSpecs`](../theme.go) holds six hand-tuned
 accents — the blue the app has had, Plum, Rose, Sea, Moss and Graphite —
@@ -401,11 +405,15 @@ which has a texture of its own. `grain = false` turns it off.
 
 **Focus, not dimming.** A pane that is not focused is the pane it is: its
 card is `pal.card` and its text is untouched. [`panes.go`](../panes.go)
-draws one absolute, pass-through edge over every card, 1 point inside its
-radius; the focused pane's edge is `pal.focusEdge`, and the others are
-transparent, so every card has the same room and nothing moves when the
-focus does. The color is the accent at 50% in the light and 62% in the
-dark, recomputed in `accentPal` for a preset. The edge animates with
+draws one absolute, pass-through edge over every card, inside its border:
+1 point inside the dark's lit edge, at a radius of 13 to follow its inner
+curve, and at the card's 14 in the light, which has no border. The focused
+pane's edge is `pal.focusEdge` when the session shows several panes, and
+not for a pane alone or zoomed, which has none to be told from; the
+others are transparent, so every card has the same room and nothing moves
+when the focus does. The color is the accent at 50% in the light and 62%
+in the dark: the base palettes write the blue's so, and `accentPal`
+recomputes it for a preset. The edge animates with
 `focus`; clicking a pane, cycling panes and moving the focus all use the
 same path.
 
@@ -423,24 +431,52 @@ the add button read that one answer, so they leave together.
 
 **Empty states that teach.** `linearNothingAction`
 ([`linear_view.go`](../linear_view.go)) adds the one action to the Tasks
-and Linear empty states: **Open Settings** for a missing or refused key,
-**Clear Filters** when a filter narrows everything away, or **Refresh
-Linear** otherwise. The same button is used from the board, the list and a
-Tasks pane. The error copy around them names the next step: the Linear key
-goes to Settings › Linear, the browser asks for the address again, a file
-that cannot be read checks that it still exists, and a failed CLI link
-checks that `/usr/local/bin` is writable.
+and Linear empty states, by the kind of state it is (`linearEmpty`). A
+workspace not read (`linearUnread`) offers **Open Settings** for a missing
+or refused key or the integration turned off, and **Refresh Linear**
+otherwise; never **Clear Filters**, which from a Tasks pane, outside
+`withLin`, would clear the Linear page's filters. A workspace read with no
+issue to show (`linearNoIssues`) offers **Clear Filters** when a filter the
+user set narrows it (`linearFiltered`: a Tasks pane's project is its
+link's, forced every frame, and not one), **Show Done** in a Tasks pane
+whose issues are all done and so hidden (`linearModel.doneHidden`), and
+**Refresh Linear** otherwise, under a detail that no longer says a filter hides the issues
+when none does. A workspace not read says why: how to set a key when
+there is none, else its status (`linearUnreadDetail`), which now has a
+line for the integration turned off. The same button is used from the board, the list and a
+Tasks pane. The error copy around them says what went wrong and, where
+there is one, the next step: the Linear key goes to Settings › Linear, the
+browser asks for the address again, a file or folder that cannot be read
+checks that it still exists and may be opened, settings that cannot be
+saved check that the configuration folder is writable, and a failed CLI
+install gives its error, on every platform.
 
-**The first run.** [`intro.go`](../intro.go) holds the reveal. It starts
-only when `App.loaded` is true and there was no `app.json` when the app
-opened; starting it writes the prefs, so a crash does not replay it. The
-shell (`view`) fades and slides 8 points in over 520 ms from 180 ms; the
-sidebar's first ten rows stagger at 18 ms each; the accent wash and mark
-leave from 600 ms and the whole overlay ends at 900 ms. The overlay is
-drawn in the same frame as the shell, so there is no shell-only frame
-before it. Its `HandleInput` catches a key, a pointer press or a scroll,
-calls `finishIntro`, and gives the keyboard back to the focused pane. With
-Reduce Motion it is a 150 ms opacity fade with no movement or stagger.
+**The first run.** [`intro.go`](../intro.go) holds the reveal, on a
+first run: there was no `app.json` when the app opened. From the window's
+first frame, before kerod has sent a state, `introStart` draws the accent
+wash and the mark (`introState.shown`) and keeps the shell at opacity 0,
+so no frame shows the shell before the overlay. When `App.loaded` turns
+true, the shell's timeline starts (`started`, `since`) and the prefs are
+written, so a crash does not replay it. The shell (`view`) fades and
+slides 8 points in over 520 ms from 180 ms; the sidebar's first ten rows
+stagger at 18 ms each; the mark keeps fading in from the first frame, not
+again from the state; the overlay leaves from 600 ms and ends at 900 ms.
+The wash's color is constant and the overlay's opacity fades it, once. A
+state slower than `introWait` (2 s), a version mismatch or a failed
+connection skips the reveal (`skipped`): the overlay goes and the shell
+fades in over 150 ms, so it never covers kerod's error, and a state coming
+later starts nothing. The overlay holds the keyboard with `Focus` every
+frame, and `focusTerminal` does nothing while it shows, so the state's
+selection does not take the keyboard from it. Its `HandleInput` takes
+every event: a pointer press or a scroll ends it, and a key ends it as it
+goes up, so the key and its text reach no pane; window shortcuts go first
+and still act. A dialog opened during it (the palette, the chooser,
+Settings, a confirmation, the usage) ends it, so the dialog's field keeps
+the keyboard. `finishIntro` gives the keyboard back to the selected
+session's pane once the frame the reveal ends in is built, unless a
+dialog is open; a reveal ended while it waits counts as seen. A skipped
+reveal's shell fades without moving. With Reduce Motion it is a 150 ms opacity
+fade, with no translation, stagger or scale.
 
 Code: [`motion.go`](../motion.go), [`theme.go`](../theme.go),
 [`panes.go`](../panes.go), [`view.go`](../view.go), [`intro.go`](../intro.go),

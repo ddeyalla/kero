@@ -47,7 +47,7 @@ func (a *App) installCLI() {
 		}
 		a.update(func() {
 			if err != nil {
-				a.toast(locales.CliInstallFailed())
+				a.toast(locales.CliInstallFailed(err.Error()))
 				return
 			}
 			a.toast(locales.CliInstalledIn(proto.ShortDir(filepath.Dir(link))))

@@ -110,7 +110,7 @@ func (a *App) view(c *ui.Context) {
 	row := ui.Row(c).Fill().AlignItems(ui.Stretch)
 	backdrop(c, pal, row, a.set)
 	if p, ok := a.introShellP(c); ok {
-		row.Opacity(p).Translate(0, (1-p)*8)
+		row.Opacity(p).Translate(0, a.introLift(c, p, 8))
 	}
 	// A curve, not a spring: see slide.
 	progress := row.AnimateTo("sidebar", b2f(!a.prefs.SidebarHidden), slide)
@@ -414,7 +414,7 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 	row := ui.Row(c.Key(s.ID)).Height(rowH).Padding(0, 10, 0, 12).Gap(10).AlignItems(ui.Center).Radius(8).Margin(0, 0, 1, 0).
 		Transition(rowTransition)
 	if p, ok := a.introRowP(c, *n); ok {
-		row.Opacity(p).Translate(0, (1-p)*6)
+		row.Opacity(p).Translate(0, a.introLift(c, p, 6))
 	}
 	hovered := row.Hovered()
 	if pal.dark {

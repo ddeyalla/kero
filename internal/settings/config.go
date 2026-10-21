@@ -116,7 +116,7 @@ var keys = []key{
 	choiceKey("language", "the app's language; system follows the system's", func(s *Settings) *string { return &s.Language }, append([]string{"system"}, Languages...)...),
 	mapChoice("background", "the window's wash", func(s *Settings) *string { return &s.Background },
 		[]string{"petal", "mist", "meadow", "dusk", "plum", "rose", "sea", "plain"}, []string{"rex", "mist", "meadow", "dusk", "plum", "rose", "sea", "plain"}),
-	choiceKey("accent", "the accent's preset: its color, the wash that comes with it and the terminals' selection; the wash stays yours after, by background", func(s *Settings) *string { return &s.Accent },
+	choiceKey("accent", "the accent's preset: its color and the terminals' selection; the wash is background's, which Settings sets to the preset's as you pick one there", func(s *Settings) *string { return &s.Accent },
 		accentIDs()...),
 	boolKey("window-translucent", "let the desktop show through the window", func(s *Settings) *bool { return &s.Vibrancy }),
 	boolKey("grain", "a faint grain over the wash, so flat gradients read as material", func(s *Settings) *bool { return &s.Grain }),

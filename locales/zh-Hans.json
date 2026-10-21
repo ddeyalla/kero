@@ -66,7 +66,7 @@
   "toastSaveSettingsFailed": "无法保存设置：{error}",
   "toastConfigProblems": "配置文件有 {count} 个问题：请查看 设置 › 高级",
   "toastNothingNeedsYou": "没有需要你处理的会话",
-  "cliInstallFailed": "无法安装命令行工具",
+  "cliInstallFailed": "无法安装 kero 命令：{error}",
   "cliInstalledIn": "已将 kero 命令安装到 {dir}",
   "cliAddedToPath": "已将 kero 命令添加到 PATH：新开的终端即可使用",
   "notifyNeedsYouTitle": "{name} 需要你",

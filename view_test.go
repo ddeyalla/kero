@@ -160,35 +160,105 @@ func TestSidebarAnimationNoHolds(t *testing.T) {
 	}
 }
 
-// The window moves from the panes' headers and the gaps around them, and
-// not from a press on a pane, which focuses it.
 // Collapsing a project folds its rows away and shows them again, the
-// chosen one never leaving.
+// chosen one never leaving. The rows fold over row's time, the project
+// under them moving up with them, and unfold as they come back.
 func TestProjectCollapse(t *testing.T) {
 	a := testApp(t)
+	a.st.Projects = append(a.st.Projects, proto.Project{ID: "p2", Name: "other", Dir: "/tmp/other"})
 	a.st.Sessions = append(a.st.Sessions,
 		proto.Session{ID: "s2", Project: "p1", Name: "second", Panes: []proto.Pane{{ID: "a", Status: proto.Idle, Progress: -1}}},
-		proto.Session{ID: "s3", Project: "p1", Name: "third", Panes: []proto.Pane{{ID: "a", Status: proto.Idle, Progress: -1}}})
+		proto.Session{ID: "s3", Project: "p1", Name: "third", Panes: []proto.Pane{{ID: "a", Status: proto.Idle, Progress: -1}}},
+		proto.Session{ID: "s4", Project: "p2", Name: "fourth", Panes: []proto.Pane{{ID: "c", Status: proto.Idle, Progress: -1}}})
 	tt := ui.NewTester(a.view, 900, 700)
 	frames(tt)
 	if !tt.HasText("second") || !tt.HasText("third") {
 		t.Fatalf("the rows are not shown; texts %q", tt.Texts())
 	}
+	below := func() float32 {
+		r, ok := tt.Find("other")
+		if !ok {
+			t.Fatalf("no header of the project below; texts %q", tt.Texts())
+		}
+		return r.Y
+	}
+	open := below()
+	second, _ := tt.Find("second")
+	whole := inked(tt, second)
+
 	a.toggleProject("p1")
-	frames(tt)
+	tt.Frame()
+	tt.Advance(row.Duration / 8)
+	tt.Frame()
+	// The row going still shows where it was, folding, with the project
+	// below not yet over it: its text's pixels are its own.
+	if top := below(); top <= second.Y+second.H {
+		t.Fatalf("the project below is over the row going at once: %v, the row to %v", top, second.Y+second.H)
+	}
+	shot(t, tt, "collapse-folding")
+	if n := inked(tt, second); n == 0 {
+		t.Error("the row going left at once, rather than folding away")
+	}
+	tt.Advance(row.Duration * 3 / 8)
+	tt.Frame()
+	mid := below()
+	tt.Advance(row.Duration)
+	tt.Frame()
 	if tt.HasText("second") || tt.HasText("third") {
 		t.Errorf("the rows stayed after the collapse; texts %q", tt.Texts())
+	}
+	if tt.FramePending() {
+		t.Error("the collapse is still moving after its time")
 	}
 	if !tt.HasText("demo") {
 		t.Error("the chosen row left with the others")
 	}
+	shut := below()
+	if !(shut < mid && mid < open) {
+		t.Errorf("the project below did not move up with the rows: %v, then %v, then %v", open, mid, shut)
+	}
+
+	// Back, the rows unfold where they go: a row coming shows a part of
+	// itself, then the whole.
 	a.toggleProject("p1")
+	tt.Frame()
+	tt.Advance(row.Duration / 8)
+	tt.Frame()
+	if n := inked(tt, second); n >= whole {
+		t.Errorf("the row came back whole at once (%d of %d pixels), rather than unfolding", n, whole)
+	}
+	tt.Advance(row.Duration * 3 / 8)
+	tt.Frame()
+	if mid := below(); !(shut < mid && mid < open) {
+		t.Errorf("the project below did not move down with the rows: at %v, between %v and %v", mid, shut, open)
+	}
 	frames(tt)
 	if !tt.HasText("second") || !tt.HasText("third") {
 		t.Error("the rows did not come back")
 	}
+	if got := below(); got != open {
+		t.Errorf("the project below came back to %v, want %v", got, open)
+	}
+	if n := inked(tt, second); n != whole {
+		t.Errorf("the row came back as %d pixels of text, want %d", n, whole)
+	}
 }
 
+// inked counts the pixels in r dark enough to be text on the sidebar.
+func inked(tt *ui.Tester, r ui.Rect) int {
+	img, n := tt.Image(), 0
+	for y := int(r.Y); y < int(r.Y+r.H); y++ {
+		for x := int(r.X); x < int(r.X+r.W); x++ {
+			if c := img.RGBAAt(x, y); int(c.R)+int(c.G)+int(c.B) < 3*180 {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// The window moves from the panes' headers and the gaps around them, and
+// not from a press on a pane, which focuses it.
 func TestWindowDragRegions(t *testing.T) {
 	a := testApp(t)
 	tt := ui.NewTester(a.view, 1100, 640)

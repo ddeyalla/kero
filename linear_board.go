@@ -48,12 +48,12 @@ func (a *App) linearShownStates(m *linearModel) (shown, hidden []proto.LinearWor
 func (a *App) linearBoard(c *ui.Context, pal *palette, m *linearModel) {
 	lin := a.st.Linear
 	if lin == nil || (lin.Status != proto.LinearOK && len(lin.Issues) == 0) {
-		a.linearNothingAction(c, pal, locales.LinearNotRead(), a.linearStatusLabel(nil))
+		a.linearNothingAction(c, pal, linearUnread, locales.LinearNotRead(), a.linearUnreadDetail())
 		return
 	}
 	shown, hidden := a.linearShownStates(m)
 	if len(m.issues) == 0 && a.set.LinearEmptyColumns != "shown" {
-		a.linearNothingAction(c, pal, locales.LinearNone(), a.linearEmptyDetail())
+		a.linearNothingAction(c, pal, linearNoIssues, locales.LinearNone(), a.linearEmptyDetail())
 		return
 	}
 	colBg, _, _ := linearSurfaces(pal)
@@ -261,7 +261,7 @@ func (a *App) openLinearURL(link string) {
 // columns are.
 func (a *App) linearList(c *ui.Context, pal *palette, m *linearModel) {
 	if len(m.issues) == 0 {
-		a.linearNothingAction(c, pal, locales.LinearNone(), a.linearEmptyDetail())
+		a.linearNothingAction(c, pal, linearNoIssues, locales.LinearNone(), a.linearEmptyDetail())
 		return
 	}
 	colBg, _, _ := linearSurfaces(pal)

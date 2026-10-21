@@ -91,6 +91,10 @@ func (a *App) setFocus(s *proto.Session, pane string) {
 
 // focusTerminal gives the keyboard to the pane the user is in.
 func (a *App) focusTerminal() {
+	if a.introShowing() {
+		// The first run's reveal holds the keyboard; it gives it back.
+		return
+	}
 	if s := a.session(a.selected); s != nil {
 		if id := a.focusOf(s); id != "" {
 			a.paneRef(id).Focus()
@@ -280,11 +284,14 @@ func (a *App) paneCard(c *ui.Context, pal *palette, bar ui.TitleBar, shown float
 		}
 		// The focus is the only thing that changes when the user moves
 		// between panes: the card and its text stay as they are, and a
-		// light edge marks the pane in. Every pane keeps the edge's room,
-		// so the border never moves what is inside it.
-		edge := ui.Box(c.Key("focus-" + p.ID)).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(14).PassThrough()
+		// light edge marks the pane in, when there is another pane to
+		// tell it from: not a pane alone, nor one zoomed. Every pane keeps
+		// the edge's room, so the border never moves what is inside it.
+		// It lies inside the card's own border, the dark's lit edge, and
+		// follows its inner curve.
+		edge := ui.Box(c.Key("focus-" + p.ID)).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(14 - b2f(pal.dark)).PassThrough()
 		outline := ui.Transparent
-		if focused {
+		if focused && multi && s.Zoomed == "" {
 			outline = pal.focusEdge
 		}
 		edge.Border(1, edge.AnimateColor("edge", outline, focus))

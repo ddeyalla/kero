@@ -1,9 +1,10 @@
 package main
 
 import (
-	"github.com/egoist/mygo/ui"
 	"slices"
 	"strings"
+
+	"github.com/egoist/mygo/ui"
 
 	"kero/locales"
 )

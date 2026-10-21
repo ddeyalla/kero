@@ -28,7 +28,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Start a task: link the session, move the issue to In Progress, print its branch | `kero task start <BRU-25>` | 2.0.7-local.1 | Shipped |
 | Project mapped to its Linear project (the one named like the repository offered first) | The project's menu in the sidebar, or the Tasks pane toolbar | 2.0.7-local.1 | Shipped |
 | Linear from the CLI | `kero linear status\|board\|issue\|set-state\|comment` | 2.0.7-local.1 | Shipped |
-| Linear and Tasks empty states act: Open Settings for the key, Clear Filters, or Refresh Linear | The empty state's button | Unreleased | Untried |
+| Linear and Tasks empty states act: Open Settings for the key or the integration turned off, Refresh Linear when it was not reached or has no issues, Clear Filters only for a filter the user set | The empty state's button | Unreleased | Untried |
 
 ## Panes
 
@@ -43,7 +43,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Least pane size (280×150); a split without room is refused | Automatic | 2.0.7-local.1 | Shipped |
 | Make panes even | Double-click a divider, `Cmd+Ctrl+=` | 2.0.7-local.1 | Shipped |
 | Panes glide in and out; terminal sizes wait for the glide to end | Automatic | 2.0.7-local.1 | Shipped |
-| The focused pane has a soft accent border; unfocused panes keep the same card and text | Automatic; click or cycle panes | Unreleased | Untried |
+| The focused pane has a soft accent border among several panes (none alone or zoomed); unfocused panes keep the same card and text | Automatic; click or cycle panes | Unreleased | Untried |
 | Panes open small and fade in; closing panes fade out the same way over 160 ms | Automatic | Unreleased | Untried |
 
 ### Files pane
@@ -86,7 +86,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
 | Settings as a modal over the main window, not a separate window | `Cmd+,` toggles it, or the sidebar's gear; Esc, a click beside it or `Cmd+W` closes it | Unreleased | Untried |
-| Accent presets: Blue, Plum, Rose, Sea, Moss, Graphite — an accent color, the wash that comes with it, the terminals' selection | Settings › Appearance › Accent; `accent = <preset>` in the config | Unreleased | Untried |
+| Accent presets: Blue, Plum, Rose, Sea, Moss, Graphite — an accent color, the wash that comes with it, the terminals' selection | Settings › Appearance › Accent (with its wash); `accent = <preset>` in the config (the accent alone) | Unreleased | Untried |
 | Grain over the background wash | Settings › Appearance › Grain; `grain = false` off | Unreleased | Untried |
 
 ## Terminal
@@ -105,9 +105,9 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Compact title bar (40 pt): the traffic lights where macOS puts them, the sidebar's buttons centered on them | Automatic | Unreleased | Untried |
 | With the sidebar hidden, the first header's title centered on the traffic lights; the sidebar's first row 30 pt below them, aligned with the close light | Automatic; `Cmd+B` hides the sidebar | Unreleased | Untried |
 | macOS's own traffic lights in sight in full screen, where they are in the window, with their hover glyphs: close, minimize (greyed, as macOS has it) and exit full screen; the bar that slides down with the menu bar is empty and lets clicks through | `Ctrl+Cmd+F`, or the green light | Unreleased | Untried |
-| The app moves as one (motion tokens); a project collapsing folds its rows away animated, the chosen row never leaving | Automatic; collapse by clicking a project header | Unreleased | Untried |
+| The app moves as one (motion tokens, a few literals left); a project collapsing folds its rows away animated, the chosen row never leaving | Automatic; collapse by clicking a project header | Unreleased | Untried |
 | A project's hover chevron and add button wait 80 ms after the pointer leaves | Automatic; hover a project header | Unreleased | Untried |
-| First run: a ~900 ms reveal of the real shell, cancellable, Reduce Motion aware, silent, shown once | Automatic, after the first state loads | Unreleased | Untried |
+| First run: a ~900 ms reveal of the real shell, covering the window from its first frame, skipped after 2 s or on a connection error, cancellable, Reduce Motion aware, silent, shown once | Automatic, on the first launch | Unreleased | Untried |
 
 ## Updates and releases
 

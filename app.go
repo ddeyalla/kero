@@ -454,7 +454,11 @@ func (a *App) notify(first bool) {
 	if !a.set.DockBadge {
 		waiting = 0
 	}
-	mygo.App.SetBadgeCount(waiting)
+	// No window, as a test's app, is no Dock to badge either: the badge
+	// waits on the main loop, which a test has not.
+	if a.win != nil {
+		mygo.App.SetBadgeCount(waiting)
+	}
 }
 
 func (a *App) updateTitle() {

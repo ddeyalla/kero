@@ -75,7 +75,7 @@ var lightPalette = palette{
 	cardShadow:    ui.RGBA(0, 0, 0, 0.07),
 	cardShadow2:   ui.RGBA(0, 0, 0, 0.035),
 	floatShadow:   ui.RGBA(20, 20, 40, 0.14),
-	focusEdge:     ui.RGBA(59, 108, 246, 0.50),
+	focusEdge:     ui.Hex("#3b6cf6").Alpha(0.50), // the accent's, as accentPal makes a preset's
 	buttonBg:      ui.Hex("#ffffff"),
 	control:       ui.Hex("#ffffff"),
 	controlHover:  ui.Hex("#f7f7f9"),
@@ -112,7 +112,7 @@ var darkPalette = palette{
 	cardShadow:   ui.RGBA(0, 0, 0, 0.35),
 	cardShadow2:  ui.RGBA(0, 0, 0, 0.2),
 	floatShadow:  ui.RGBA(0, 0, 0, 0.45),
-	focusEdge:    ui.RGBA(107, 147, 255, 0.62),
+	focusEdge:    ui.Hex("#4a71d4").Alpha(0.62), // the accent's, as accentPal makes a preset's
 	edge:         ui.RGBA(255, 255, 255, 0.075),
 	edgeHigh:     ui.RGBA(255, 255, 255, 0.11),
 	buttonBg:     ui.Hex("#404047"),

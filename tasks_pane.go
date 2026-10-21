@@ -30,7 +30,7 @@ func (a *App) tasksState(pane string) *linearState {
 func (a *App) tasksPane(c *ui.Context, pal *palette, s *proto.Session, p *proto.Pane, body ui.Element) {
 	lin := a.st.Linear
 	if lin == nil || lin.Status != proto.LinearOK && len(lin.Issues) == 0 {
-		a.linearNothingAction(c, pal, locales.LinearNotRead(), locales.LinearNotReadDetail())
+		a.linearNothingAction(c, pal, linearUnread, locales.LinearNotRead(), a.linearUnreadDetail())
 		return
 	}
 	st := a.tasksState(p.ID)
@@ -130,7 +130,7 @@ func (a *App) tasksMine(c *ui.Context, pal *palette, m *linearModel, s *proto.Se
 func (a *App) tasksLinkPrompt(c *ui.Context, pal *palette, s *proto.Session, st *linearState) {
 	proj := a.project(s.Project)
 	if proj == nil {
-		a.linearNothingAction(c, pal, locales.LinearNotRead(), locales.LinearNotReadDetail())
+		a.linearNothingAction(c, pal, linearUnread, locales.LinearNotRead(), locales.LinearNotReadDetail())
 		return
 	}
 	lin := a.st.Linear

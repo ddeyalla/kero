@@ -53,7 +53,7 @@ kero config check             # report unknown keys and bad values
 | -------------------- | -------- | --------------------------------------------------------------- |
 | `window-theme`       | `system` | The app's appearance: `system`, `light` or `dark`               |
 | `language`           | `system` | The app's language: `system`, `en` or `zh-Hans`                 |
-| `accent`             | `blue`   | The accent's preset: `blue`, `plum`, `rose`, `sea`, `moss` or `graphite` — its color, the wash that comes with it and the terminals' selection; the wash stays yours after, by `background` |
+| `accent`             | `blue`   | The accent's preset: `blue`, `plum`, `rose`, `sea`, `moss` or `graphite` — its color and the terminals' selection. The key leaves the wash alone: that is `background`, which Settings › Appearance › Accent sets to the preset's wash as you pick one there |
 | `background`         | `petal`  | The window's wash: `petal`, `mist`, `meadow`, `dusk`, `plum`, `rose`, `sea` or `plain` |
 | `window-translucent` | `true`   | Let the desktop show through the window                         |
 | `grain`              | `true`   | A faint grain over the wash, so flat gradients read as material |
