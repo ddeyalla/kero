@@ -1316,6 +1316,16 @@ func (msgs Messages) StatusExited() string {
 	return Catalog.Format(msgs.locale, "statusExited", nil)
 }
 
+// StatusInactive says "Inactive"
+// in the language the app shows.
+func StatusInactive() string { return In(i18n.Locale()).StatusInactive() }
+
+// StatusInactive says "Inactive"
+// in the language of msgs.
+func (msgs Messages) StatusInactive() string {
+	return Catalog.Format(msgs.locale, "statusInactive", nil)
+}
+
 // StatusFailed says "Failed"
 // in the language the app shows.
 func StatusFailed() string { return In(i18n.Locale()).StatusFailed() }
