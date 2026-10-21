@@ -1,0 +1,18 @@
+package spotify
+
+import (
+	"kero/internal/plugin/builtin/spotify/transport"
+	"kero/internal/plugin/builtin/spotify/web"
+	"kero/internal/plugin/sdk"
+)
+
+// newBackend builds the player, the playback listener, and the Web API
+// client of one plugin process. A test replaces it with fakes.
+var newBackend = func(conn *sdk.Conn) (*transport.Transport, transport.Source, *web.Client) {
+	client := web.New(web.Config{
+		RedirectPort: signInPort,
+		OpenURL:      web.ConnOpenURL(conn),
+		Secrets:      web.ConnSecrets(conn),
+	})
+	return transport.New(transport.OSAscript{}), transport.NewSource(), client
+}

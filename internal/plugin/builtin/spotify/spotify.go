@@ -49,6 +49,10 @@ const (
 	// load.
 	searchTimeout  = 15 * time.Second
 	libraryTimeout = 20 * time.Second
+
+	// tickInterval is how often a visible, playing pane redraws its
+	// clock between the monitor's snapshots.
+	tickInterval = time.Second
 )
 
 // init registers the plugin's runner, so that the executable knows what
@@ -77,17 +81,6 @@ func serve() error {
 	}()
 	transport.RunLoop()
 	return <-done
-}
-
-// newBackend builds the player, the playback listener, and the Web API
-// client of one plugin process. A test replaces it with fakes.
-var newBackend = func(conn *sdk.Conn) (*transport.Transport, transport.Source, *web.Client) {
-	client := web.New(web.Config{
-		RedirectPort: signInPort,
-		OpenURL:      web.ConnOpenURL(conn),
-		Secrets:      web.ConnSecrets(conn),
-	})
-	return transport.New(transport.OSAscript{}), transport.NewSource(), client
 }
 
 // playbackMode is the state of the player the pane draws. It is a type,
@@ -209,12 +202,17 @@ func (p *plugin) open(conn *sdk.Conn, e sdk.OpenEvent) {
 	if p.library != nil {
 		p.library.SetClientID(p.values[web.SettingClientID])
 	}
+	library := p.library
+	p.mu.Unlock()
+
+	// Asking whether the library is signed in reads the saved tokens,
+	// which is a host call, so it happens outside p.mu.
 	s := &session{
 		pane:     e.Pane,
 		widget:   e.Widget,
 		size:     e.Size,
 		playback: modeStarting,
-		lib:      p.currentLibrary(),
+		lib:      libraryModeOf(library),
 		loaded:   make(map[tabKind]bool),
 	}
 	if len(e.State) > 0 {
@@ -226,6 +224,7 @@ func (p *plugin) open(conn *sdk.Conn, e sdk.OpenEvent) {
 			s.query = saved.Query
 		}
 	}
+	p.mu.Lock()
 	p.panes[e.Pane] = s
 	p.mu.Unlock()
 
@@ -254,14 +253,52 @@ func (p *plugin) startMonitor() {
 		// A source that cannot listen (on anything but macOS) is not an
 		// error: the monitor keeps polling instead.
 		_ = monitor.Start(ctx)
+		go p.tickLoop(ctx)
 	})
 }
 
-// close forgets a pane.
+// tickLoop redraws a playing pane between the monitor's snapshots, so
+// that the seek bar and the elapsed time move every second.
+func (p *plugin) tickLoop(ctx context.Context) {
+	ticker := time.NewTicker(tickInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.tick()
+		}
+	}
+}
+
+// tick redraws every visible pane whose track plays. It reads nothing
+// from Spotify: the position comes from the snapshot's read time.
+func (p *plugin) tick() {
+	p.mu.Lock()
+	panes := make([]string, 0, len(p.panes))
+	for pane, s := range p.panes {
+		if s.visible && s.playback == modePlaying && s.snap.State == transport.StatePlaying && s.seek == nil {
+			panes = append(panes, pane)
+		}
+	}
+	p.mu.Unlock()
+	for _, pane := range panes {
+		p.render(pane)
+	}
+}
+
+// close forgets a pane and stops the monitor from reading for it.
 func (p *plugin) close(_ *sdk.Conn, pane string) {
 	p.mu.Lock()
 	delete(p.panes, pane)
+	monitor := p.monitor
 	p.mu.Unlock()
+	// A closed pane is not visible. Without this the monitor would keep
+	// reading for it while another Spotify pane is still open.
+	if monitor != nil {
+		monitor.Visible(pane, false)
+	}
 }
 
 // resize records a pane's size, so the pane draws the compact or the
@@ -300,29 +337,48 @@ func (p *plugin) settings(_ *sdk.Conn, values map[string]string) {
 	if p.library != nil {
 		p.library.SetClientID(p.values[web.SettingClientID])
 	}
+	library := p.library
 	panes := make([]string, 0, len(p.panes))
 	for pane, s := range p.panes {
-		s.lib = p.currentLibrary()
 		s.loaded = make(map[tabKind]bool)
 		panes = append(panes, pane)
 	}
 	p.mu.Unlock()
+
+	// The new Client ID decides the library state, and asking for it
+	// reads the saved tokens, so this happens outside p.mu.
+	lib := libraryModeOf(library)
+	p.mu.Lock()
+	for _, s := range p.panes {
+		s.lib = lib
+	}
+	p.mu.Unlock()
+
 	for _, pane := range panes {
 		p.syncLibrary(pane)
 		p.render(pane)
 	}
 }
 
-// currentLibrary is the library state before a call: no Client ID, not
-// signed in, or ready.
-func (p *plugin) currentLibrary() libraryMode {
-	if p.library == nil {
+// libraryState is the library state before a call: no Client ID, not
+// signed in, or ready. It reads the Web API client's state outside p.mu,
+// because signing in reads the saved tokens with a host call.
+func (p *plugin) libraryState() libraryMode {
+	p.mu.Lock()
+	library := p.library
+	p.mu.Unlock()
+	return libraryModeOf(library)
+}
+
+// libraryModeOf is the library state of a Web API client.
+func libraryModeOf(library *web.Client) libraryMode {
+	if library == nil {
 		return libFailed
 	}
-	if strings.TrimSpace(p.library.ClientID()) == "" {
+	if strings.TrimSpace(library.ClientID()) == "" {
 		return libNoClientID
 	}
-	if !p.library.SignedIn() {
+	if !library.SignedIn() {
 		return libSignedOut
 	}
 	return libReady
@@ -399,14 +455,16 @@ func (p *plugin) playbackError(err error) {
 // syncLibrary loads the tab or the search a pane shows, once its library
 // is ready.
 func (p *plugin) syncLibrary(pane string) {
+	lib := p.libraryState()
+
 	p.mu.Lock()
 	s := p.panes[pane]
 	if s == nil {
 		p.mu.Unlock()
 		return
 	}
-	s.lib = p.currentLibrary()
-	if s.lib != libReady {
+	s.lib = lib
+	if lib != libReady {
 		p.mu.Unlock()
 		return
 	}
@@ -486,6 +544,8 @@ func (p *plugin) loadTab(pane string, tab tabKind) {
 
 // runSearch searches the catalog for a query.
 func (p *plugin) runSearch(pane, query string) {
+	lib := p.libraryState()
+
 	p.mu.Lock()
 	s := p.panes[pane]
 	if s == nil {
@@ -493,7 +553,7 @@ func (p *plugin) runSearch(pane, query string) {
 		return
 	}
 	library := p.library
-	if library == nil || p.currentLibrary() != libReady {
+	if library == nil || lib != libReady {
 		p.mu.Unlock()
 		return
 	}
@@ -548,7 +608,7 @@ func searchEntries(result web.SearchResult) []entry {
 			id:       "album-" + album.ID,
 			title:    album.Name,
 			subtitle: album.ArtistLine(),
-			trailing: "Album",
+			trailing: localeAlbum(),
 			image:    album.Artwork(),
 			uri:      album.URI,
 		})
@@ -561,7 +621,7 @@ func searchEntries(result web.SearchResult) []entry {
 			id:       "playlist-" + playlist.ID,
 			title:    playlist.Name,
 			subtitle: playlist.Owner,
-			trailing: "Playlist",
+			trailing: localePlaylist(),
 			image:    playlist.Artwork(),
 			uri:      playlist.URI,
 		})
@@ -670,7 +730,11 @@ func (p *plugin) searchEvent(e protocol.EventParams) {
 		s.query = query
 		s.searchSeq++
 		s.tab = tabSearch
-		s.search = web.SearchResult{}
+		// Keep the last results while a search runs: when the search
+		// fails offline, they are what the pane still shows.
+		if strings.TrimSpace(query) == "" {
+			s.search = web.SearchResult{}
+		}
 		s.rebuild()
 		p.saveLocked(e.Pane)
 		p.mu.Unlock()
@@ -850,22 +914,25 @@ func (p *plugin) doCommand(_ *sdk.Conn, pane, fail, command string) {
 }
 
 // command handles a palette command or a "kero do" action: the host sends
-// the command to the process, which applies it to the first pane.
+// the command to the plugin process, which runs it for every open pane.
+// The protocol's command names no pane, so a failure notice goes to every
+// open pane instead of to one chosen at random.
 func (p *plugin) command(_ *sdk.Conn, id string) {
 	p.mu.Lock()
-	pane := ""
-	for id := range p.panes {
-		pane = id
-		break
-	}
+	player := p.player
+	open := len(p.panes)
 	p.mu.Unlock()
+	if player == nil || open == 0 {
+		return
+	}
+	fail := localeCommandFailed()
 	switch id {
 	case "play-pause":
-		p.doCommand(nil, pane, localeCommandFailed(), "play-pause")
+		p.actionAll(fail, player.PlayPause)
 	case "next":
-		p.doCommand(nil, pane, localeCommandFailed(), "next")
+		p.actionAll(fail, player.Next)
 	case "previous":
-		p.doCommand(nil, pane, localeCommandFailed(), "previous")
+		p.actionAll(fail, player.Previous)
 	}
 }
 
@@ -892,6 +959,14 @@ func (p *plugin) signIn(pane string) {
 		defer cancel()
 		err := library.SignIn(ctx)
 
+		// A failed sign-in leaves the library in whatever state the
+		// client reports now, which reads the saved tokens, so it is
+		// asked outside p.mu.
+		var lib libraryMode
+		if err != nil {
+			lib = p.libraryState()
+		}
+
 		p.mu.Lock()
 		s := p.panes[pane]
 		if s == nil {
@@ -901,7 +976,7 @@ func (p *plugin) signIn(pane string) {
 		s.signingIn = false
 		if err != nil {
 			s.notice = localeSignInFailed()
-			s.lib = p.currentLibrary()
+			s.lib = lib
 			if errors.Is(err, web.ErrNoClientID) {
 				s.notice = localeNoClientID()
 			}
@@ -933,6 +1008,30 @@ func (p *plugin) action(pane, fail string, fn func(context.Context) error) {
 			}
 			p.mu.Unlock()
 			p.render(pane)
+			return
+		}
+		p.readNow()
+	}()
+}
+
+// actionAll runs one player command off the handler goroutine, reports a
+// failure in every open pane, and reads the player again after a success.
+func (p *plugin) actionAll(fail string, fn func(context.Context) error) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+		defer cancel()
+		err := fn(ctx)
+		if err != nil {
+			p.mu.Lock()
+			for _, s := range p.panes {
+				s.notice = fail
+				s.playback = playbackState(err, s.snap)
+			}
+			panes := p.paneIDsLocked()
+			p.mu.Unlock()
+			for _, pane := range panes {
+				p.render(pane)
+			}
 			return
 		}
 		p.readNow()
@@ -991,13 +1090,6 @@ func (p *plugin) openLink(url string) {
 	}()
 }
 
-// save keeps the tab and the search for the next start.
-func (p *plugin) save(pane string) {
-	p.mu.Lock()
-	p.saveLocked(pane)
-	p.mu.Unlock()
-}
-
 // saveLocked starts the host call that saves a pane's state. It is called
 // with p.mu held, and the call runs in its own goroutine.
 func (p *plugin) saveLocked(pane string) {
@@ -1026,6 +1118,12 @@ func (p *plugin) render(pane string) {
 	if conn == nil {
 		return
 	}
+	drawTree(conn, pane, tree)
+}
+
+// drawTree sends one tree to the host. A test replaces it to see what a
+// pane would draw, because a zero Conn cannot render.
+var drawTree = func(conn *sdk.Conn, pane string, tree protocol.Tree) {
 	_ = conn.Render(pane, tree)
 }
 

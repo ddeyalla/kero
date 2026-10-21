@@ -138,6 +138,14 @@ func (m *Monitor) Visible(pane string, visible bool) {
 	}
 }
 
+// Showing says whether the monitor reads for a pane, which is true while
+// the pane is visible.
+func (m *Monitor) Showing(pane string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.visible[pane]
+}
+
 // changed is the handler a Source calls when Spotify's state changes.
 // It must not block, because the notification arrives on the main
 // thread.

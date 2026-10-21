@@ -228,7 +228,9 @@ func (a *App) spotifyCommand(command string) {
 	if pane == "" {
 		return
 	}
-	a.pluginHost().Command(pane, command)
+	if err := a.pluginHost().Command(pane, command); err != nil {
+		a.toast(locales.PluginCommandFailed())
+	}
 }
 
 // pluginPaneState is the app's state of one plugin pane, made on its first

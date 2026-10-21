@@ -20,6 +20,8 @@ var (
 	localeSignInRunning = locales.SpotifySignInRunning
 	localeSignInFailed  = locales.SpotifySignInFailed
 	localeNoClientID    = locales.SpotifyNoClientID
+	localeAlbum         = locales.SpotifyAlbum
+	localePlaylist      = locales.SpotifyPlaylist
 )
 
 // tree builds the pane: the compact player, or the large player with the
@@ -67,7 +69,9 @@ func (p *plugin) compactTree(s *session) *sdk.Node {
 // the search field and the results.
 func (p *plugin) largeTree(s *session) *sdk.Node {
 	if s.playback != modePlaying {
-		return sdk.Column(widgetPlayer, p.playbackState(s)).Gap(8).Padding(12)
+		// The library stays usable when nothing plays: the idle copy
+		// itself says to pick an album or a playlist here.
+		return sdk.Column(widgetPlayer, p.playbackState(s), sdk.Divider("library"), p.libraryTree(s)).Gap(8).Padding(12)
 	}
 
 	art := s.artNode("art", 96, 8)

@@ -5120,6 +5120,16 @@ func (msgs Messages) PluginSettingsSaved() string {
 	return Catalog.Format(msgs.locale, "pluginSettingsSaved", nil)
 }
 
+// PluginCommandFailed says "The plugin is not running."
+// in the language the app shows.
+func PluginCommandFailed() string { return In(i18n.Locale()).PluginCommandFailed() }
+
+// PluginCommandFailed says "The plugin is not running."
+// in the language of msgs.
+func (msgs Messages) PluginCommandFailed() string {
+	return Catalog.Format(msgs.locale, "pluginCommandFailed", nil)
+}
+
 // SpotifyStarting says "Connecting to Spotify…"
 // in the language the app shows.
 func SpotifyStarting() string { return In(i18n.Locale()).SpotifyStarting() }
@@ -5588,6 +5598,26 @@ func SpotifyLibraryFailed() string { return In(i18n.Locale()).SpotifyLibraryFail
 // in the language of msgs.
 func (msgs Messages) SpotifyLibraryFailed() string {
 	return Catalog.Format(msgs.locale, "spotifyLibraryFailed", nil)
+}
+
+// SpotifyAlbum says "Album"
+// in the language the app shows.
+func SpotifyAlbum() string { return In(i18n.Locale()).SpotifyAlbum() }
+
+// SpotifyAlbum says "Album"
+// in the language of msgs.
+func (msgs Messages) SpotifyAlbum() string {
+	return Catalog.Format(msgs.locale, "spotifyAlbum", nil)
+}
+
+// SpotifyPlaylist says "Playlist"
+// in the language the app shows.
+func SpotifyPlaylist() string { return In(i18n.Locale()).SpotifyPlaylist() }
+
+// SpotifyPlaylist says "Playlist"
+// in the language of msgs.
+func (msgs Messages) SpotifyPlaylist() string {
+	return Catalog.Format(msgs.locale, "spotifyPlaylist", nil)
 }
 
 // ActionSpotifyPlayPause says "Play or Pause Spotify"
