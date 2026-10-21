@@ -124,14 +124,16 @@ type attentionRow struct {
 	agent   string
 }
 
-// attentionRows are the sessions that have an attention, the most urgent
-// first, and of two as urgent the one whose state came last, so that a
+// attentionRows are the sessions that have an attention to show — not
+// those at rest — the most urgent first, and of two as urgent the one whose state came last, so that a
 // new wait is at the top of its kind.
 func (a *App) attentionRows() []attentionRow {
 	var rows []attentionRow
 	for _, g := range a.groups() {
 		for _, s := range g.sessions {
-			if s.Attention == nil || s.Attention.State == "" {
+			// A session at rest needs nothing: kerod sends the idle state
+			// for it, and it is no row.
+			if s.Attention == nil || s.Attention.State == "" || s.Attention.State == proto.AttentionIdle {
 				continue
 			}
 			// The agent that needs the user is the one of the pane the
@@ -271,14 +273,14 @@ func (a *App) attentionSearch(c *ui.Context, pal *palette, st *attentionView) {
 	var in ui.Element
 	frame := ui.Row(c.Key("attention-search")).Cursor(ui.CursorText).Grow(1).MinWidth(90).MaxWidth(200)
 	frame.Children(func() {
-		ui.Icon(c, searchIcon).Size(12, 12).TextColor(pal.textFaint).Shrink(0)
+		symbolMark(c, "magnifyingglass", 12, pal.textFaint, pal.dark)
 		in = ui.TextInputBase(c.Key("in"), &st.query).Grow(1).MinWidth(0).FontSize(12.5).
 			Placeholder(locales.AttentionSearchPlaceholder()).Label(locales.AttentionSearch())
 		in.OnShortcut(0, ui.KeyEscape, func() { st.query = "" })
 		if st.query != "" {
 			x := ui.ButtonBase(c.Key("clear")).Size(15, 15).Radius(8).Center().Shrink(0).
 				Background(pal.textFaint.Alpha(0.55)).TextColor(pal.card).Label(locales.AttentionClearFilter())
-			x.Children(func() { ui.Icon(c, closeIcon).Size(7, 7) })
+			x.Children(func() { symbolMark(c, "xmark", 8, pal.card, pal.dark) })
 			if x.Clicked() {
 				st.query = ""
 			}
@@ -328,14 +330,19 @@ func (a *App) attentionRowView(c *ui.Context, pal *palette, r attentionRow) {
 }
 
 // attentionSummary is a row's one line: what the hook said, exactly, and
-// where an agent says nothing, the state's own words. A Codex pane is the
-// one that says nothing of an approval — its scan reads the transcript
-// and names the call — so its row says what to do instead.
+// where an agent says nothing, the state's own words. A Codex pane's
+// approval is found by the transcript scan, not asked for by a hook, so
+// its row says what to do after whatever kerod worded the wait as.
 func (a *App) attentionSummary(r attentionRow) string {
-	if r.att.Msg != "" {
+	codexWait := r.att.State == proto.AttentionWaitingUser && r.agent == "codex"
+	switch {
+	case r.att.Msg != "" && codexWait:
+		// kerod words every wait, so a Codex one always has a message
+		// ("Needs permission"); the way to answer it follows.
+		return r.att.Msg + " · " + locales.AttentionApprove()
+	case r.att.Msg != "":
 		return r.att.Msg
-	}
-	if r.att.State == proto.AttentionWaitingUser && r.agent == "codex" {
+	case codexWait:
 		return locales.AttentionApprove()
 	}
 	return attentionLabel(r.att.State)
@@ -343,13 +350,17 @@ func (a *App) attentionSummary(r attentionRow) string {
 
 // gotoAttention shows a row's session and puts the keyboard in the pane
 // that needs the user, where the decision is: not zoomed, so that the
-// panes beside it stay in sight.
+// panes beside it stay in sight. A zoom on another pane is ended, as
+// setFocus alone would leave it hiding the target.
 func (a *App) gotoAttention(r attentionRow) {
 	delete(a.prefs.Collapsed, r.session.Project)
 	a.selectSession(r.session.ID)
 	s := a.session(r.session.ID)
 	if s == nil || r.att.Pane == "" || s.PaneByID(r.att.Pane) == nil {
 		return
+	}
+	if s.Zoomed != "" {
+		a.zoomPane(s, s.Zoomed) // a toggle: the zoom ends
 	}
 	a.setFocus(s, r.att.Pane)
 	a.paneRef(r.att.Pane).Focus()

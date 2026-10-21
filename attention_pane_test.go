@@ -72,6 +72,26 @@ func TestAttentionPaneEmpty(t *testing.T) {
 	}
 }
 
+// A real kerod sends the idle state for a quiet session, not no state:
+// with every session idle the pane is still empty, and has no rows.
+func TestAttentionPaneEmptyIdle(t *testing.T) {
+	a := testAttention(t,
+		attnFixture{state: proto.AttentionIdle, agent: "claude"},
+		attnFixture{state: proto.AttentionIdle, agent: "codex"},
+	)
+	if rows := a.attentionRows(); len(rows) != 0 {
+		t.Fatalf("idle sessions made %d rows, want 0", len(rows))
+	}
+	tt := ui.NewTester(a.view, 1280, 720)
+	frames(tt)
+	if !tt.HasText("Nothing needs you") {
+		t.Errorf("no empty state with every session idle; texts %q", tt.Texts())
+	}
+	if tt.HasText("All") {
+		t.Errorf("the toolbar shows with no rows; texts %q", tt.Texts())
+	}
+}
+
 // A session that needs the user is a row: its state, its name and its
 // project, what the hook said, the agent and how long it has been so.
 func TestAttentionPaneRow(t *testing.T) {
@@ -97,18 +117,26 @@ func TestAttentionPaneMany(t *testing.T) {
 	a := testAttention(t, f...)
 	tt := ui.NewTester(a.view, 1280, 720)
 	frames(tt)
-	if got := len(a.attentionRows()); got != 10 {
-		t.Fatalf("%d rows, want 10", got)
+	// The two idle sessions are no rows.
+	if got := len(a.attentionRows()); got != 8 {
+		t.Fatalf("%d rows, want 8", got)
 	}
 	// The most urgent first: the last fixture of each kind is the
 	// oldest, so a kind's own order is newest first.
 	rows := a.attentionRows()
-	if rows[0].att.State != proto.AttentionWaitingUser || rows[9].att.State != proto.AttentionIdle {
-		t.Fatalf("rows go %s…%s, want waiting-user…idle", rows[0].att.State, rows[9].att.State)
+	if rows[0].att.State != proto.AttentionWaitingUser || rows[7].att.State != proto.AttentionDone {
+		t.Fatalf("rows go %s…%s, want waiting-user…done", rows[0].att.State, rows[7].att.State)
 	}
-	for i, want := range []string{"task 1", "task 2", "task 5"} {
-		if !tt.HasText(want) {
-			t.Errorf("row %d: no %q; texts %q", i, want, tt.Texts())
+	// The sidebar names every session, so the rows' own words are what
+	// prove each is listed: "work N" is only in a row.
+	for _, i := range []int{1, 2, 3, 4, 6, 7, 8, 9} {
+		if want := fmt.Sprintf("work %d", i); !tt.HasText(want) {
+			t.Errorf("no row saying %q; texts %q", want, tt.Texts())
+		}
+	}
+	for _, unwanted := range []string{"work 5", "work 10"} {
+		if tt.HasText(unwanted) {
+			t.Errorf("an idle session is a row saying %q", unwanted)
 		}
 	}
 	shot(t, tt, "attention-many")
@@ -214,40 +242,68 @@ func TestAttentionPaneSearch(t *testing.T) {
 }
 
 // A row's click shows its session and puts the keyboard in the pane that
-// needs the user.
+// needs the user, though the session was left in another pane, zoomed.
 func TestAttentionRowFocusesPane(t *testing.T) {
 	a := testAttention(t, attnFixture{state: proto.AttentionWaitingUser, msg: "Bash command needs approval", agent: "claude"})
+	s := a.session("s2")
+	s.Focus = "bs2"
+	s.Zoomed = "bs2"
+	a.focus = map[string]string{"s2": "bs2"}
 	tt := ui.NewTester(a.view, 1280, 720)
 	frames(tt)
-	if err := tt.Click("task 1"); err != nil {
+	// The row's own words, which the sidebar does not say.
+	if err := tt.Click("Bash command needs approval"); err != nil {
 		t.Fatal(err)
 	}
 	frames(tt)
 	if a.selected != "s2" {
 		t.Fatalf("the row selected %q, want s2", a.selected)
 	}
-	if got := a.focusOf(a.session("s2")); got != "as2" {
+	s = a.session("s2")
+	if got := a.focusOf(s); got != "as2" {
 		t.Fatalf("the row focused %q, want the pane that needs the user", got)
+	}
+	if s.Zoomed != "" {
+		t.Fatalf("the zoom on %q stayed, hiding the pane that needs the user", s.Zoomed)
 	}
 }
 
-// A Codex pane says nothing of an approval — its state is the transcript
-// scan's — so its row says what to do; a hook's message shows as it is.
+// The state of a pane that closed is dropped with it.
+func TestAttentionViewPruned(t *testing.T) {
+	a := testAttention(t)
+	a.loaded = true
+	a.attentionViewOf("b").query = "x"
+	a.attentionViewOf("gone").query = "y"
+	a.sweepViews()
+	if _, ok := a.attention["gone"]; ok {
+		t.Error("the view of a closed pane stayed")
+	}
+	if _, ok := a.attention["b"]; !ok {
+		t.Error("the view of an open pane was dropped")
+	}
+}
+
+// kerod words every wait (paneWaitMsg: "Needs you" at the least), so a
+// Codex approval always has a message; its row still says what to do.
 func TestAttentionCodexApproval(t *testing.T) {
 	a := testAttention(t,
-		attnFixture{state: proto.AttentionWaitingUser, agent: "codex"},
-		attnFixture{state: proto.AttentionWaitingUser, agent: "claude"},
+		attnFixture{state: proto.AttentionWaitingUser, msg: "Needs you", agent: "codex"},
+		attnFixture{state: proto.AttentionWaitingUser, msg: "Needs you", agent: "claude"},
 	)
 	rows := a.attentionRows()
-	if got := a.attentionSummary(rows[0]); got != "Focus pane to approve" {
-		t.Fatalf("a silent Codex wait says %q", got)
+	if got := a.attentionSummary(rows[0]); got != "Needs you · Focus pane to approve" {
+		t.Fatalf("a Codex wait says %q", got)
 	}
 	if got := a.attentionSummary(rows[1]); got != "Needs you" {
-		t.Fatalf("a silent hook says %q", got)
+		t.Fatalf("a Claude wait says %q", got)
 	}
-	// A message the hook gave is shown as it is, Codex or not.
 	rows[0].att.Msg = "Waiting on exec"
-	if got := a.attentionSummary(rows[0]); got != "Waiting on exec" {
+	if got := a.attentionSummary(rows[0]); got != "Waiting on exec · Focus pane to approve" {
 		t.Fatalf("the hook's message shows as %q", got)
+	}
+	// Only a wait: a Codex turn that ran has no approval to give.
+	rows[0].att.State, rows[0].att.Msg = proto.AttentionRunning, ""
+	if got := a.attentionSummary(rows[0]); got != "Working" {
+		t.Fatalf("a Codex run says %q", got)
 	}
 }
