@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -279,33 +280,124 @@ func TestReadTimesOut(t *testing.T) {
 	}
 }
 
-func TestOneCallInFlight(t *testing.T) {
+func TestReadInFlightDropsAnotherRead(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
 	runner := &fakeRunner{run: func(context.Context, string) (string, error) {
 		once.Do(func() { close(started) })
 		<-release
-		return "", nil
+		return playingOutput(), nil
 	}}
 	player := New(runner)
 
 	firstDone := make(chan error, 1)
-	go func() { firstDone <- player.Next(context.Background()) }()
+	go func() {
+		_, err := player.Read(context.Background())
+		firstDone <- err
+	}()
 	<-started
 
-	if err := player.PlayPause(context.Background()); !errors.Is(err, ErrBusy) {
-		t.Fatalf("second call error = %v, want ErrBusy", err)
+	// A read waits for nothing: while one runs another is dropped.
+	if _, err := player.Read(context.Background()); !errors.Is(err, ErrBusy) {
+		t.Fatalf("second read error = %v, want ErrBusy", err)
 	}
 
 	close(release)
 	if err := <-firstDone; err != nil {
-		t.Fatalf("first call: %v", err)
+		t.Fatalf("first read: %v", err)
 	}
 
 	// The slot is free again once the first call returns.
 	if err := player.PlayPause(context.Background()); err != nil {
 		t.Fatalf("call after the first finished: %v", err)
+	}
+}
+
+func TestCommandWaitsForReadInFlight(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	runner := &fakeRunner{run: func(context.Context, string) (string, error) {
+		once.Do(func() { close(started) })
+		<-release
+		return playingOutput(), nil
+	}}
+	player := New(runner)
+	player.Timeout = 25 * time.Millisecond
+
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := player.Read(context.Background())
+		readDone <- err
+	}()
+	<-started
+
+	// The command queues behind the read until its own timeout; it does
+	// not report the read as an earlier call.
+	err := player.PlayPause(context.Background())
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("command during a read = %v, want ErrTimeout", err)
+	}
+	if errors.Is(err, ErrBusy) {
+		t.Fatalf("a command waits; it is not a dropped read: %v", err)
+	}
+	if calls := runner.calls(); len(calls) != 1 {
+		t.Fatalf("ran %d scripts, want only the read", len(calls))
+	}
+
+	close(release)
+	if err := <-readDone; err != nil {
+		t.Fatalf("read: %v", err)
+	}
+}
+
+func TestCommandRunsAfterReadInFlight(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	attempted := make(chan struct{})
+	var once sync.Once
+	runner := &fakeRunner{run: func(_ context.Context, script string) (string, error) {
+		once.Do(func() { close(started) })
+		<-release
+		if strings.Contains(script, "playpause") {
+			return "", nil
+		}
+		return playingOutput(), nil
+	}}
+	player := New(runner)
+
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := player.Read(context.Background())
+		readDone <- err
+	}()
+	<-started
+
+	commandDone := make(chan error, 1)
+	go func() {
+		close(attempted)
+		commandDone <- player.PlayPause(context.Background())
+	}()
+	<-attempted
+	// Give the command a turn to wait for the slot while the read holds
+	// it, then let the read finish. Gosched is not a clock, so a slow
+	// machine changes nothing: the command either waited or ran after.
+	for range 100 {
+		runtime.Gosched()
+	}
+	close(release)
+
+	if err := <-commandDone; err != nil {
+		t.Fatalf("command sent during a read: %v", err)
+	}
+	if err := <-readDone; err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	calls := runner.calls()
+	if len(calls) != 2 || !strings.Contains(calls[1], "playpause") {
+		t.Fatalf("ran %d scripts, want the read then playpause", len(calls))
 	}
 }
 

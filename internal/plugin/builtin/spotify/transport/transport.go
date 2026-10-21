@@ -2,7 +2,8 @@
 // AppleScript, and listens for Spotify's own playback notifications.
 //
 // A Transport runs one AppleScript at a time, each with a one second
-// timeout, and reads the whole player in a single call. Every script
+// timeout, and reads the whole player in a single call. A command waits
+// for the call in flight; a read that finds one is dropped. Every script
 // first checks that Spotify is running, so no command launches the app.
 // macOS can refuse the Apple events; a Transport reports that as
 // [ErrAutomation] with the way to allow it, and a missing app as
@@ -50,8 +51,9 @@ var (
 	// timeout.
 	ErrTimeout = errors.New("spotify did not answer in time")
 
-	// ErrBusy says an earlier call is still running. The transport makes
-	// one call at a time and does not queue work.
+	// ErrBusy says a read could not start because an earlier call is
+	// still running. A read is dropped rather than queued; a command
+	// waits for the call in flight.
 	ErrBusy = errors.New("spotify is still answering an earlier call")
 
 	// ErrRange says a value lies outside what Spotify accepts.
@@ -146,8 +148,11 @@ type Transport struct {
 	// DefaultTimeout.
 	Timeout time.Duration
 
-	mu  sync.Mutex // held by the call in flight
-	now func() time.Time
+	// slot holds the one call. It is a channel rather than a mutex so
+	// that a command can wait for the call in flight within its context.
+	once sync.Once
+	slot chan struct{}
+	now  func() time.Time
 }
 
 // New returns a Transport that runs its scripts with r.
@@ -162,16 +167,16 @@ func (t *Transport) timeNow() time.Time {
 	return time.Now()
 }
 
-// call runs one script and classifies its result. The mutex turns a
-// second call into [ErrBusy] instead of a queue.
-func (t *Transport) call(ctx context.Context, script string) (string, error) {
-	if !t.mu.TryLock() {
-		return "", ErrBusy
-	}
-	defer t.mu.Unlock()
-
+// call runs one script and classifies its result. Only one call holds the
+// slot at a time. A command waits for it until its context ends; a read
+// takes the slot only when free and yields [ErrBusy] otherwise, so a
+// pending command can never be starved by polling.
+func (t *Transport) call(ctx context.Context, script string, wait bool) (string, error) {
 	if t.Runner == nil {
 		return "", errors.New("transport: no runner")
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	timeout := t.Timeout
@@ -180,6 +185,14 @@ func (t *Transport) call(ctx context.Context, script string) (string, error) {
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	if err := t.acquire(runCtx, wait); err != nil {
+		if errors.Is(err, ErrBusy) {
+			return "", ErrBusy
+		}
+		return "", commandError(runCtx, err)
+	}
+	defer t.release()
 
 	out, err := t.Runner.Run(runCtx, script)
 	if err != nil {
@@ -190,6 +203,39 @@ func (t *Transport) call(ctx context.Context, script string) (string, error) {
 		return "", ErrNotRunning
 	}
 	return out, nil
+}
+
+// slotOf returns the one call slot.
+func (t *Transport) slotOf() chan struct{} {
+	t.once.Do(func() {
+		t.slot = make(chan struct{}, 1)
+	})
+	return t.slot
+}
+
+// acquire takes the one call slot. A command waits for it until its
+// context ends; a read takes it only if it is free.
+func (t *Transport) acquire(ctx context.Context, wait bool) error {
+	slot := t.slotOf()
+	if !wait {
+		select {
+		case slot <- struct{}{}:
+			return nil
+		default:
+			return ErrBusy
+		}
+	}
+	select {
+	case slot <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// release returns the slot taken by acquire.
+func (t *Transport) release() {
+	<-t.slotOf()
 }
 
 // commandError turns a Runner failure into one of the typed errors. The
@@ -223,9 +269,10 @@ func commandError(ctx context.Context, err error) error {
 	return err
 }
 
-// run runs a command script and drops its output.
+// run runs a command script and drops its output. Commands wait for the
+// call in flight, so a pane action is not lost to a poll.
 func (t *Transport) run(ctx context.Context, script string) error {
-	_, err := t.call(ctx, script)
+	_, err := t.call(ctx, script, true)
 	return err
 }
 
@@ -302,7 +349,7 @@ func checkURI(uri string) error {
 
 // Read returns the player in one AppleScript call.
 func (t *Transport) Read(ctx context.Context) (Snapshot, error) {
-	out, err := t.call(ctx, readScript)
+	out, err := t.call(ctx, readScript, false)
 	if err != nil {
 		return Snapshot{}, err
 	}

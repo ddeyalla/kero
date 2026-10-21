@@ -43,22 +43,42 @@ func (s *source) Start(handler func()) error {
 		return errors.New("transport: source already started")
 	}
 
+	centerClass := objc.GetClass("NSDistributedNotificationCenter")
+	if centerClass == 0 {
+		return errors.New("transport: the notification center is unavailable")
+	}
+
+	var center, observer objc.ID
+	var block objc.Block
 	withPool(func() {
 		name := nsString(playbackStateNotification)
+		center = objc.ID(centerClass).Send(sel("defaultCenter"))
+		if center == 0 {
+			return
+		}
 		// The block runs later, on the main thread, so the center copies
 		// it; the copy here is the one this source owns and releases in
 		// Close.
-		block := objc.NewBlock(func(objc.Block, objc.ID) {
+		block = objc.NewBlock(func(objc.Block, objc.ID) {
 			handler()
 		})
-		center := objc.ID(objc.GetClass("NSDistributedNotificationCenter")).Send(sel("defaultCenter"))
-		observer := center.Send(sel("addObserverForName:object:queue:usingBlock:"),
+		observer = center.Send(sel("addObserverForName:object:queue:usingBlock:"),
 			name, objc.ID(0), objc.ID(0), block)
-
-		s.center = center
-		s.observer = observer
-		s.block = block
 	})
+
+	if center == 0 {
+		return errors.New("transport: could not reach the notification center")
+	}
+	if observer == 0 {
+		if block != 0 {
+			withPool(func() { block.Release() })
+		}
+		return errors.New("transport: could not register for Spotify notifications")
+	}
+
+	s.center = center
+	s.observer = observer
+	s.block = block
 	return nil
 }
 
@@ -82,14 +102,17 @@ func (s *source) Close() error {
 }
 
 // RunLoop runs the main thread's run loop, where macOS delivers
-// distributed notifications, and never returns. The plugin calls it on
-// the main goroutine, after starting sdk.Run on a goroutine of its own:
+// distributed notifications, and never returns.
+//
+// Call it directly from main, never from a goroutine and never with "go":
 //
 //	go sdk.Run(...)
 //	transport.RunLoop()
 //
-// The call locks its goroutine to the thread it starts on, which is the
-// process's main thread only if the plugin calls RunLoop first.
+// RunLoop pins the goroutine to the thread it is already on, and macOS
+// runs a run loop only on the process's main thread. A "go
+// transport.RunLoop()" would pin some other thread and never receive a
+// notification.
 func RunLoop() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
