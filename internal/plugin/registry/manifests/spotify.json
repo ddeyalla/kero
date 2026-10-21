@@ -1,0 +1,35 @@
+{
+  "id": "spotify",
+  "name": "Spotify",
+  "version": "1.0.0",
+  "description": "Play and browse Spotify beside your work.",
+  "run": ["kero", "plugin-run", "spotify"],
+  "widgets": [
+    {
+      "name": "player",
+      "title": "Spotify",
+      "minWidth": 420,
+      "minHeight": 360,
+      "compact": {
+        "minWidth": 280,
+        "minHeight": 150
+      }
+    }
+  ],
+  "commands": [
+    { "id": "play-pause", "title": "Play or Pause" },
+    { "id": "next", "title": "Next Track" },
+    { "id": "previous", "title": "Previous Track" }
+  ],
+  "permissions": ["secrets", "openURL"],
+  "settings": [
+    {
+      "key": "clientId",
+      "label": "Client ID",
+      "kind": "text",
+      "secret": false,
+      "help": "Your Spotify app's Client ID. Add http://127.0.0.1:43821/callback as the app's redirect URI.",
+      "link": "https://developer.spotify.com/dashboard"
+    }
+  ]
+}

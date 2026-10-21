@@ -93,6 +93,9 @@ func TestKnownListsInstalledPlugins(t *testing.T) {
 	if usage, ok := Find(plugins, "usage"); !ok || !usage.Builtin {
 		t.Errorf("Known is %+v, want the built-in usage plugin too", plugins)
 	}
+	if spotify, ok := Find(plugins, "spotify"); !ok || !spotify.Builtin {
+		t.Errorf("Known is %+v, want the built-in spotify plugin too", plugins)
+	}
 	if _, ok := Find(plugins, "other"); ok {
 		t.Error("a plugin that is not there is found")
 	}

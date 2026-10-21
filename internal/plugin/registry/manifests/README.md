@@ -5,5 +5,4 @@ in the app, and `kero plugin-run <id>` starts it. The plugin's Go package
 registers the code that serves it with `registry.RegisterRunner` in its
 `init`; the app imports that package for its side effect.
 
-The registry is empty for now. Spotify and Usage arrive with their own
-tickets.
+The Spotify plugin's manifest is here. Usage arrives with its own ticket.
