@@ -61,6 +61,22 @@ type pane struct {
 	records  map[string]proto.Record
 	soft     map[string]bool
 	reported bool
+	// The transcript scan (attention.go) reads an agent's conversation
+	// on disk for what its hooks and its screen do not say. What a
+	// parse read it keeps (key, state, msg, callAt), what of that its
+	// status shows it keeps told, and a lookup that found no file waits
+	// scanMissHold before it looks again.
+	transcriptPath string
+	scanKey        string
+	scanState      string
+	scanMsg        string
+	scanCallAt     int64
+	scanTold       string
+	scanToldMsg    string
+	scanMissed     time.Time
+	// summary is what the pane's attention said when last saved, which
+	// an unread end of a restored pane shows (paneAttention).
+	summary string
 	// awaiting tells that the command the pane started with runs, whose
 	// end its shell will tell (OSC 133;D, see shellArgs).
 	awaiting   bool
@@ -650,6 +666,7 @@ func (s *pane) restart() error {
 	s.frame()
 	s.setStatus(proto.Idle)
 	s.info.Unread, s.info.Message, s.info.ExitCode = false, "", 0
+	s.summary = ""
 	s.mu.Unlock()
 	if err := s.start(nil, nil); err != nil {
 		return err

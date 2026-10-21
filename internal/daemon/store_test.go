@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -142,4 +143,83 @@ func TestRestoreKeepsStatus(t *testing.T) {
 func quote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+// The summary of what a pane's attention said is saved with it, and its
+// restore makes it, so that an unseen end shows its words even where a
+// restore keeps no message. A state file of before has none of it, and
+// a daemon of before reads past it.
+func TestRestoreKeepsSummary(t *testing.T) {
+	dir := t.TempDir()
+	since := time.Now().Add(-26 * time.Hour).UnixMilli()
+	saved := `{"version":2,"projects":[],"saved":1700000000000,"sessions":[{"id":"s1","project":"","created":1700000000000,
+		"panes":[{"id":"t1","dir":` + quote(dir) + `,"created":1700000000000,"cols":80,"rows":24,"status":"idle","since":` +
+		strconv.FormatInt(since, 10) + `,"unread":true,"summary":"Build passed"}]}]}`
+	d := linearTestDaemon(t)
+	d.sessions, d.panes = nil, map[string]*pane{}
+	if err := os.WriteFile(filepath.Join(d.dir, "state.json"), []byte(saved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.restore()
+	if len(d.sessions) != 1 || len(d.sessions[0].panes) != 1 {
+		t.Fatalf("the restore made no pane: %+v", d.sessions)
+	}
+	p := d.sessions[0].panes[0]
+	info := paneInfo(p)
+	if info.Status != proto.Idle || !info.Unread {
+		t.Fatalf("came back %s unread %v; want idle, unread", info.Status, info.Unread)
+	}
+	p.mu.Lock()
+	restored, pa := p.summary, paneAttention(p)
+	p.mu.Unlock()
+	if restored != "Build passed" {
+		t.Fatalf("the summary of the end did not come back: %q", restored)
+	}
+	if pa.State != attentionUnread || pa.Msg != "Build passed" {
+		t.Fatalf("the row of it: %+v", pa)
+	}
+	t.Cleanup(func() { p.close() })
+
+	// And what it says anew is saved fresh, of the words the pane's
+	// attention had then, not the restore's.
+	p.mu.Lock()
+	p.info.Message = "Wrapped\nup"
+	p.mu.Unlock()
+	d.saveState()
+	data, err := os.ReadFile(d.statePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var again savedState
+	if err := json.Unmarshal(data, &again); err != nil {
+		t.Fatal(err)
+	}
+	if again.Version != 2 {
+		t.Fatalf("a state of version %d, want 2", again.Version)
+	}
+	if sp := again.Sessions[0].Panes[0]; sp.Summary != "Wrapped" {
+		t.Fatalf("the summary was not saved fresh: %q", sp.Summary)
+	}
+
+	// A restore in another daemon's day: the words of the end come back
+	// as they were read, whose message keeps nothing of the waiting.
+	d2 := linearTestDaemon(t)
+	d2.dir = d.dir
+	d2.sessions, d2.panes = nil, map[string]*pane{}
+	d2.restore()
+	if len(d2.sessions) != 1 || len(d2.sessions[0].panes) != 1 {
+		t.Fatalf("the second restore made no pane: %+v", d2.sessions)
+	}
+	p2 := d2.sessions[0].panes[0]
+	t.Cleanup(func() { p2.close() })
+	info = paneInfo(p2)
+	if info.Status != proto.Idle || !info.Unread || info.Message != "" {
+		t.Fatalf("came back %s unread %v %q; want idle, unread, of no message", info.Status, info.Unread, info.Message)
+	}
+	p2.mu.Lock()
+	restored, pa = p2.summary, paneAttention(p2)
+	p2.mu.Unlock()
+	if restored != "Wrapped" || pa.State != attentionUnread || pa.Msg != "Wrapped" {
+		t.Fatalf("the words of the end: %q / %+v", restored, pa)
+	}
 }
