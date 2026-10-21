@@ -1,24 +1,28 @@
 // Package transport talks to the Spotify desktop app on macOS through
 // AppleScript, and listens for Spotify's own playback notifications.
 //
-// A Transport runs one AppleScript at a time, each with a one second
-// timeout, and reads the whole player in a single call. A command waits
-// for the call in flight; a read that finds one is dropped. Every script
-// first checks that Spotify is running, so no command launches the app.
-// macOS can refuse the Apple events; a Transport reports that as
-// [ErrAutomation] with the way to allow it, and a missing app as
-// [ErrNotRunning], so callers do not parse message strings.
+// A Transport runs one AppleScript at a time and reads the whole player
+// in a single call. Each script may run for one second from the moment
+// it starts. A command waits for the call in flight, for at most as long
+// again; a read that finds one is dropped, and a Monitor reads again as
+// soon as the call ends. Every script first checks that Spotify is
+// running, so no command launches the app. macOS can refuse the Apple
+// events; a Transport reports that as [ErrAutomation] with the way to
+// allow it, a stopped app as [ErrNotRunning] and a missing one as
+// [ErrNotInstalled], so callers do not parse message strings.
 //
 // A Monitor reads only while a pane shows the player. It reads about
-// once a second, or once every ten seconds while a [Source] listens for
-// Spotify's com.spotify.client.PlaybackStateChanged notification and
-// reads at once on each change.
+// once a second. While a [Source] listens for Spotify's
+// com.spotify.client.PlaybackStateChanged notification, the Monitor reads
+// at once on each change, and once the notifications arrive it reads
+// only once every ten seconds in between.
 package transport
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,6 +45,10 @@ const fieldSeparator = "\x1f"
 var (
 	// ErrNotRunning says the Spotify app was not running.
 	ErrNotRunning = errors.New("spotify is not running")
+
+	// ErrNotInstalled says this Mac has no Spotify app: osascript could
+	// not find it, or could not read its scripting terms.
+	ErrNotInstalled = errors.New("spotify is not installed")
 
 	// ErrAutomation says macOS refused to let this app control Spotify.
 	// The user allows it in System Settings, Privacy & Security,
@@ -153,6 +161,13 @@ type Transport struct {
 	once sync.Once
 	slot chan struct{}
 	now  func() time.Time
+
+	// mu guards missed and onFree. missed says a read found the slot
+	// taken since the slot was last released; onFree is told when such a
+	// slot is released, so that a Monitor reads the change it missed.
+	mu     sync.Mutex
+	missed bool
+	onFree func()
 }
 
 // New returns a Transport that runs its scripts with r.
@@ -168,9 +183,13 @@ func (t *Transport) timeNow() time.Time {
 }
 
 // call runs one script and classifies its result. Only one call holds the
-// slot at a time. A command waits for it until its context ends; a read
+// slot at a time. A command waits for it, for at most the timeout; a read
 // takes the slot only when free and yields [ErrBusy] otherwise, so a
 // pending command can never be starved by polling.
+//
+// The script's own timeout starts once it holds the slot, so a command
+// that waited still gets all of it. A command that gives up while it
+// waits never ran, so Spotify did nothing.
 func (t *Transport) call(ctx context.Context, script string, wait bool) (string, error) {
 	if t.Runner == nil {
 		return "", errors.New("transport: no runner")
@@ -183,17 +202,21 @@ func (t *Transport) call(ctx context.Context, script string, wait bool) (string,
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
-	if err := t.acquire(runCtx, wait); err != nil {
+	waitCtx, cancelWait := context.WithTimeout(ctx, timeout)
+	err := t.acquire(waitCtx, wait)
+	if err != nil {
+		cancelWait()
 		if errors.Is(err, ErrBusy) {
 			return "", ErrBusy
 		}
-		return "", commandError(runCtx, err)
+		return "", commandError(waitCtx, err)
 	}
+	cancelWait()
 	defer t.release()
 
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	out, err := t.Runner.Run(runCtx, script)
 	if err != nil {
 		return "", commandError(runCtx, err)
@@ -214,14 +237,20 @@ func (t *Transport) slotOf() chan struct{} {
 }
 
 // acquire takes the one call slot. A command waits for it until its
-// context ends; a read takes it only if it is free.
+// context ends; a read takes it only if it is free, and otherwise marks
+// that it missed the slot, so that release tells onFree.
 func (t *Transport) acquire(ctx context.Context, wait bool) error {
 	slot := t.slotOf()
 	if !wait {
+		// The mark and the try share the lock with release, so a slot
+		// released between them still tells onFree.
+		t.mu.Lock()
+		defer t.mu.Unlock()
 		select {
 		case slot <- struct{}{}:
 			return nil
 		default:
+			t.missed = true
 			return ErrBusy
 		}
 	}
@@ -233,9 +262,28 @@ func (t *Transport) acquire(ctx context.Context, wait bool) error {
 	}
 }
 
-// release returns the slot taken by acquire.
+// release returns the slot taken by acquire, and tells onFree when a
+// read was dropped while the slot was taken.
 func (t *Transport) release() {
+	t.mu.Lock()
 	<-t.slotOf()
+	onFree := t.onFree
+	missed := t.missed
+	t.missed = false
+	t.mu.Unlock()
+
+	if missed && onFree != nil {
+		onFree()
+	}
+}
+
+// setOnFree sets the function release calls after a dropped read. It
+// must not block, because it runs on the goroutine of the call that
+// released the slot.
+func (t *Transport) setOnFree(fn func()) {
+	t.mu.Lock()
+	t.onFree = fn
+	t.mu.Unlock()
 }
 
 // commandError turns a Runner failure into one of the typed errors. The
@@ -265,8 +313,29 @@ func commandError(ctx context.Context, err error) error {
 		strings.Contains(lower, "isn't running"),
 		strings.Contains(lower, "is not running"):
 		return fmt.Errorf("%w: %s", ErrNotRunning, strings.TrimSpace(text))
+	case notInstalled(text):
+		return fmt.Errorf("%w: %s", ErrNotInstalled, strings.TrimSpace(text))
 	}
 	return err
+}
+
+// notInstalled says whether osascript's reason means there is no Spotify
+// app. Without one, osascript cannot get the application (-1728), or
+// Launch Services cannot find it (-10814); these codes count only when
+// the reason names Spotify, because a missing object or file has them
+// too. Or the script does not compile, because Spotify's terms such as
+// "player state" are unknown (-2741, or -2740). The scripts are fixed
+// and compile against Spotify's terms, so a syntax error means the terms
+// are missing, and its reason quotes the term rather than the app.
+func notInstalled(text string) bool {
+	if strings.Contains(text, "syntax error") &&
+		(strings.Contains(text, "-2741") || strings.Contains(text, "-2740")) {
+		return true
+	}
+	if !strings.Contains(strings.ToLower(text), "spotify") {
+		return false
+	}
+	return strings.Contains(text, "-1728") || strings.Contains(text, "-10814")
 }
 
 // run runs a command script and drops its output. Commands wait for the
@@ -356,10 +425,13 @@ func (t *Transport) Read(ctx context.Context) (Snapshot, error) {
 	return parseSnapshot(out, t.timeNow())
 }
 
-// readScript reads every field of the player. The track fields are
-// optional, because Spotify keeps no track while it is stopped; the
-// other fields are always readable. Spotify reports the duration in
-// milliseconds and the position in seconds.
+// readScript reads every field of the player. Each field has its own
+// try and a default, because Spotify keeps no track while it is stopped,
+// and an ad, a podcast episode or a local file can lack a field or
+// answer missing value. Spotify reports the duration in milliseconds and
+// the position in seconds as a real; the script turns both into whole
+// milliseconds, because a real as text follows the Mac's number format,
+// such as "12,5" in German or French.
 const readScript = `if application "Spotify" is running then
 tell application "Spotify"
 	set d to (ASCII character 31)
@@ -368,24 +440,60 @@ tell application "Spotify"
 		set stateText to player state as text
 	end try
 	set trackName to ""
-	set trackArtist to ""
-	set trackAlbum to ""
-	set trackArtwork to ""
-	set trackDuration to 0
 	try
-		set trackName to name of current track
-		set trackArtist to artist of current track
-		set trackAlbum to album of current track
-		set trackArtwork to artwork url of current track
-		set trackDuration to duration of current track
+		set v to name of current track
+		if v is not missing value then set trackName to v as text
 	end try
-	return stateText & d & trackName & d & trackArtist & d & trackAlbum & d & trackArtwork & d & (trackDuration as text) & d & (player position as text) & d & (sound volume as text) & d & (shuffling as text) & d & (repeating as text)
+	set trackArtist to ""
+	try
+		set v to artist of current track
+		if v is not missing value then set trackArtist to v as text
+	end try
+	set trackAlbum to ""
+	try
+		set v to album of current track
+		if v is not missing value then set trackAlbum to v as text
+	end try
+	set trackArtwork to ""
+	try
+		set v to artwork url of current track
+		if v is not missing value then set trackArtwork to v as text
+	end try
+	set trackDuration to "0"
+	try
+		set v to duration of current track
+		if v is not missing value then set trackDuration to (v div 1) as text
+	end try
+	set trackPosition to "0"
+	try
+		set v to player position
+		if v is not missing value then set trackPosition to ((v * 1000) div 1) as text
+	end try
+	set volumeText to "0"
+	try
+		set v to sound volume
+		if v is not missing value then set volumeText to (v div 1) as text
+	end try
+	set shuffleText to "false"
+	try
+		set shuffleText to shuffling as text
+	end try
+	set repeatText to "false"
+	try
+		set repeatText to repeating as text
+	end try
+	return stateText & d & trackName & d & trackArtist & d & trackAlbum & d & trackArtwork & d & trackDuration & d & trackPosition & d & volumeText & d & shuffleText & d & repeatText
 end tell
 else
 	return "not-running"
 end if`
 
-// parseSnapshot turns the fields of a read into a Snapshot.
+// missingValue is what AppleScript writes for a value that is not there,
+// should one reach a field as text.
+const missingValue = "missing value"
+
+// parseSnapshot turns the fields of a read into a Snapshot. A field that
+// is empty or missing value counts as absent: no text, and zero.
 func parseSnapshot(out string, readAt time.Time) (Snapshot, error) {
 	fields := strings.Split(out, fieldSeparator)
 	if len(fields) != 10 {
@@ -400,32 +508,48 @@ func parseSnapshot(out string, readAt time.Time) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	volume, err := strconv.Atoi(strings.TrimSpace(fields[7]))
+	volume, err := parseNumber("volume", fields[7])
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("%w: volume %q", ErrOutput, fields[7])
+		return Snapshot{}, err
 	}
 
 	return Snapshot{
 		State:      parseState(fields[0]),
-		Track:      fields[1],
-		Artist:     fields[2],
-		Album:      fields[3],
-		ArtworkURL: fields[4],
+		Track:      parseText(fields[1]),
+		Artist:     parseText(fields[2]),
+		Album:      parseText(fields[3]),
+		ArtworkURL: parseText(fields[4]),
 		Duration:   time.Duration(duration * float64(time.Millisecond)),
-		Position:   time.Duration(position * float64(time.Second)),
-		Volume:     volume,
+		Position:   time.Duration(position * float64(time.Millisecond)),
+		Volume:     int(math.Round(volume)),
 		Shuffle:    parseBool(fields[8]),
 		Repeat:     parseBool(fields[9]),
 		ReadAt:     readAt,
 	}, nil
 }
 
+// parseNumber reads a number field. The script writes whole numbers, but
+// a real can still reach it, such as an AppleScript integer that grew
+// past its range, and a real as text has the Mac's decimal separator: a
+// comma reads as the decimal point.
 func parseNumber(name, text string) (float64, error) {
-	number, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
-	if err != nil {
+	text = strings.TrimSpace(text)
+	if text == "" || text == missingValue {
+		return 0, nil
+	}
+	number, err := strconv.ParseFloat(strings.Replace(text, ",", ".", 1), 64)
+	if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
 		return 0, fmt.Errorf("%w: %s %q", ErrOutput, name, text)
 	}
 	return number, nil
+}
+
+// parseText reads a text field, where missing value means no text.
+func parseText(text string) string {
+	if strings.TrimSpace(text) == missingValue {
+		return ""
+	}
+	return text
 }
 
 func parseState(text string) State {

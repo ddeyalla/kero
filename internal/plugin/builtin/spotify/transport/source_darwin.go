@@ -82,8 +82,8 @@ func (s *source) Start(handler func()) error {
 	return nil
 }
 
-// Close stops listening. The run loop keeps running; there is nothing
-// else it would do.
+// Close stops listening. The run loop keeps running, on its keep-alive
+// port; there is nothing else it would do.
 func (s *source) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -101,28 +101,81 @@ func (s *source) Close() error {
 	return nil
 }
 
+// runLoopTurn is the longest one turn of RunLoop waits for a source.
+const runLoopTurn = time.Second
+
+// runLoopRest is how long RunLoop rests after a turn that returned at
+// once although it ran.
+const runLoopRest = 10 * time.Millisecond
+
 // RunLoop runs the main thread's run loop, where macOS delivers
 // distributed notifications, and never returns.
 //
-// Call it directly from main, never from a goroutine and never with "go":
+// RunLoop must run on the process's main thread, because macOS delivers
+// these notifications only to the main run loop. Call it from the
+// plugin's serve function on the main goroutine, never in a "go"
+// statement, and run the plugin's protocol in a goroutine:
 //
 //	go sdk.Run(...)
 //	transport.RunLoop()
 //
-// RunLoop pins the goroutine to the thread it is already on, and macOS
-// runs a run loop only on the process's main thread. A "go
-// transport.RunLoop()" would pin some other thread and never receive a
-// notification.
+// The main goroutine is on the main thread because the kero executable
+// imports MyGo, whose init calls runtime.LockOSThread (mygo.go in
+// github.com/egoist/mygo): a lock taken in an init function keeps main
+// on the thread that started the process. "kero plugin-run <id>" calls
+// registry.Serve from main, and Serve calls the plugin's serve function
+// on the same goroutine. RunLoop then pins that thread again for itself.
+// A "go transport.RunLoop()" would pin some other thread and never
+// receive a notification.
+//
+// A run loop with no source returns from each turn at once. Before the
+// listener starts, after it fails and after Close, the main run loop can
+// have none, so RunLoop adds a Mach port that never fires, to keep a
+// source in it, and rests after a turn that still returns at once.
 func RunLoop() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	loop := objc.ID(objc.GetClass("NSRunLoop")).Send(sel("mainRunLoop"))
+	var loop, mode objc.ID
+	withPool(func() {
+		loop = objc.ID(objc.GetClass("NSRunLoop")).Send(sel("mainRunLoop"))
+		// kCFRunLoopDefaultMode is the value of NSDefaultRunLoopMode. The
+		// mode and the port live as long as the process, so they are
+		// retained and never released.
+		mode = nsString("kCFRunLoopDefaultMode").Send(sel("retain"))
+		port := objc.ID(objc.GetClass("NSMachPort")).Send(sel("port"))
+		if loop != 0 && port != 0 {
+			port.Send(sel("retain"))
+			loop.Send(sel("addPort:forMode:"), port, mode)
+		}
+	})
+
 	for {
+		began := time.Now()
+		ran := false
 		withPool(func() {
-			loop.Send(sel("runUntilDate:"), nsDate(1*time.Second))
+			ran = objc.Send[bool](loop, sel("runMode:beforeDate:"), mode, nsDate(runLoopTurn))
 		})
+		if rest := runLoopPause(ran, time.Since(began)); rest > 0 {
+			time.Sleep(rest)
+		}
 	}
+}
+
+// runLoopPause is how long RunLoop rests after a turn that took elapsed.
+// A turn that did not run had no source, so RunLoop waits a whole turn
+// instead; a turn that ran but returned within a millisecond rests
+// briefly, so that a run loop that keeps returning at once does not
+// spin. A notification that arrives in the rest waits in its port for
+// the next turn.
+func runLoopPause(ran bool, elapsed time.Duration) time.Duration {
+	if !ran {
+		return runLoopTurn - min(elapsed, runLoopTurn)
+	}
+	if elapsed < time.Millisecond {
+		return runLoopRest
+	}
+	return 0
 }
 
 // sel is objc.RegisterName under a shorter name, for the selectors this

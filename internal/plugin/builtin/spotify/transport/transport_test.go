@@ -53,7 +53,7 @@ func readOutput(fields ...string) string {
 // playingOutput is what a read returns while a track plays.
 func playingOutput() string {
 	return readOutput("playing", "Flugufrelsarinn", "Sigur Rós", "Ágætis byrjun",
-		"https://i.scdn.co/image/abc", "467933", "377.52099609375", "100", "true", "false")
+		"https://i.scdn.co/image/abc", "467933", "377520", "100", "true", "false")
 }
 
 func TestReadMapsEveryField(t *testing.T) {
@@ -79,9 +79,8 @@ func TestReadMapsEveryField(t *testing.T) {
 	if want := 467933 * time.Millisecond; snapshot.Duration != want {
 		t.Errorf("Duration = %v, want %v (Spotify reports milliseconds)", snapshot.Duration, want)
 	}
-	positionSeconds := 377.52099609375
-	if want := time.Duration(positionSeconds * float64(time.Second)); snapshot.Position != want {
-		t.Errorf("Position = %v, want %v", snapshot.Position, want)
+	if want := 377520 * time.Millisecond; snapshot.Position != want {
+		t.Errorf("Position = %v, want %v (the script writes milliseconds)", snapshot.Position, want)
 	}
 	if snapshot.Volume != 100 || !snapshot.Shuffle || snapshot.Repeat {
 		t.Errorf("Volume/Shuffle/Repeat = %d/%v/%v, want 100/true/false",
@@ -115,6 +114,84 @@ func TestReadStoppedPlayer(t *testing.T) {
 	}
 	if snapshot.Rate() != 0 || snapshot.Fraction() != 0 {
 		t.Errorf("Rate/Fraction = %v/%v, want 0/0", snapshot.Rate(), snapshot.Fraction())
+	}
+}
+
+func TestReadScriptWritesWholeMilliseconds(t *testing.T) {
+	// A real as text follows the Mac's number format, so the script never
+	// writes one: the position and duration are whole milliseconds.
+	for _, want := range []string{
+		"((v * 1000) div 1) as text",
+		"(v div 1) as text",
+	} {
+		if !strings.Contains(readScript, want) {
+			t.Errorf("read script does not write %q", want)
+		}
+	}
+	if strings.Contains(readScript, "player position as text") {
+		t.Error("read script writes the position as a real")
+	}
+	// Each field reads in a try of its own, so that one missing field
+	// does not blank the others.
+	if got := strings.Count(readScript, "\n\ttry\n"); got != 10 {
+		t.Errorf("read script has %d tries, want one for each of the 10 fields", got)
+	}
+}
+
+func TestReadAcceptsCommaDecimals(t *testing.T) {
+	// A German or French Mac writes a real with a decimal comma.
+	runner := &fakeRunner{run: func(context.Context, string) (string, error) {
+		return readOutput("playing", "a", "b", "c", "d", "467933,0", "12,5", "35", "false", "false"), nil
+	}}
+	snapshot, err := New(runner).Read(context.Background())
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if want := 467933 * time.Millisecond; snapshot.Duration != want {
+		t.Errorf("Duration = %v, want %v", snapshot.Duration, want)
+	}
+	if want := 12500 * time.Microsecond; snapshot.Position != want {
+		t.Errorf("Position = %v, want %v", snapshot.Position, want)
+	}
+	if snapshot.Volume != 35 {
+		t.Errorf("Volume = %d, want 35", snapshot.Volume)
+	}
+}
+
+func TestReadToleratesMissingFields(t *testing.T) {
+	tests := map[string]struct {
+		output string
+		want   Snapshot
+	}{
+		"an ad with no track fields": {
+			output: readOutput("playing", "", "", "", "", "", "1500", "60", "false", "false"),
+			want:   Snapshot{State: StatePlaying, Position: 1500 * time.Millisecond, Volume: 60},
+		},
+		"a podcast episode with missing values": {
+			output: readOutput("paused", "Episode 12", "missing value", "missing value", "missing value",
+				"3600000", "missing value", "missing value", "false", "true"),
+			want: Snapshot{State: StatePaused, Track: "Episode 12", Duration: time.Hour, Repeat: true},
+		},
+		"a local file without artwork": {
+			output: readOutput("playing", "Demo", "Me", "Tapes", "", "180000", "0", "100", "true", "false"),
+			want: Snapshot{State: StatePlaying, Track: "Demo", Artist: "Me", Album: "Tapes",
+				Duration: 3 * time.Minute, Volume: 100, Shuffle: true},
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			runner := &fakeRunner{run: func(context.Context, string) (string, error) {
+				return test.output, nil
+			}}
+			snapshot, err := New(runner).Read(context.Background())
+			if err != nil {
+				t.Fatalf("Read: %v", err)
+			}
+			snapshot.ReadAt = time.Time{}
+			if snapshot != test.want {
+				t.Errorf("snapshot =\n%+v\nwant\n%+v", snapshot, test.want)
+			}
+		})
 	}
 }
 
@@ -266,6 +343,43 @@ func TestNotRunningIsTyped(t *testing.T) {
 	}
 }
 
+func TestNotInstalledIsTyped(t *testing.T) {
+	tests := map[string]struct {
+		stderr string
+		want   bool
+	}{
+		"osascript cannot get the app": {
+			stderr: "execution error: Can’t get application \"Spotify\". (-1728)", want: true,
+		},
+		"Launch Services cannot find the app": {
+			stderr: "execution error: Spotify got an error: Unable to find application named Spotify. (-10814)", want: true,
+		},
+		"the terms of a missing app do not compile": {
+			stderr: "0:142: syntax error: Expected end of line but found identifier. (-2741)", want: true,
+		},
+		"an ordinary missing object": {
+			stderr: "execution error: Can’t get name of current track. (-1728)", want: false,
+		},
+		"an ordinary execution error": {
+			stderr: "execution error: Spotify got an error: Expected end of line. (-2741)", want: false,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			runner := &fakeRunner{run: func(context.Context, string) (string, error) {
+				return "", &CommandError{Stderr: test.stderr, Err: errors.New("exit status 1")}
+			}}
+			_, err := New(runner).Read(context.Background())
+			if got := errors.Is(err, ErrNotInstalled); got != test.want {
+				t.Fatalf("Read error = %v, ErrNotInstalled = %v, want %v", err, got, test.want)
+			}
+			if test.want && !strings.Contains(err.Error(), test.stderr) {
+				t.Errorf("error %q does not keep osascript's reason", err)
+			}
+		})
+	}
+}
+
 func TestReadTimesOut(t *testing.T) {
 	runner := &fakeRunner{run: func(ctx context.Context, _ string) (string, error) {
 		<-ctx.Done()
@@ -398,6 +512,99 @@ func TestCommandRunsAfterReadInFlight(t *testing.T) {
 	calls := runner.calls()
 	if len(calls) != 2 || !strings.Contains(calls[1], "playpause") {
 		t.Fatalf("ran %d scripts, want the read then playpause", len(calls))
+	}
+}
+
+func TestCommandGetsItsWholeTimeoutAfterWaiting(t *testing.T) {
+	const timeout = time.Second
+	started := make(chan struct{})
+	release := make(chan struct{})
+	budget := make(chan time.Duration, 1)
+	var once sync.Once
+	runner := &fakeRunner{run: func(ctx context.Context, script string) (string, error) {
+		if strings.Contains(script, "playpause") {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				budget <- 0
+			} else {
+				budget <- time.Until(deadline)
+			}
+			return "", nil
+		}
+		once.Do(func() { close(started) })
+		<-release
+		return playingOutput(), nil
+	}}
+	player := New(runner)
+	player.Timeout = timeout
+
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := player.Read(context.Background())
+		readDone <- err
+	}()
+	<-started
+
+	commandDone := make(chan error, 1)
+	go func() { commandDone <- player.PlayPause(context.Background()) }()
+
+	// The read holds the slot for most of the command's wait. A command
+	// whose timeout began while it waited would have little of it left.
+	time.Sleep(timeout / 2)
+	close(release)
+
+	if err := <-commandDone; err != nil {
+		t.Fatalf("command after waiting: %v", err)
+	}
+	if err := <-readDone; err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got := <-budget; got < timeout*3/4 {
+		t.Fatalf("command ran with %v of its %v timeout left, want nearly all of it", got, timeout)
+	}
+}
+
+func TestDroppedReadTellsOnFree(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	runner := &fakeRunner{run: func(_ context.Context, script string) (string, error) {
+		if strings.Contains(script, "playpause") {
+			once.Do(func() { close(started) })
+			<-release
+			return "", nil
+		}
+		return playingOutput(), nil
+	}}
+	player := New(runner)
+	freed := make(chan struct{}, 4)
+	player.setOnFree(func() { freed <- struct{}{} })
+
+	// A call that dropped no read tells nobody.
+	if _, err := player.Read(context.Background()); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(freed) != 0 {
+		t.Fatal("onFree ran after a call that dropped no read")
+	}
+
+	commandDone := make(chan error, 1)
+	go func() { commandDone <- player.PlayPause(context.Background()) }()
+	<-started
+
+	if _, err := player.Read(context.Background()); !errors.Is(err, ErrBusy) {
+		t.Fatalf("read during a command = %v, want ErrBusy", err)
+	}
+	if len(freed) != 0 {
+		t.Fatal("onFree ran before the command ended")
+	}
+
+	close(release)
+	if err := <-commandDone; err != nil {
+		t.Fatalf("command: %v", err)
+	}
+	if len(freed) != 1 {
+		t.Fatalf("onFree ran %d times after the command ended, want 1", len(freed))
 	}
 }
 
