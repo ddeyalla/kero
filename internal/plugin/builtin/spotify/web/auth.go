@@ -374,21 +374,17 @@ func (c *Client) refreshToken(ctx context.Context, force bool) (string, error) {
 		next.Scope = t.Scope
 	}
 
-	c.tokenMu.Lock()
-	current := c.tok
-	c.tokenMu.Unlock()
-	if current != t {
-		// A sign-in replaced the tokens while this refresh was in
-		// flight; the newer token wins.
-		if current != nil && current.AccessToken != "" {
-			return current.AccessToken, nil
-		}
-		return "", ErrSignedOut
-	}
-	if err := c.adoptToken(&next); err != nil {
+	// Adopt the refreshed token only while the grant it came from is
+	// still the current one: a sign-in that landed during the request
+	// wins, and the check and the swap are one critical section.
+	inUse, err := c.adoptTokenIf(t, &next)
+	if err != nil {
 		return "", err
 	}
-	return next.AccessToken, nil
+	if inUse == nil || inUse.AccessToken == "" {
+		return "", ErrSignedOut
+	}
+	return inUse.AccessToken, nil
 }
 
 // tokens returns the tokens, loading them from the secrets once. The
@@ -436,22 +432,46 @@ func (c *Client) tokens() (*Token, error) {
 	return c.tok, nil
 }
 
-// adoptToken saves a new token and then swaps it in. It saves first, so
-// a failure does not leave memory ahead of the secrets, and it swaps
-// under tokenMu only for the local assignment.
+// adoptToken saves a token and swaps it in, for a sign-in that must win
+// over anything older. The secret write and the swap share tokenMu, so
+// the secret and c.tok cannot disagree and two adoptions cannot invert
+// their order. The write is local; no HTTP runs under the lock.
 func (c *Client) adoptToken(t *Token) error {
 	raw, err := json.Marshal(t)
 	if err != nil {
 		return err
 	}
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
 	if err := c.secrets.Set(TokensKey, string(raw)); err != nil {
 		return fmt.Errorf("spotify: save the tokens: %w", err)
 	}
-	c.tokenMu.Lock()
 	c.tok = t
 	c.tokenLoaded = true
-	c.tokenMu.Unlock()
 	return nil
+}
+
+// adoptTokenIf saves next and swaps it in only while the current token
+// is still expected, as one critical section. It returns the token in
+// use afterwards: next when it won, or the newer token when another
+// adoption landed first. A refresh therefore cannot overwrite tokens
+// that a sign-in just adopted.
+func (c *Client) adoptTokenIf(expected, next *Token) (*Token, error) {
+	raw, err := json.Marshal(next)
+	if err != nil {
+		return nil, err
+	}
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	if c.tok != expected {
+		return c.tok, nil
+	}
+	if err := c.secrets.Set(TokensKey, string(raw)); err != nil {
+		return nil, fmt.Errorf("spotify: save the tokens: %w", err)
+	}
+	c.tok = next
+	c.tokenLoaded = true
+	return next, nil
 }
 
 // networkError wraps a transport failure as ErrNetworkDown. A caller

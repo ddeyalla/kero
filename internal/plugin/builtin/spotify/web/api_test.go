@@ -877,6 +877,54 @@ func TestStaleRefreshDoesNotReplaceNewerTokens(t *testing.T) {
 	}
 }
 
+func TestLateRefreshAdoptionIsDropped(t *testing.T) {
+	now := testNow()
+	secrets := seededSecrets(t, Token{
+		AccessToken:  "old",
+		RefreshToken: "refresh",
+		ExpiresAt:    now.Add(-time.Minute),
+	})
+	client := New(Config{
+		ClientID: "client-id",
+		Secrets:  secrets,
+		Now:      func() time.Time { return now },
+	})
+	old, err := client.tokens()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A sign-in lands while the refresh is on the wire.
+	newer := Token{AccessToken: "signed-in", RefreshToken: "new-refresh", ExpiresAt: now.Add(time.Hour)}
+	if err := client.adoptToken(&newer); err != nil {
+		t.Fatal(err)
+	}
+
+	// The refresh then tries to adopt what it got from the old grant.
+	late := Token{AccessToken: "refreshed", RefreshToken: "refresh", ExpiresAt: now.Add(time.Hour)}
+	inUse, err := client.adoptTokenIf(old, &late)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inUse == nil || inUse.AccessToken != "signed-in" {
+		t.Fatalf("adoptTokenIf = %+v, want the newer token", inUse)
+	}
+	current, err := client.tokens()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current == nil || current.AccessToken != "signed-in" {
+		t.Fatalf("current = %+v, want the newer token", current)
+	}
+	var stored Token
+	if err := json.Unmarshal([]byte(secrets[TokensKey]), &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.AccessToken != "signed-in" {
+		t.Errorf("stored token = %q, want the newer token", stored.AccessToken)
+	}
+}
+
 func TestSpotifyMessage(t *testing.T) {
 	cases := []struct {
 		name string
