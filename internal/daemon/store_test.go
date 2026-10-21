@@ -223,3 +223,48 @@ func TestRestoreKeepsSummary(t *testing.T) {
 		t.Fatalf("the words of the end: %q / %+v", restored, pa)
 	}
 }
+
+// A pane saved while it worked or waited comes back as an unread end of
+// no words, not as a finished turn that reads "Working · 30%": the
+// summary is saved only of an unread end, and a state file that holds
+// another is not believed (BRU-259).
+func TestRestoreDropsSummaryOfWorkAndWait(t *testing.T) {
+	for _, status := range []string{"working", "waiting"} {
+		t.Run(status, func(t *testing.T) {
+			dir := t.TempDir()
+			saved := `{"version":2,"projects":[],"saved":1700000000000,"sessions":[{"id":"s1","project":"","created":1700000000000,
+				"panes":[{"id":"t1","dir":` + quote(dir) + `,"created":1700000000000,"cols":80,"rows":24,"status":"` + status +
+				`","since":1700000000000,"summary":"Working · 30%"}]}]}`
+			d := linearTestDaemon(t)
+			d.sessions, d.panes = nil, map[string]*pane{}
+			if err := os.WriteFile(filepath.Join(d.dir, "state.json"), []byte(saved), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			d.restore()
+			if len(d.sessions) != 1 || len(d.sessions[0].panes) != 1 {
+				t.Fatalf("the restore made no pane: %+v", d.sessions)
+			}
+			p := d.sessions[0].panes[0]
+			t.Cleanup(func() { p.close() })
+			p.mu.Lock()
+			pa := paneAttention(p)
+			p.mu.Unlock()
+			if pa.State != attentionUnread || pa.Msg != "Turn ended" {
+				t.Fatalf("a saved %s came back as %+v; want an unread end of no words", status, pa)
+			}
+		})
+	}
+
+	// And a pane that works says nothing of an end when it is saved.
+	p := testPane(t)
+	p.mu.Lock()
+	p.info.Status, p.info.Progress = proto.Working, 30
+	got := savedSummary(p)
+	p.info.Status, p.info.Progress = proto.Waiting, -1
+	p.info.Message = "Needs permission"
+	gotWait := savedSummary(p)
+	p.mu.Unlock()
+	if got != "" || gotWait != "" {
+		t.Fatalf("saved summaries of work %q and wait %q; want none", got, gotWait)
+	}
+}

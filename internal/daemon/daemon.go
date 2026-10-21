@@ -58,6 +58,8 @@ type Daemon struct {
 	tasks  map[string]*taskLog
 
 	viewed atomic.Pointer[string]
+	// scanning holds that a transcript scan pass runs (scanPass).
+	scanning atomic.Bool
 	// theme is the colors of the client that last told them, which the
 	// panes answer programs' questions about the colors with.
 	theme    atomic.Pointer[terminal.Theme]
@@ -239,7 +241,8 @@ func (d *Daemon) tickLoop() {
 		// of the end of a file, of what else told nothing.
 		ticks++
 		if ticks%12 == 0 {
-			d.scanPass(now)
+			// On its own goroutine: a slow disk must not stall the tick.
+			go d.scanPass(now)
 		}
 		// Nothing to keep: go, rather than linger in the background.
 		if idle && idleFor > 30*time.Second {

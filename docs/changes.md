@@ -158,11 +158,18 @@ its own way. The fold is in
 [`internal/daemon/attention.go`](../internal/daemon/attention.go)
 (`sessionAttention`, filled by `sessionInfo`).
 
-A pane's own word comes from its marks, in this order: the agent's hook
-report, then the program's OSC 7501, then the transcript scan, then the
-screen detection. The first three are records on the pane (`records`,
-`soft`); the fold reads the resulting status, so only the most urgent
-pane's words show, and of two as urgent, the first pane's.
+A pane's own word comes from its marks. The program's own OSC 7501 report
+is a record that stands until it is dismissed. The agent's hook reports and
+the transcript scan are records too, but "soft" ones (`records`, `soft`):
+the screen detection may overrule them when it shows the contrary (the
+agent's prompt back after Esc, a permission granted), and the scan yields
+to every other record on the pane. So the order is: the program's own
+report, then the hooks, then the scan, each of which the screen may
+overrule when it contradicts. (An earlier version of this note put the
+screen last. The code never did, and keeps it so: a transcript can lag
+behind the screen, which is right the moment it is read.) The fold reads
+the resulting status, so only the most urgent pane's words show, and of two
+as urgent, the first pane's.
 
 The transcript scan is the fallback for what no other signal says.
 Claude Code and Codex keep their conversations on disk, and the daemon
@@ -175,9 +182,22 @@ a pane with no other record, takes back what it said when the transcript
 does, and retires on any report of another's. `internal/detect` stays the
 last fallback for an agent with no transcript or no hooks.
 
-Capability note: **Codex has no permission-prompt hook**, so the scan is
-its fallback for approval detection — 45 seconds after the call began, not
-the moment it asks. Claude Code reports the prompt itself.
+Capability note: Codex has a permission-prompt hook
+([`hook_events.go`](../internal/cli/hook_events.go)). The scan is the
+fallback for Codex's approvals only when its hooks are not installed — 45
+seconds after the call began, not the moment it asks. Claude Code reports
+the prompt itself.
+
+The scan reads the file without the pane's lock (the lookup, the stat and
+the tail), and takes it only to plan the read and to apply what it found,
+checking that the pane did not change meanwhile. Passes never overlap, and
+the tick loop runs one on its own goroutine. A turn's end is told once by
+which end it is (the count of turn ends in the tail and the parses that
+told another thing), not by its words, so two turns that end on "Done." are
+two ends. The scan marks an end unread only where another signal already
+did (a transcript older than the daemon would otherwise mark every restored
+pane), but it ends the work it began itself. A session's row and its
+attention are folded from one look at each pane (`readPane`).
 
 An end that comes while the app is away survives a restart: the pane's
 summary is saved with its unread mark (`savedPane.Summary`,

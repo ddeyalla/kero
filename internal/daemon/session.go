@@ -63,16 +63,17 @@ type pane struct {
 	reported bool
 	// The transcript scan (attention.go) reads an agent's conversation
 	// on disk for what its hooks and its screen do not say. What a
-	// parse read it keeps (key, state, msg, callAt), what of that its
+	// parse read it keeps (key, verdict, turn), what of that its
 	// status shows it keeps told, and a lookup that found no file waits
 	// scanMissHold before it looks again.
 	transcriptPath string
 	scanKey        string
-	scanState      string
-	scanMsg        string
-	scanCallAt     int64
+	scanV          scanVerdict
+	scanEnds       int // the turn ends the last parse read
+	scanTurn       int // counts the parses that told another thing or end
 	scanTold       string
 	scanToldMsg    string
+	scanToldTurn   int
 	scanMissed     time.Time
 	// summary is what the pane's attention said when last saved, which
 	// an unread end of a restored pane shows (paneAttention).
