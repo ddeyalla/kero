@@ -646,3 +646,88 @@ restart into this version still loses the marks once, from the old file;
 kerod saves the fields with every change of status (`changed` queues a
 save), and every restart after keeps them. Tests:
 `internal/daemon/store_test.go`.
+
+## Plugins
+
+Shibu Code moves towards an app where every capability is a pane or a plugin.
+The plugin platform is the first step: a plugin runs as its own process, and
+the app draws its widget in a pane beside terminals and agents. The app itself
+uses the same contract for its built-in plugins, so a built-in plugin can move
+out of the binary later without a second API.
+
+**A plugin is a manifest and a process.** The manifest is `kero-plugin.json`:
+`id`, `name`, `version`, `description`, `run` (the argv that starts the
+plugin), `widgets` (each with a name, a title and a least size), `commands`,
+`permissions` (`secrets`, `notify`, `openURL`) and optional `settings` fields.
+The id must match `^[a-z0-9][a-z0-9-]{1,40}$`; widget names and command ids are
+unique. Built-in plugins are roles of the app's own binary: their `run` is the
+app's executable with `plugin-run <id>`, and their manifests are embedded in
+it. An installed plugin lives in `plugins/<id>/` under the Shibu data folder;
+the app reads it but, for now, does not install one.
+
+**A plugin pane is a normal pane.** Its view is `plugin`, and its
+`proto.Pane.Target` is the JSON
+`{"plugin":"<id>","widget":"<name>","state":<any JSON>}` (`EncodeTarget` and
+`DecodeTarget` in the protocol package). A plugin's `state.save` updates that
+target through the existing `TargetParams` call, so the pane comes back after a
+restart with the same plugin, widget and state. No field was added to
+`proto.Pane`; the only daemon change is the `plugin` entry in
+`proto.PaneViews`, which an older terminal service answers with
+`no view "plugin"`. The app catches that and shows one line asking the user to
+restart the terminal service, never the raw error.
+
+**The protocol is JSON-RPC 2.0, version 1, one message per line** on the
+plugin's stdin and stdout, with a 4 MB line limit in both directions. The app
+sends `hello {protocol, host}` first; the plugin answers `{protocol}` and the
+app refuses any other version. The app then sends `open {pane, widget, state,
+size}`, and later `close`, `resize`, `visible {bool}`, `theme {dark, accent}`,
+`settings {values}`, `event {pane, node, kind, value}` and `command {id}`. The
+plugin sends `render {pane, tree}`, `state.save {pane, state}`, `secret.get`,
+`secret.set`, `notify` and `openURL`, and the app answers each one. Every
+plugin-to-host call is checked against the manifest's permissions before the
+app acts on it.
+
+**The app hosts one process for each plugin.** It starts the process when the
+first pane of that plugin opens and stops it five seconds after the last pane
+closes. All of the host's I/O runs off the UI goroutine and results reach the
+window with `win.Update`. A plugin that crashes shows an error and a
+**Restart** button, with no restart loop; one that stops reading its input is
+stopped after five seconds rather than blocking the app. The plugin's stderr
+goes to `logs/plugins/<id>.log` under the Shibu data folder, rolled at 1 MB.
+
+**The host draws the parts; the plugin sends a tree.** The tree is validated
+before it is drawn: known node types, unique ids, known color roles and icon
+names, a depth limit and a node limit. Version 1 has rows and columns, text
+with a role (title, body, caption, mono) and a color role (text, muted,
+accent), images (a URL or a `data:` URI) with a size and radius, buttons and
+icon buttons, sliders, progress, lists of rows, a search field, an empty state,
+spacers and dividers. A part has an `id`; an event returns that id. The host
+keeps focus and scroll with the part id across renders, so a pane that redraws
+does not lose the user's place. Images are fetched and cached off the UI
+goroutine, a bounded number at a time. A progress part with a `rate` and an
+`at` moves itself from that rate, without the plugin sending every frame. Two
+parts go further: `text.marquee` scrolls only when the text overflows (pause,
+scroll, pause, reset; a static ellipsis under Reduce Motion), and `image.tint`
+samples the picture's dominant color once, draws a soft gradient behind the
+card, crossfades it, and clamps the lightness for contrast in light and dark.
+
+**Settings and secrets.** Settings › Plugins lists the built-in and installed
+plugins with their version and their permissions, and draws each plugin's
+settings fields. A field with `secret: true` is written to the plugin's
+`secrets.json` (file `0600`, folder `0700`); the other fields go to
+`settings.json` in the same folder. The app sends the non-secret values to the
+plugin in the `settings` message on start and after every change, and never
+sends a secret value: the plugin reads its own secrets with `secret.get`. Each
+plugin can read only its own files.
+
+Code: [`internal/plugin/protocol/`](../internal/plugin/protocol/) (the
+contract: manifest, messages, line framing, target, tree validation),
+[`internal/plugin/sdk/`](../internal/plugin/sdk/) (the plugin side: the
+handshake, the run loop and the part builders), [`internal/plugin/host/`](../internal/plugin/host/)
+(one process per plugin, permissions, logging, crash and restart),
+[`internal/plugin/registry/`](../internal/plugin/registry/) (the built-in
+manifests and their run functions), [`plugin_pane.go`](../plugin_pane.go) and
+[`plugin_view.go`](../plugin_view.go) (the pane and the renderer),
+[`plugin_marquee.go`](../plugin_marquee.go), [`plugin_tint.go`](../plugin_tint.go),
+[`pane_chooser.go`](../pane_chooser.go), [`actions.go`](../actions.go),
+[`internal/cli/cli.go`](../internal/cli/cli.go) and `main.go` (`plugin-run`).

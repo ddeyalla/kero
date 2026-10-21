@@ -45,6 +45,14 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Panes glide in and out; terminal sizes wait for the glide to end | Automatic | 2.0.7-local.1 | Shipped |
 | The focused pane has a soft accent border among several panes (none alone or zoomed); unfocused panes keep the same card and text | Automatic; click or cycle panes | Unreleased | Untried |
 | Panes open small and fade in; closing panes fade out the same way over 160 ms | Automatic | Unreleased | Untried |
+| Plugin panes: a plugin's widget in a pane, with plugin, widget and state kept in the pane target across a restart | New Pane chooser, palette, `Cmd+Alt+P`, `kero split --plugin <id> [--widget <name>]` | Unreleased | Untried |
+| The plugin platform: manifest, JSON-RPC process host, one process per plugin, permission checks, crash with **Restart** | Automatic when a plugin pane opens | Unreleased | Untried |
+| Plugin parts: rows, columns, text, images, buttons, sliders, progress, lists, a search field, an empty state, spacers and dividers, in the app's palette and motion | A plugin's widget pane | Unreleased | Untried |
+| Plugin settings and secrets: Settings › Plugins lists plugins, versions, permissions and fields; secrets in a 0600 file | Settings › Plugins | Unreleased | Untried |
+| Marquee text only when it overflows; static ellipsis with Reduce Motion | `marquee` on a text part | Unreleased | Untried |
+| Image tint: a soft gradient of the picture's own color behind the pane, crossfaded and contrast clamped | `tint` on an image part | Unreleased | Untried |
+| A plugin's stderr log, rolled at 1 MB, and a failed plugin's error with a **Restart** button | Automatic | Unreleased | Untried |
+| An old terminal service without the plugin view shows one line asking to restart it | Automatic | Unreleased | Untried |
 
 ### Files pane
 
@@ -135,6 +143,9 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
   installed app.
 - The Home screen and composer are separate work, not started in a release.
 - Herdr ports are candidates only; see [Herdr comparison](herdr-porting.md).
+- Installing a plugin from a folder or a git URL, the public plugin SDK and
+  the plugin index are later rounds (BRU-206 and BRU-207); the sidebar plugin
+  slot is BRU-165.
 - Dev servers do not survive a terminal service restart; restart them
   yourself.
 

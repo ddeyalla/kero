@@ -24,11 +24,15 @@ kero ls                          # every session and its panes
 kero new -n api -d ~/code/api    # start a session, print its id
 kero new -- npm run dev          # start one running a command
 kero split --down -- npm test    # a pane beside this one
+kero split --plugin spotify      # a plugin's widget in a pane
 kero rename api backend          # rename a session
 kero focus backend               # show it in the app
 kero close backend               # end a session (or, given a pane, the pane)
 kero restart <pane>              # start an exited pane's shell again
 ```
+
+`kero split --plugin <id> [--widget <name>]` opens a plugin pane instead
+of a shell; `--plugin` takes the plugin's id and `--widget` the widget's name.
 
 `kero new` options:
 

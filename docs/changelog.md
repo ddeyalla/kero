@@ -91,6 +91,38 @@ builds only. What each feature is and where it stands is tracked in the
   loading plugin — connecting, a pane attaching, Files reading, Linear
   reading — instead of the generic spinner. It follows Reduce Motion and
   turns only while it shows, at 15 frames a second.
+- Plugin panes: a plugin runs as its own process and draws a native widget in
+  a pane. The app hosts it over JSON-RPC on stdin and stdout, one message per
+  line, protocol version 1, and checks every call the plugin makes against the
+  permissions in its manifest, `kero-plugin.json`. A plugin pane keeps its
+  plugin, widget and state in the pane's target, so it comes back after a
+  restart. Open one from the New Pane chooser, the command palette,
+  `Cmd+Alt+P`, or `kero split --plugin <id> [--widget <name>]`. This release changes the daemon protocol. Restart the terminal service once after you update.
+- The parts the host draws for a plugin: rows and columns, text (title, body,
+  caption, mono), images, buttons and icon buttons, sliders, progress, lists,
+  a search field, an empty state, spacers and dividers, in the app's palette,
+  fonts and motion. Focus and scroll stay with a part's id across renders,
+  images load off the main thread and are cached, and progress moves locally
+  from a rate and a time.
+- A plugin that crashes shows an error and a **Restart** button once; the app
+  does not restart it in a loop. A plugin that stops reading its input is
+  stopped after five seconds rather than freezing the app. Its stderr goes to
+  `logs/plugins/<id>.log`, rolled at 1 MB.
+- Plugin settings and secrets: Settings › Plugins lists the built-in and
+  installed plugins with their version and permissions, and draws each
+  plugin's settings fields. Secret fields go to the plugin's `secrets.json`
+  (0600 in a 0700 folder), the other values to `settings.json`; the app sends
+  the non-secret values to the plugin on start and after every change, and the
+  plugin reads its secrets itself.
+- An old terminal service that answers `no view "plugin"` is caught: the pane
+  asks you to restart the terminal service instead of showing the raw error.
+- Text in a plugin part can marquee: it stays still when it fits, and
+  otherwise pauses, scrolls slowly, pauses and resets. Reduce Motion shows a
+  static ellipsis instead.
+- An image in a plugin part can tint its pane: the app samples the picture's
+  dominant color once per picture, off the main thread, draws a soft gradient
+  behind the card, crossfades it, and clamps the lightness for contrast in
+  light and dark.
 
 ### Fixed
 
