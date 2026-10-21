@@ -24,7 +24,9 @@ A pane can also show a plugin's widget. Open one from the New Pane chooser
 <kbd>P</kbd>, or `kero split --plugin <id> [--widget <name>]`. The pane keeps
 its plugin, widget and state in its target, so it comes back after a restart.
 A plugin starts when its first pane opens and stops a few seconds after the
-last one closes.
+last one closes. Two plugins ship in the app: **Spotify** (`kero split --plugin
+spotify`) and **Usage** (`kero split --plugin usage`); their widgets are rows
+in the chooser and actions in the palette.
 
 When a pane's program exits, the pane stays so you can read its output. **Restart Pane** starts its shell again in the same directory.
 

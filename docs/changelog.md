@@ -123,6 +123,20 @@ builds only. What each feature is and where it stands is tracked in the
   dominant color once per picture, off the main thread, draws a soft gradient
   behind the card, crossfades it, and clamps the lightness for contrast in
   light and dark.
+- Two built-in plugins use the same contract. The Spotify widget plays,
+  pauses, skips and seeks the desktop app, changes the volume, and searches
+  albums and playlists, with a compact player and a large one that adds the
+  seek bar, volume, shuffle and repeat, and Search, Playlists and Albums tabs
+  above them; it scrolls a title that does not fit, tints the pane with the
+  album art, keeps the track position moving between reads, and tells Spotify
+  not running, an Automation refusal, signed out, a lapsed Premium account and
+  an offline read apart. Sign in once from Settings › Plugins with a Spotify
+  Client ID; the tokens stay in the plugin's secrets file. Its commands are in
+  the command palette and are `kero do` actions, with no key bindings. The Usage
+  widget shows each account's usage in a bar and a percent, and the large one
+  adds the reset time and the plan, windows and balance, plus the machine's CPU
+  and RAM. It reads the same data as the Usage tab, needs no permission, and
+  refreshes only while it is visible.
 
 ### Fixed
 

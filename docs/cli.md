@@ -33,6 +33,8 @@ kero restart <pane>              # start an exited pane's shell again
 
 `kero split --plugin <id> [--widget <name>]` opens a plugin pane instead
 of a shell; `--plugin` takes the plugin's id and `--widget` the widget's name.
+The built-in plugins are `spotify` (widget `player`) and `usage` (widget
+`usage`); `kero split --plugin spotify` opens the player.
 
 `kero new` options:
 
