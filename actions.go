@@ -114,7 +114,20 @@ func (a *App) run(id string, args map[string]string) {
 	case "session.rename":
 		a.startRename(a.selected)
 	case "session.silence":
-		a.toggleSilence(a.selected)
+		// The session named by session=<id or name>, else the selected one;
+		// state=on|off makes it idempotent, else it toggles.
+		id := a.selected
+		if want := args["session"]; want != "" {
+			id = a.sessionNamed(want)
+		}
+		switch args["state"] {
+		case "on":
+			a.setSilence(id, true)
+		case "off":
+			a.setSilence(id, false)
+		default:
+			a.toggleSilence(id)
+		}
 	case "pane.restart":
 		if s != nil {
 			a.restartSession(a.focusOf(s))
@@ -171,7 +184,9 @@ func (a *App) run(id string, args map[string]string) {
 func (a *App) item(id string) *mygo.MenuItem {
 	act, _ := actions.Find(id)
 	return &mygo.MenuItem{
-		Label:       a.actionLabel(id),
+		// A menu bar item is built once, so its label cannot follow a
+		// session's state: the silence toggle reads the same all along.
+		Label:       actionTitle(id),
 		Accelerator: a.accelerator(act),
 		Click: func(*mygo.MenuItem, *mygo.Window) {
 			a.update(func() { a.run(id, nil) })

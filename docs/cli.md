@@ -114,7 +114,10 @@ kero daemon status|stop|restart  # manage kerod
 kero actions                     # list them
 kero do pane.split.right
 kero do sidebar.toggle
+kero do session.silence session=<id or name> state=on   # on, off; no state toggles
 ```
+
+Arguments are `key=value` pairs after the action; an action reads the ones it knows.
 
 ## Exit status
 

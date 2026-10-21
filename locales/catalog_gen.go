@@ -154,11 +154,11 @@ func (msgs Messages) ActionRenameSession() string {
 	return Catalog.Format(msgs.locale, "actionRenameSession", nil)
 }
 
-// ActionSilenceSession says "Silence Notifications for This Session"
+// ActionSilenceSession says "Silence or Resume Notifications for This Session"
 // in the language the app shows.
 func ActionSilenceSession() string { return In(i18n.Locale()).ActionSilenceSession() }
 
-// ActionSilenceSession says "Silence Notifications for This Session"
+// ActionSilenceSession says "Silence or Resume Notifications for This Session"
 // in the language of msgs.
 func (msgs Messages) ActionSilenceSession() string {
 	return Catalog.Format(msgs.locale, "actionSilenceSession", nil)
