@@ -28,6 +28,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Start a task: link the session, move the issue to In Progress, print its branch | `kero task start <BRU-25>` | 2.0.7-local.1 | Shipped |
 | Project mapped to its Linear project (the one named like the repository offered first) | The project's menu in the sidebar, or the Tasks pane toolbar | 2.0.7-local.1 | Shipped |
 | Linear from the CLI | `kero linear status\|board\|issue\|set-state\|comment` | 2.0.7-local.1 | Shipped |
+| Linear and Tasks empty states act: Open Settings for the key, Clear Filters, or Refresh Linear | The empty state's button | Unreleased | Untried |
 
 ## Panes
 
@@ -42,6 +43,8 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Least pane size (280×150); a split without room is refused | Automatic | 2.0.7-local.1 | Shipped |
 | Make panes even | Double-click a divider, `Cmd+Ctrl+=` | 2.0.7-local.1 | Shipped |
 | Panes glide in and out; terminal sizes wait for the glide to end | Automatic | 2.0.7-local.1 | Shipped |
+| The focused pane has a soft accent border; unfocused panes keep the same card and text | Automatic; click or cycle panes | Unreleased | Untried |
+| Panes open small and fade in; closing panes fade out the same way over 160 ms | Automatic | Unreleased | Untried |
 
 ### Files pane
 
@@ -103,6 +106,8 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | With the sidebar hidden, the first header's title centered on the traffic lights; the sidebar's first row 30 pt below them, aligned with the close light | Automatic; `Cmd+B` hides the sidebar | Unreleased | Untried |
 | macOS's own traffic lights in sight in full screen, where they are in the window, with their hover glyphs: close, minimize (greyed, as macOS has it) and exit full screen; the bar that slides down with the menu bar is empty and lets clicks through | `Ctrl+Cmd+F`, or the green light | Unreleased | Untried |
 | The app moves as one (motion tokens); a project collapsing folds its rows away animated, the chosen row never leaving | Automatic; collapse by clicking a project header | Unreleased | Untried |
+| A project's hover chevron and add button wait 80 ms after the pointer leaves | Automatic; hover a project header | Unreleased | Untried |
+| First run: a ~900 ms reveal of the real shell, cancellable, Reduce Motion aware, silent, shown once | Automatic, after the first state loads | Unreleased | Untried |
 
 ## Updates and releases
 

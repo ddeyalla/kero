@@ -354,9 +354,10 @@ The app's motion, its accent colors and the grain over its wash share a
 section here because they are one taste: how the window looks as it moves.
 
 **Motion tokens.** [`motion.go`](../motion.go) holds the app's durations
-and curves as tokens: `press` 90 ms, `hover` 120, `row` 160, `slide` 260
-over `CubicBezier(.25, 1, .5, 1)`, `settle` 280, and the springs
-`springDrag` 420 ms with a bounce of .18 and `springUI` 300 ms with .12.
+and curves as tokens: `press` 90 ms, `hover` 120, `row` 160, `focus` 160,
+`slide` 260 over `CubicBezier(.25, 1, .5, 1)`, `settle` 280, and the
+springs `springDrag` 420 ms with a bounce of .18 and `springUI` 300 ms
+with .12.
 Call sites use the token, not the number, so a change to how the app moves
 is one edit. The sidebar's own animation and the panes' layout motion were
 the same 220–260 ms curve; both are `slide`. The chevron turned with a
@@ -392,12 +393,57 @@ primary button at 4.5 to 1 on it.
 package `ui/shader`: a hash of each two pixels of the window, half the
 specks white and half black, from no image and no time. `backdrop` draws
 it on the backdrop row after its background and before its children, so it
-lies over the wash and under the sidebar and the cards, at 5.5% in the
-light and 7.5% in the dark at a speck's strongest — an average of some 3% —
-and about 30% lighter where `Vibrancy()` has the desktop showing through,
+lies over the wash and under the sidebar and the cards, at 3.3% in the
+light and 4.5% in the dark at a speck's strongest — an average of some
+1.8% — and about 30% lighter where `Vibrancy()` has the desktop showing
+through,
 which has a texture of its own. `grain = false` turns it off.
 
+**Focus, not dimming.** A pane that is not focused is the pane it is: its
+card is `pal.card` and its text is untouched. [`panes.go`](../panes.go)
+draws one absolute, pass-through edge over every card, 1 point inside its
+radius; the focused pane's edge is `pal.focusEdge`, and the others are
+transparent, so every card has the same room and nothing moves when the
+focus does. The color is the accent at 50% in the light and 62% in the
+dark, recomputed in `accentPal` for a preset. The edge animates with
+`focus`; clicking a pane, cycling panes and moving the focus all use the
+same path.
+
+**A pane opens and closes.** [`paneCard`](../panes.go) poses a new pane at
+`Scale 0.985` and full fade on its first frame, then `Scale 1` and fade 0
+over `focus` (160 ms); a closing pane goes the other way. The layout still
+grows the pane from its edge (`growing`) and gives the room back
+(`closing`) over `slide`, so the two motions meet rather than replace each
+other. `focusNew` and `addPending` mark the panes that open.
+
+**Hover that waits.** [`hoverIntent`](../view.go) keeps a project header's
+hover chrome for 80 ms after the pointer leaves it, tracked per project in
+`App.hoverSeen`/`hoverUntil` and woken by `Context.After`. The chevron and
+the add button read that one answer, so they leave together.
+
+**Empty states that teach.** `linearNothingAction`
+([`linear_view.go`](../linear_view.go)) adds the one action to the Tasks
+and Linear empty states: **Open Settings** for a missing or refused key,
+**Clear Filters** when a filter narrows everything away, or **Refresh
+Linear** otherwise. The same button is used from the board, the list and a
+Tasks pane. The error copy around them names the next step: the Linear key
+goes to Settings › Linear, the browser asks for the address again, a file
+that cannot be read checks that it still exists, and a failed CLI link
+checks that `/usr/local/bin` is writable.
+
+**The first run.** [`intro.go`](../intro.go) holds the reveal. It starts
+only when `App.loaded` is true and there was no `app.json` when the app
+opened; starting it writes the prefs, so a crash does not replay it. The
+shell (`view`) fades and slides 8 points in over 520 ms from 180 ms; the
+sidebar's first ten rows stagger at 18 ms each; the accent wash and mark
+leave from 600 ms and the whole overlay ends at 900 ms. The overlay is
+drawn in the same frame as the shell, so there is no shell-only frame
+before it. Its `HandleInput` catches a key, a pointer press or a scroll,
+calls `finishIntro`, and gives the keyboard back to the focused pane. With
+Reduce Motion it is a 150 ms opacity fade with no movement or stagger.
+
 Code: [`motion.go`](../motion.go), [`theme.go`](../theme.go),
+[`panes.go`](../panes.go), [`view.go`](../view.go), [`intro.go`](../intro.go),
 [`grain.go`](../grain.go),
 [`internal/settings/settings.go`](../internal/settings/settings.go),
 [`internal/settings/config.go`](../internal/settings/config.go).

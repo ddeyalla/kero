@@ -104,10 +104,14 @@ func (a *App) view(c *ui.Context) {
 		a.pendingToast = ""
 	}
 	a.shortcuts(c)
+	a.introStart(c)
 
 	bar := a.titleBar(c)
 	row := ui.Row(c).Fill().AlignItems(ui.Stretch)
 	backdrop(c, pal, row, a.set)
+	if p, ok := a.introShellP(c); ok {
+		row.Opacity(p).Translate(0, (1-p)*8)
+	}
 	// A curve, not a spring: see slide.
 	progress := row.AnimateTo("sidebar", b2f(!a.prefs.SidebarHidden), slide)
 	a.chrome = chromeFor(progress, a.prefs.SidebarWidth, bar)
@@ -134,6 +138,7 @@ func (a *App) view(c *ui.Context) {
 	a.usageModal(c, pal)
 	a.settingsModal(c, pal)
 	a.confirmView(c, pal)
+	a.introView(c, pal)
 	// A preview that showed no more fades in anew next time.
 	if !a.previewShown {
 		a.previewKey = ""
@@ -241,6 +246,36 @@ func kbd(c *ui.Context, pal *palette, keys string) {
 		Background(pal.kbd).SingleLine()
 }
 
+// hoverIntent keeps hover chrome for a moment after the pointer leaves it:
+// moving diagonally off a project's header should not flicker its chevron
+// and add button away. The first frame a pointer is not over something
+// shows nothing; only a leave after a hover is delayed.
+func (a *App) hoverIntent(c *ui.Context, key string, over bool) bool {
+	const leave = 80 * time.Millisecond
+	if over {
+		a.hoverSeen[key] = true
+		delete(a.hoverUntil, key)
+		return true
+	}
+	now := c.Now()
+	if until, ok := a.hoverUntil[key]; ok {
+		if now.Before(until) {
+			c.After(until.Sub(now))
+			return true
+		}
+		delete(a.hoverUntil, key)
+		a.hoverSeen[key] = false
+		return false
+	}
+	if !a.hoverSeen[key] {
+		return false
+	}
+	a.hoverSeen[key] = false
+	a.hoverUntil[key] = now.Add(leave)
+	c.After(leave)
+	return true
+}
+
 // --- the sidebar ---
 
 func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
@@ -291,7 +326,7 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 	}
 	hdr := ui.Row(c.Key("project-"+id)).Height(28).Margin(top, 0, 3, 0).Padding(0, 6, 0, 10).Gap(6).AlignItems(ui.Center).Radius(6).
 		Transition(headerTransition)
-	hovered := hdr.Hovered()
+	hovered := a.hoverIntent(c, "project-"+id, hdr.Hovered())
 	renaming := id != "" && a.renamingProject == id
 	if hdr.Clicked() && !renaming {
 		a.toggleProject(id)
@@ -378,6 +413,9 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 	selected := s.ID == a.selected
 	row := ui.Row(c.Key(s.ID)).Height(rowH).Padding(0, 10, 0, 12).Gap(10).AlignItems(ui.Center).Radius(8).Margin(0, 0, 1, 0).
 		Transition(rowTransition)
+	if p, ok := a.introRowP(c, *n); ok {
+		row.Opacity(p).Translate(0, (1-p)*6)
+	}
 	hovered := row.Hovered()
 	if pal.dark {
 		// Room for the chosen row's edge in every row, so that choosing

@@ -44,6 +44,16 @@ func (msgs Messages) ActionSettings() string {
 	return Catalog.Format(msgs.locale, "actionSettings", nil)
 }
 
+// IntroLabel says "Shibu Code, starting"
+// in the language the app shows.
+func IntroLabel() string { return In(i18n.Locale()).IntroLabel() }
+
+// IntroLabel says "Shibu Code, starting"
+// in the language of msgs.
+func (msgs Messages) IntroLabel() string {
+	return Catalog.Format(msgs.locale, "introLabel", nil)
+}
+
 // ActionInstallCli says "Install Command Line Tool…"
 // in the language the app shows.
 func ActionInstallCli() string { return In(i18n.Locale()).ActionInstallCli() }
@@ -554,6 +564,16 @@ func (msgs Messages) CommonOpen() string {
 	return Catalog.Format(msgs.locale, "commonOpen", nil)
 }
 
+// CommonOpenSettings says "Open Settings"
+// in the language the app shows.
+func CommonOpenSettings() string { return In(i18n.Locale()).CommonOpenSettings() }
+
+// CommonOpenSettings says "Open Settings"
+// in the language of msgs.
+func (msgs Messages) CommonOpenSettings() string {
+	return Catalog.Format(msgs.locale, "commonOpenSettings", nil)
+}
+
 // CommonShow says "Show"
 // in the language the app shows.
 func CommonShow() string { return In(i18n.Locale()).CommonShow() }
@@ -724,13 +744,13 @@ func (msgs Messages) ToastCopiedToClipboard() string {
 	return Catalog.Format(msgs.locale, "toastCopiedToClipboard", nil)
 }
 
-// ToastSaveSettingsFailed says "Couldn’t save the settings: {error}"
+// ToastSaveSettingsFailed says "Couldn’t save the settings. Fix the value and try again: {error}"
 // in the language the app shows.
 func ToastSaveSettingsFailed(error string) string {
 	return In(i18n.Locale()).ToastSaveSettingsFailed(error)
 }
 
-// ToastSaveSettingsFailed says "Couldn’t save the settings: {error}"
+// ToastSaveSettingsFailed says "Couldn’t save the settings. Fix the value and try again: {error}"
 // in the language of msgs.
 func (msgs Messages) ToastSaveSettingsFailed(error string) string {
 	return Catalog.Format(msgs.locale, "toastSaveSettingsFailed", map[string]any{"error": error})
@@ -756,11 +776,11 @@ func (msgs Messages) ToastNothingNeedsYou() string {
 	return Catalog.Format(msgs.locale, "toastNothingNeedsYou", nil)
 }
 
-// CliInstallFailed says "Couldn’t install the command line tool"
+// CliInstallFailed says "Couldn’t install the command line tool. Check that /usr/local/bin is writable and try again."
 // in the language the app shows.
 func CliInstallFailed() string { return In(i18n.Locale()).CliInstallFailed() }
 
-// CliInstallFailed says "Couldn’t install the command line tool"
+// CliInstallFailed says "Couldn’t install the command line tool. Check that /usr/local/bin is writable and try again."
 // in the language of msgs.
 func (msgs Messages) CliInstallFailed() string {
 	return Catalog.Format(msgs.locale, "cliInstallFailed", nil)
@@ -3586,11 +3606,11 @@ func (msgs Messages) LinearStatusNoToken() string {
 	return Catalog.Format(msgs.locale, "linearStatusNoToken", nil)
 }
 
-// LinearStatusAuthFailed says "Linear refused the API key."
+// LinearStatusAuthFailed says "Linear refused the API key. Set a new one in Settings › Linear."
 // in the language the app shows.
 func LinearStatusAuthFailed() string { return In(i18n.Locale()).LinearStatusAuthFailed() }
 
-// LinearStatusAuthFailed says "Linear refused the API key."
+// LinearStatusAuthFailed says "Linear refused the API key. Set a new one in Settings › Linear."
 // in the language of msgs.
 func (msgs Messages) LinearStatusAuthFailed() string {
 	return Catalog.Format(msgs.locale, "linearStatusAuthFailed", nil)
@@ -3606,11 +3626,11 @@ func (msgs Messages) LinearStatusRateLimited() string {
 	return Catalog.Format(msgs.locale, "linearStatusRateLimited", nil)
 }
 
-// LinearStatusUnreachable says "Linear could not be reached; the last read is shown."
+// LinearStatusUnreachable says "Linear could not be reached. Check the connection; the last read stays."
 // in the language the app shows.
 func LinearStatusUnreachable() string { return In(i18n.Locale()).LinearStatusUnreachable() }
 
-// LinearStatusUnreachable says "Linear could not be reached; the last read is shown."
+// LinearStatusUnreachable says "Linear could not be reached. Check the connection; the last read stays."
 // in the language of msgs.
 func (msgs Messages) LinearStatusUnreachable() string {
 	return Catalog.Format(msgs.locale, "linearStatusUnreachable", nil)
@@ -3866,11 +3886,11 @@ func (msgs Messages) LinearNotRead() string {
 	return Catalog.Format(msgs.locale, "linearNotRead", nil)
 }
 
-// LinearNotReadDetail says "Set a Linear API key in Settings, and the daemon will read the workspace."
+// LinearNotReadDetail says "Set a Linear API key in Settings › Linear, and the workspace will load."
 // in the language the app shows.
 func LinearNotReadDetail() string { return In(i18n.Locale()).LinearNotReadDetail() }
 
-// LinearNotReadDetail says "Set a Linear API key in Settings, and the daemon will read the workspace."
+// LinearNotReadDetail says "Set a Linear API key in Settings › Linear, and the workspace will load."
 // in the language of msgs.
 func (msgs Messages) LinearNotReadDetail() string {
 	return Catalog.Format(msgs.locale, "linearNotReadDetail", nil)
@@ -4724,11 +4744,11 @@ func (msgs Messages) PaneNoRoom() string {
 	return Catalog.Format(msgs.locale, "paneNoRoom", nil)
 }
 
-// BrowserCantOpen says "Can't open this page"
+// BrowserCantOpen says "Check the address and try again"
 // in the language the app shows.
 func BrowserCantOpen() string { return In(i18n.Locale()).BrowserCantOpen() }
 
-// BrowserCantOpen says "Can't open this page"
+// BrowserCantOpen says "Check the address and try again"
 // in the language of msgs.
 func (msgs Messages) BrowserCantOpen() string {
 	return Catalog.Format(msgs.locale, "browserCantOpen", nil)
@@ -4834,11 +4854,11 @@ func (msgs Messages) BrowserHint() string {
 	return Catalog.Format(msgs.locale, "browserHint", nil)
 }
 
-// FilesCantRead says "Can't read this"
+// FilesCantRead says "Can't read this file. Check that it still exists."
 // in the language the app shows.
 func FilesCantRead() string { return In(i18n.Locale()).FilesCantRead() }
 
-// FilesCantRead says "Can't read this"
+// FilesCantRead says "Can't read this file. Check that it still exists."
 // in the language of msgs.
 func (msgs Messages) FilesCantRead() string {
 	return Catalog.Format(msgs.locale, "filesCantRead", nil)

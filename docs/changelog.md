@@ -25,11 +25,27 @@ builds only. What each feature is and where it stands is tracked in the
   the cards and lighter where the desktop shows through. Settings ›
   Appearance › Grain; `grain = false` turns it off.
 - The app moves as one: motion tokens hold its durations and curves in one
-  place (`press` 90 ms, `hover` 120, `row` 160, `slide` 260, and the two
-  springs), in place of the scattered literals. A project collapsing now
-  folds its rows away animated — each row folds to nothing along the list
-  and its neighbours make room — instead of the rows popping in and out,
-  and the chosen session's row stays in view, as it did.
+  place (`press` 90 ms, `hover` 120, `row` 160, `focus` 160, `slide` 260,
+  and the two springs), in place of the scattered literals. A project
+  collapsing now folds its rows away animated — each row folds to nothing
+  along the list and its neighbours make room — instead of the rows popping
+  in and out, and the chosen session's row stays in view, as it did.
+- The pane the user is in now has a soft accent-tinted border, and the
+  panes around it are no longer dimmed or veiled: every pane keeps the
+  same card and text, and only the focus edge moves.
+- New panes open a hair small and fade in over 160 ms, and closing ones
+  fade out the same way. A project's chevron and add button wait 80 ms
+  after the pointer leaves before they go, so moving diagonally off the
+  header does not flicker them.
+- The Tasks and Linear empty states now say what to do: **Open Settings**
+  for a missing or refused key, **Clear Filters** when a filter hides
+  everything, or **Refresh Linear** when there is nothing to show. Error
+  copy around Linear, the browser, files and the CLI names the next step.
+- A first run shows a short reveal of the real shell once its state is
+  in: an accent wash and a mark, the shell sliding 8 points and fading in,
+  a capped row stagger, and the overlay gone by 900 ms. Any key, click or
+  scroll cancels it to the end; Reduce Motion turns it into a 150 ms fade;
+  it is silent. Later launches do not show it.
 - Claude Code and Codex report their turns: Kero's hook now also runs as a
   turn starts, asks for permission, runs a tool and ends, and the pane shows
   working, waiting or done at once instead of waiting for the screen to

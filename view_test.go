@@ -45,6 +45,8 @@ func testApp(t *testing.T) *App {
 		}},
 	}
 	a.loaded, a.selected = true, "s1"
+	// A test starts after the first run: the intro is its own test.
+	a.intro.first = false
 	return a
 }
 

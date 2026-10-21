@@ -38,9 +38,9 @@ var grain = shader.MustCompile(grainSrc)
 // grainAlpha is how strong the grain is, in the light and the dark, and
 // lighter where the desktop shows through, which has a texture of its own.
 func grainAlpha(c *ui.Context, dark bool) float32 {
-	a := float32(0.055)
+	a := float32(0.033)
 	if dark {
-		a = 0.075
+		a = 0.045
 	}
 	if c.Vibrancy() {
 		a *= 0.7

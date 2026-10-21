@@ -284,7 +284,7 @@ func TestMarkdownHeadingLinks(t *testing.T) {
 	}
 }
 
-// A new pane grows from its edge and springs in; one closing gives its
+// A new pane grows from its edge and fades in; one closing gives its
 // room back before it goes.
 func TestPanesGlideInAndOut(t *testing.T) {
 	a := testApp(t)
@@ -297,7 +297,7 @@ func TestPanesGlideInAndOut(t *testing.T) {
 	ns.Layout.B = &proto.Layout{Row: false, Ratio: 0.5, A: ns.Layout.B, B: &proto.Layout{Pane: "c"}}
 	ns.Focus = "c"
 	a.focusNew(ns)
-	if !a.growing["c"] || !a.arrived["c"] {
+	if !a.growing["c"] || a.opening["c"] != 1 {
 		t.Fatal("the new pane does not grow in")
 	}
 	tt.Frame()

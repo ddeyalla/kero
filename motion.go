@@ -20,6 +20,9 @@ var (
 	// row is a session row's own changes: its color, its chevron, and how
 	// rows arrive and go as a project collapses.
 	row = ui.Animation{Duration: 160 * time.Millisecond}
+	// focus is a pane taking the focus: its edge lights, and a pane
+	// opening or closing keeps its face, rather than snapping.
+	focus = ui.Animation{Duration: 160 * time.Millisecond}
 	// slide is the bigger moves: the sidebar's, the panes' layout. A
 	// curve, not a spring: a spring's long tail crawls under a pixel a
 	// frame, which whole pixels turn into hops and holds, a shake as it

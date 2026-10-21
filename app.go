@@ -151,6 +151,10 @@ type App struct {
 	confirm      *confirmation
 	sideDrag     float32 // the width as a drag of the sidebar's edge began
 	pendingToast string
+	// hoverSeen and hoverUntil keep hover chrome for a moment after the
+	// pointer leaves it, so moving diagonally does not flicker it.
+	hoverSeen  map[string]bool
+	hoverUntil map[string]time.Time
 	// later are actions that change what the view is building, run once
 	// it is built.
 	later []func()
@@ -168,11 +172,15 @@ type App struct {
 	resources    resourceState
 	maintenance  maintenanceState
 	peek         peek // the image a path Command hovers shows
+	intro        introState
 
 	// growing are the panes just made, which grow from their edge;
-	// closing those giving their room back before they go.
+	// closing those giving their room back before they go. opening holds
+	// a new pane's first frame, which shows it small, and its second,
+	// which animates it in.
 	growing map[string]bool
 	closing map[string]bool
+	opening map[string]int
 	// sizeHold is until when the terminals' sizes wait, as the panes
 	// glide (gated).
 	sizeHold atomic.Int64
@@ -190,7 +198,8 @@ type confirmation struct {
 
 func newApp() *App {
 	a := &App{terms: map[string]*termEntry{}, statuses: map[string]proto.Status{}, active: true, focused: true,
-		refs: map[string]*ui.Handle{}, focus: map[string]string{}, arrived: map[string]bool{}}
+		refs: map[string]*ui.Handle{}, focus: map[string]string{}, arrived: map[string]bool{},
+		hoverSeen: map[string]bool{}, hoverUntil: map[string]time.Time{}, opening: map[string]int{}}
 	a.lin = &a.linRoot
 	a.loadPrefs()
 	a.set = settings.Load()
@@ -215,8 +224,12 @@ func newApp() *App {
 func prefsPath() string { return filepath.Join(proto.Dir(), "app.json") }
 
 func (a *App) loadPrefs() {
-	if b, err := os.ReadFile(prefsPath()); err == nil {
+	b, err := os.ReadFile(prefsPath())
+	if err == nil {
 		json.Unmarshal(b, &a.prefs)
+	}
+	if os.IsNotExist(err) {
+		a.intro.first = true
 	}
 	if a.prefs.SidebarWidth == 0 {
 		a.prefs.SidebarWidth = defaultSidebar
@@ -1028,6 +1041,9 @@ func (a *App) addPending(s proto.Session) {
 		return
 	}
 	a.st.Sessions = append(a.st.Sessions, s)
+	for _, p := range s.Panes {
+		a.opening[p.ID] = 1
+	}
 	if a.project(s.Project) == nil {
 		a.st.Projects = append(a.st.Projects, proto.Project{ID: s.Project, Name: filepath.Base(s.Dir), Dir: s.Dir})
 	}

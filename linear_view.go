@@ -809,6 +809,35 @@ func (a *App) linearNothing(c *ui.Context, pal *palette, title, detail string) {
 	a.linearNothingThen(c, pal, title, detail, nil)
 }
 
+// linearNothingAction is an empty state that says what to do about it: set
+// the key, clear what is filtered, or read the workspace again.
+func (a *App) linearNothingAction(c *ui.Context, pal *palette, title, detail string) {
+	a.linearNothingThen(c, pal, title, detail, func() {
+		lin := a.st.Linear
+		if lin == nil || lin.Status == proto.LinearNoToken || lin.Status == proto.LinearAuthFailed {
+			if button(c, "linear-open-settings", locales.CommonOpenSettings(), "", true, pal) {
+				a.openSettings("linear")
+			}
+			return
+		}
+		if a.linearFiltered() {
+			if button(c, "linear-empty-clear", locales.LinearClearFilters(), "", true, pal) {
+				a.lin.project, a.lin.milestone, a.lin.state, a.lin.query = "", "", "", ""
+				a.lin.filterNotice = ""
+			}
+			return
+		}
+		if button(c, "linear-empty-refresh", locales.LinearRefresh(), "", false, pal) {
+			a.linearRefresh()
+		}
+	})
+}
+
+// linearFiltered reports whether a filter narrows the workspace.
+func (a *App) linearFiltered() bool {
+	return a.lin.project != "" || a.lin.milestone != "" || a.lin.state != "" || a.lin.query != ""
+}
+
 // linearNothingThen is linearNothing with what can be done about it,
 // under what it says.
 func (a *App) linearNothingThen(c *ui.Context, pal *palette, title, detail string, action func()) {

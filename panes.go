@@ -237,9 +237,6 @@ func (a *App) divider(c *ui.Context, pal *palette, s *proto.Session, l *proto.La
 func (a *App) paneCard(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32, s *proto.Session, p *proto.Pane, top, left, right, multi bool) {
 	focused := p.ID == a.focusOf(s)
 	bg := pal.card
-	if multi && !focused {
-		bg = pal.cardDim
-	}
 	card := ui.Column(c.Key("pane-" + p.ID)).Grow(1).Basis(0).MinWidth(0).MinHeight(0).Radius(14).Clip().Bind(a.paneRef("card-" + p.ID))
 	if a.cardSize == nil {
 		a.cardSize = map[string]ui.Rect{}
@@ -281,30 +278,47 @@ func (a *App) paneCard(c *ui.Context, pal *palette, bar ui.TitleBar, shown float
 		} else {
 			a.paneTerminal(c, pal, s, p)
 		}
-		if multi {
-			// The panes the user is not in fade, text and all.
-			v := ui.Box(c.Key("veil")).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Background(pal.veil)
-			v.Opacity(v.Animate("on", b2f(!focused), row.Duration))
+		// The focus is the only thing that changes when the user moves
+		// between panes: the card and its text stay as they are, and a
+		// light edge marks the pane in. Every pane keeps the edge's room,
+		// so the border never moves what is inside it.
+		edge := ui.Box(c.Key("focus-" + p.ID)).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(14).PassThrough()
+		outline := ui.Transparent
+		if focused {
+			outline = pal.focusEdge
 		}
+		edge.Border(1, edge.AnimateColor("edge", outline, focus))
 		if zone != zoneNone {
 			a.dropPreview(c, pal, p.ID, zone)
 		}
 	})
 
 	// The pane dragged sinks back where it was; one just moved springs in
-	// at its new place.
+	// at its new place. A pane opening starts a hair small and fades in,
+	// and one closing fades out the same way: the first frame shows it
+	// small, and the next animates it to its place.
 	pose := ui.Pose{}
+	poseMotion := springDrag
 	switch {
 	case dragging:
 		pose = ui.Pose{Scale: 0.985, Fade: 0.45}
+	case a.opening[p.ID] == 1:
+		pose = ui.Pose{Scale: 0.985, Fade: 1}
+		a.opening[p.ID] = 2
+		poseMotion = focus
+		c.Invalidate()
+	case a.opening[p.ID] == 2:
+		delete(a.opening, p.ID)
+		poseMotion = focus
 	case a.closing[p.ID]:
-		pose = ui.Pose{Scale: 0.96, Fade: 1}
+		pose = ui.Pose{Scale: 0.985, Fade: 1}
+		poseMotion = focus
 	case a.arrived[p.ID]:
 		pose = ui.Pose{Scale: 0.94, Fade: 0.7}
 		delete(a.arrived, p.ID)
 		c.Invalidate()
 	}
-	card.AnimatePose(pose, springDrag)
+	card.AnimatePose(pose, poseMotion)
 }
 
 // paneDrag is a pane dragged by its title to another place.
@@ -730,10 +744,10 @@ func (a *App) splitView(s *proto.Session, at, direction, view string) {
 // focusNew puts a session kerod answered with a new pane into the state,
 // and focuses the pane.
 func (a *App) focusNew(ns proto.Session) {
-	// The pane new to the layout springs in; one beside the others grows
+	// The pane new to the layout fades in; one beside the others grows
 	// from its edge, where one in another's place does not.
 	if old := a.session(ns.ID); old != nil && old.PaneByID(ns.Focus) == nil {
-		a.arrived[ns.Focus] = true
+		a.opening[ns.Focus] = 1
 		if len(ns.Panes) > len(old.Panes) {
 			if a.growing == nil {
 				a.growing = map[string]bool{}
