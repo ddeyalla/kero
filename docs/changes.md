@@ -146,6 +146,53 @@ Code: [`internal/cli/hook_events.go`](../internal/cli/hook_events.go),
 [`internal/daemon/session.go`](../internal/daemon/session.go) (`look`).
 Tests: `hook_events_test.go`, `internal/daemon/hooks_test.go`.
 
+## Attention in kerod
+
+Each session has one attention state — `running`, `waiting-user`, `unread`,
+`done` or `idle` — folded by kerod from its panes: the most urgent of them,
+one line of what it says, the pane it came from and the age of it. It rides
+on the state the app already receives (`Session.Attention`,
+[`internal/proto/proto.go`](../internal/proto/proto.go)), so the attention
+pane and the notifications read one truth instead of each folding the panes
+its own way. The fold is in
+[`internal/daemon/attention.go`](../internal/daemon/attention.go)
+(`sessionAttention`, filled by `sessionInfo`).
+
+A pane's own word comes from its marks, in this order: the agent's hook
+report, then the program's OSC 7501, then the transcript scan, then the
+screen detection. The first three are records on the pane (`records`,
+`soft`); the fold reads the resulting status, so only the most urgent
+pane's words show, and of two as urgent, the first pane's.
+
+The transcript scan is the fallback for what no other signal says.
+Claude Code and Codex keep their conversations on disk, and the daemon
+reads the end of the file (the last 256 KB, whole lines only) every few
+tick loops, and once at start: a call that ran for 45 seconds with no
+result is taken for one waiting on the user, one that just started for
+work, a turn's end for done. It is local-only and cheap, and it never
+changes a status the hooks or the screen already hold: it speaks only for
+a pane with no other record, takes back what it said when the transcript
+does, and retires on any report of another's. `internal/detect` stays the
+last fallback for an agent with no transcript or no hooks.
+
+Capability note: **Codex has no permission-prompt hook**, so the scan is
+its fallback for approval detection — 45 seconds after the call began, not
+the moment it asks. Claude Code reports the prompt itself.
+
+An end that comes while the app is away survives a restart: the pane's
+summary is saved with its unread mark (`savedPane.Summary`,
+[`internal/daemon/store.go`](../internal/daemon/store.go)) and a restored
+pane shows it. Nothing else of the fold is saved; it is computed again from
+the marks the daemon restored. The protocol and the saved state stay
+additive (Version 3 and 2): the field is optional and a daemon of before
+says none.
+
+Code: [`internal/daemon/attention.go`](../internal/daemon/attention.go),
+[`internal/daemon/store.go`](../internal/daemon/store.go),
+[`internal/daemon/osc.go`](../internal/daemon/osc.go) (`applyReport`),
+[`internal/proto/proto.go`](../internal/proto/proto.go) (`Attention`).
+Tests: `attention_test.go`, `store_test.go` (`TestRestoreKeepsSummary`).
+
 ## Status indicators
 
 A session row, and each count chip in the footer, draw the session's state

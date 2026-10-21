@@ -69,6 +69,11 @@ type savedPane struct {
 	Unread   bool         `json:"unread,omitempty"`
 	Message  string       `json:"message,omitempty"`
 	ExitCode int          `json:"exitCode,omitempty"`
+	// Summary is what the pane's attention said when last saved
+	// (attention.go): the words of an end that came while the app was
+	// away, which a restored pane's unread mark shows. A state file of
+	// before has none.
+	Summary string `json:"summary,omitempty"`
 }
 
 func (d *Daemon) statePath() string { return filepath.Join(d.dir, "state.json") }
@@ -102,7 +107,7 @@ func (d *Daemon) saveState() {
 			p.mu.Lock()
 			sp := savedPane{ID: p.info.ID, View: p.info.View, Target: p.info.Target, Dir: p.info.Dir, Command: p.info.Command,
 				Agent: p.info.AgentSession, Task: p.info.TaskID, Created: p.info.Created, Cols: p.info.Cols, Rows: p.info.Rows,
-				Status: p.info.Status, Since: p.info.Since, Unread: p.info.Unread}
+				Status: p.info.Status, Since: p.info.Since, Unread: p.info.Unread, Summary: paneAttention(p).Msg}
 			switch p.info.Status {
 			case proto.Failed:
 				sp.Message = p.info.Message
@@ -280,6 +285,9 @@ func (d *Daemon) restorePane(sid string, sp savedPane, when string, saved int64)
 		d.log.Printf("restoring %s: %v", sp.ID, err)
 		return nil
 	}
+	// What the pane's attention said when it was saved, for an unread
+	// end to show whose message a restore does not keep.
+	p.summary = sp.Summary
 	// What the session showed, down to where its cursor was, with the
 	// new shell under it: what a program drew below the cursor, as an
 	// agent's status bar, goes, rather than show under the new shell's

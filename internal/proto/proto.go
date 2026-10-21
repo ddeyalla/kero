@@ -422,6 +422,24 @@ type Session struct {
 	Lead   string `json:"lead,omitempty"`
 	Focus  string `json:"focus,omitempty"`
 	Zoomed string `json:"zoomed,omitempty"`
+	// Attention is what the session needs of the user, folded by kerod
+	// from its panes (attention.go): one truth for the attention pane
+	// and the notifications, most urgent first.
+	Attention *Attention `json:"attention,omitempty"`
+}
+
+// Attention is what a session needs of the user, as kerod folds its
+// panes into one: the most urgent of them, the words that go with it, and
+// the pane that gave them.
+type Attention struct {
+	// State is "running", "waiting-user", "unread", "done" or "idle".
+	State string `json:"state"`
+	// Msg is one line of what the state says, at most some 80 bytes.
+	Msg string `json:"msg,omitempty"`
+	// Since is the time in Unix milliseconds the pane's state came to be.
+	Since int64 `json:"since,omitempty"`
+	// Pane is the pane the state comes from.
+	Pane string `json:"pane,omitempty"`
 }
 
 // PaneByID returns a pane of the session, or nil.

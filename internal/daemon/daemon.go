@@ -116,6 +116,9 @@ func Run() error {
 	lg.Printf("kerod %d started (pid %d, %s)", proto.Version, os.Getpid(), exe)
 	d.linkCLI()
 	d.restore()
+	// What the transcripts of the panes say, once at the start: the
+	// ends of turns that came while nothing watched.
+	go d.scanPass(time.Now())
 
 	signal.Ignore(syscall.SIGHUP, syscall.SIGPIPE)
 	sigs := make(chan os.Signal, 1)
@@ -210,6 +213,7 @@ func (d *Daemon) broadcastLoop() {
 func (d *Daemon) tickLoop() {
 	t := time.NewTicker(400 * time.Millisecond)
 	defer t.Stop()
+	ticks := 0
 	for now := range t.C {
 		d.mu.Lock()
 		panes := make([]*pane, 0, len(d.panes))
@@ -230,6 +234,12 @@ func (d *Daemon) tickLoop() {
 		}
 		if changed {
 			d.changed()
+		}
+		// The agents' transcripts, every few of these ticks: slow reads
+		// of the end of a file, of what else told nothing.
+		ticks++
+		if ticks%12 == 0 {
+			d.scanPass(now)
 		}
 		// Nothing to keep: go, rather than linger in the background.
 		if idle && idleFor > 30*time.Second {

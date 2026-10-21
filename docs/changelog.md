@@ -12,6 +12,19 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Added
 
+- kerod keeps one attention state for every session — running,
+  waiting-user, unread, done or idle — folded from its panes: the most
+  urgent of them, one line of what it says, the pane it came from and the
+  age of it. The state the app receives carries it (`Session.Attention`),
+  so the attention pane and the notifications of the later work read one
+  truth. Where an agent says nothing, the daemon reads the end of its own
+  transcript on disk, locally and only as a fallback: a call that has run
+  45 seconds with no result is taken for one waiting on the user. Hooks
+  and the screen keep their say over it, and an end that came while the
+  app was away keeps its summary across a restart. Codex has no
+  permission-prompt hook, so this scan is its fallback for approvals.
+  **Restart the terminal service once** (when agents are idle) for the
+  state to carry it; until then nothing changes for the app.
 - Accent presets: six hand-tuned themes of the app's own colors — Blue (the
   one it has had), Plum, Rose, Sea, Moss and Graphite. Each is an accent
   color in the light and in the dark, the background wash that comes with
