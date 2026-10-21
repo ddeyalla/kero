@@ -141,6 +141,8 @@ func (a *App) run(id string, args map[string]string) {
 		a.openView(s, "", proto.PaneFiles, false)
 	case "pane.new.browser":
 		a.openView(s, "", proto.PaneBrowser, false)
+	case "pane.new.plugin":
+		a.newPluginPane()
 	case "pane.even":
 		a.evenPanes(s)
 	case "pane.zoom":
@@ -199,6 +201,7 @@ var actionTitles = map[string]func() string{
 	"find.previous":     locales.ActionFindPrevious,
 	"pane.split.right":  locales.ActionSplitRight,
 	"pane.split.down":   locales.ActionSplitDown,
+	"pane.new.plugin":   locales.ActionNewPluginPane,
 	"pane.even":         locales.ActionEvenPanes,
 	"browser.location":  locales.ActionBrowserLocation,
 	"pane.zoom":         locales.ActionZoomPane,
@@ -282,7 +285,7 @@ func (a *App) menu() *mygo.Menu {
 func (a *App) paneMenuItems() []*mygo.MenuItem {
 	return a.items("Pane",
 		[]string{"pane.split.right", "pane.split.down"},
-		[]string{"pane.new", "pane.new.terminal", "pane.new.tasks", "pane.new.files", "pane.new.browser"},
+		[]string{"pane.new", "pane.new.terminal", "pane.new.tasks", "pane.new.files", "pane.new.browser", "pane.new.plugin"},
 		[]string{"pane.even", "pane.zoom", "browser.location"},
 		[]string{"pane.next", "pane.previous", "pane.left", "pane.right", "pane.up", "pane.down"})
 }

@@ -142,6 +142,8 @@ type App struct {
 	files map[string]*filesState
 	// browsers are the Browser panes' states, with their web views.
 	browsers map[string]*browserState
+	// plugins is the plugin panes' host and state.
+	plugins pluginState
 	// cardSize is how big each pane drew last.
 	cardSize map[string]ui.Rect
 

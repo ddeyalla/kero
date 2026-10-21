@@ -708,6 +708,12 @@ func (a *App) splitPane(s *proto.Session, at, direction string) {
 // splitView splits the pane at, the focused one when "", with a pane
 // showing view: a terminal when "".
 func (a *App) splitView(s *proto.Session, at, direction, view string) {
+	a.splitTarget(s, at, direction, view, "")
+}
+
+// splitTarget splits the pane at with a pane showing view at target. The
+// target is the view's own: a plugin pane's plugin, widget and state.
+func (a *App) splitTarget(s *proto.Session, at, direction, view, target string) {
 	if s == nil {
 		return
 	}
@@ -725,7 +731,7 @@ func (a *App) splitView(s *proto.Session, at, direction, view string) {
 	if a.cl == nil {
 		return
 	}
-	p := proto.CreateParams{Split: at, Direction: direction, View: view}
+	p := proto.CreateParams{Split: at, Direction: direction, View: view, Target: target}
 	if pane := s.PaneByID(at); pane != nil {
 		p.Cols, p.Rows = pane.Cols, pane.Rows
 		if direction == "down" || direction == "up" {
@@ -740,7 +746,7 @@ func (a *App) splitView(s *proto.Session, at, direction, view string) {
 		err := cl.Call("split", p, &ns)
 		a.update(func() {
 			if err != nil {
-				a.toast(err.Error())
+				a.toast(viewCallError(err))
 				return
 			}
 			a.focusNew(ns)

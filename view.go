@@ -98,6 +98,9 @@ func b2f(b bool) float32 {
 func (a *App) view(c *ui.Context) {
 	pal := a.paletteFor(c)
 	c.SetTheme(borderless(c, pal))
+	// Every plugin pane this frame draws marks itself: the rest are
+	// hidden, and hear it.
+	a.beginPluginFrame()
 
 	if a.pendingToast != "" {
 		c.Toast(a.pendingToast)

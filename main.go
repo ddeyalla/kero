@@ -25,6 +25,7 @@ import (
 	"kero/internal/cli"
 	"kero/internal/clilink"
 	"kero/internal/daemon"
+	"kero/internal/plugin/registry"
 	"kero/internal/proto"
 )
 
@@ -34,6 +35,18 @@ func main() {
 		case os.Args[1] == "__kerod":
 			if err := daemon.Run(); err != nil {
 				fmt.Fprintln(os.Stderr, "kerod:", err)
+				os.Exit(1)
+			}
+			return
+		case os.Args[1] == "plugin-run":
+			// A built-in plugin's process is this executable, run with
+			// the plugin's id: the plugin talks the protocol on stdio.
+			if len(os.Args) < 3 {
+				fmt.Fprintln(os.Stderr, "plugin-run: missing the plugin's id")
+				os.Exit(2)
+			}
+			if err := registry.Serve(os.Args[2]); err != nil {
+				fmt.Fprintln(os.Stderr, "plugin-run:", err)
 				os.Exit(1)
 			}
 			return
@@ -107,6 +120,7 @@ func runApp() {
 	})
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
 		a.savePrefs()
+		a.stopPlugins()
 		if a.usage.cancel != nil {
 			a.usage.cancel()
 		}
@@ -128,6 +142,9 @@ func runApp() {
 		a.win.OnBlur(func() { a.update(func() { a.focused = false; a.reportView() }) })
 		// Settings, in the window, goes with it.
 		a.win.OnClosed(a.endSettings)
+		// The plugins the user installed are read off the UI goroutine,
+		// once the window exists to show them in.
+		a.discoverPlugins()
 		a.connect()
 		a.startUsage()
 		a.startResources()

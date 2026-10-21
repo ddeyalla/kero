@@ -387,10 +387,11 @@ const (
 	PaneTasks   = "tasks"   // the Linear issues of the session's project
 	PaneFiles   = "files"   // the project's files, and one file read
 	PaneBrowser = "browser" // a web page
+	PanePlugins = "plugin"  // a widget of a plugin
 )
 
 // PaneViews are the views a pane can be.
-var PaneViews = []string{PaneTasks, PaneFiles, PaneBrowser}
+var PaneViews = []string{PaneTasks, PaneFiles, PaneBrowser, PanePlugins}
 
 // IsView tells a pane that is a view of the app's, not a terminal.
 func (p *Pane) IsView() bool { return p.View != "" }

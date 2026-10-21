@@ -610,6 +610,102 @@
   "paneTasksDetail": "The project's Linear issues",
   "paneFilesDetail": "Browse and read the project's files",
   "paneBrowserDetail": "A web page, such as your dev server",
+  "panePlugins": "Plugin",
+  "panePluginDetail": "A widget of a plugin, such as Spotify",
+  "actionNewPluginPane": "New Plugin Pane",
+  "paletteNewPluginPane": "Open {widget} ({plugin})",
+  "@paletteNewPluginPane": {
+    "placeholders": {
+      "widget": {
+        "type": "String"
+      },
+      "plugin": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginTreePlaceholder": "This plugin's interface is on its way",
+  "pluginTreeCount": "{count, plural, one {# element} other {# elements}}",
+  "@pluginTreeCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "pluginTreeCountOne": "1 element",
+  "pluginUnknownTitle": "This plugin is not installed",
+  "pluginUnknownDetail": "No plugin {id} is installed. Install it, then open a pane of it.",
+  "@pluginUnknownDetail": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginStarting": "Starting {name}…",
+  "@pluginStarting": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginStartingDetail": "The plugin starts when its first pane opens.",
+  "pluginCrashTitle": "{name} stopped",
+  "@pluginCrashTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginCrashLog": "Its last words are in {path}",
+  "@pluginCrashLog": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginRestart": "Restart",
+  "pluginNeedsRestart": "Plugin panes need a newer terminal service. Restart the terminal service, then try again.",
+  "pluginNoPlugins": "No plugins are installed yet.",
+  "pluginNoWidgets": "The {name} plugin has no widgets.",
+  "@pluginNoWidgets": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginSettingsGroup": "Plugins",
+  "pluginSettingsGroupDetail": "Plugins add panes of their own. Their settings are kept beside them in the configuration folder.",
+  "pluginNone": "No plugins",
+  "pluginNoneDetail": "Built-in plugins come with the app. Installed plugins live in the configuration folder's plugins folder.",
+  "pluginSpotifyGroup": "Spotify",
+  "pluginSpotifyGroupDetail": "The Spotify plugin plays your music beside your work.",
+  "pluginSpotifyClientID": "Client ID",
+  "pluginSpotifyClientIDDetail": "Your Spotify app's Client ID. The plugin uses it to sign you in.",
+  "pluginSpotifyClientIDPlaceholder": "Paste a Client ID",
+  "pluginSpotifyDashboard": "Spotify for Developers",
+  "pluginSpotifyOpen": "Open Dashboard",
+  "pluginInstalled": "Installed",
+  "pluginBuiltin": "Built-in",
+  "pluginNoPermissions": "No permissions",
+  "pluginPermissionsLine": "Permissions: {permissions}",
+  "@pluginPermissionsLine": {
+    "placeholders": {
+      "permissions": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginSecretEmpty": "Not set",
+  "pluginSecretSet": "Set — type to replace",
+  "pluginSecretSaved": "Saved the secret.",
+  "pluginSettingsSaved": "Saved.",
+  "pagePlugins": "Plugins",
   "paneShow": "Show in This Pane",
   "paneNoRoom": "Not enough room for another pane here",
   "browserCantOpen": "Check the address and try again",

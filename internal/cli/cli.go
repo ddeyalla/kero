@@ -18,6 +18,7 @@ import (
 
 	"kero/internal/actions"
 	"kero/internal/client"
+	"kero/internal/plugin/protocol"
 	"kero/internal/proto"
 	"kero/internal/settings"
 )
@@ -42,6 +43,8 @@ Usage:
       --tasks                     the project's Linear tasks, not a terminal
       --files [--open <file>]     the project's files, with one open
       --browser <url>             a web page, as a dev server's
+      --plugin <id> [--widget <name>]
+                                  a widget of a plugin, such as Spotify
   kero send <target> <text…>    type text into a pane
       -e                          interpret \n \r \t \e \xHH escapes
       --enter                     press Enter after it
@@ -310,7 +313,7 @@ func run(args []string) error {
 
 	case "split":
 		f, err := parse(args, map[string]string{"r": "ratio", "ratio": "ratio", "d": "dir", "dir": "dir", "timeout": "timeout", "t": "timeout",
-			"browser": "browser", "open": "open"},
+			"browser": "browser", "open": "open", "plugin": "plugin", "widget": "widget"},
 			map[string]string{"right": "right", "down": "down", "left": "left", "up": "up", "json": "json", "f": "focus", "focus": "focus", "wait": "wait", "w": "wait",
 				"tasks": "tasks", "files": "files"})
 		if err != nil {
@@ -346,6 +349,17 @@ func run(args []string) error {
 			}
 		case f.vals["browser"] != "":
 			view, target = proto.PaneBrowser, f.vals["browser"]
+		case f.vals["plugin"] != "":
+			// A plugin pane's target is its plugin, widget and state, as
+			// the app keeps it.
+			view = proto.PanePlugins
+			t, err := protocol.EncodeTarget(protocol.Target{Plugin: f.vals["plugin"], Widget: f.vals["widget"]})
+			if err != nil {
+				return err
+			}
+			target = t
+		case f.vals["widget"] != "":
+			return usageErr("kero split --widget needs --plugin <id>")
 		}
 		if view != "" && (len(command) > 0 || f.set["wait"]) {
 			return usageErr("a view runs no command")
@@ -353,6 +367,9 @@ func run(args []string) error {
 		var s proto.Session
 		if err := c.Call("split", proto.CreateParams{Split: t.ref(), Direction: dir, Ratio: ratio,
 			Dir: f.vals["dir"], Command: command, View: view, Target: target}, &s); err != nil {
+			if strings.Contains(err.Error(), `no view "plugin"`) {
+				return errors.New("plugin panes need a newer terminal service: restart it, then try again")
+			}
 			return err
 		}
 		if f.set["focus"] {

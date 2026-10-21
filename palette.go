@@ -60,6 +60,19 @@ func (a *App) paletteItems() []paletteItem {
 		cmds = append(cmds, paletteItem{title: strings.TrimSuffix(actionTitle(act.ID), "…"), keys: actions.Glyphs(actions.Keys(act, a.set.Shortcuts)),
 			run: func() { a.run(id, map[string]string{"via": "palette"}) }})
 	}
+	for _, k := range a.pluginWidgets() {
+		k := k
+		title := k.detail
+		if title == "" {
+			title = k.widget
+		}
+		cmds = append(cmds, paletteItem{title: locales.PaletteNewPluginPane(k.title, title),
+			run: func() {
+				if s := a.session(a.selected); s != nil {
+					a.openPluginPane(s, "", k.plugin, k.widget, false)
+				}
+			}})
+	}
 	for _, page := range settingsPages {
 		id := page.id
 		cmds = append(cmds, paletteItem{title: locales.PaletteSettingsPage(page.title()), run: func() { a.openSettings(id) }})
