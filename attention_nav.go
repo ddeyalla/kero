@@ -16,19 +16,31 @@ import (
 // blockedSessions returns the sessions waiting on the user, in the order
 // `attention.next-blocked` visits them: the longest wait first, and of two
 // waiting as long, by the session's id, so that a press never depends on
-// the order kerod happened to send its sessions in.
+// the order kerod happened to send its sessions in. A session from a daemon
+// that does not fold its attention is read from its lead pane, as the
+// notifications read it (foldOf).
 func (a *App) blockedSessions() []*proto.Session {
 	var out []*proto.Session
 	for i := range a.st.Sessions {
 		s := &a.st.Sessions[i]
-		if s.Attention != nil && s.Attention.State == proto.AttentionWaitingUser {
+		if foldOf(s).State == proto.AttentionWaitingUser {
 			out = append(out, s)
 		}
 	}
 	slices.SortFunc(out, func(x, y *proto.Session) int {
-		return cmp.Or(cmp.Compare(x.Attention.Since, y.Attention.Since), cmp.Compare(x.ID, y.ID))
+		return cmp.Or(cmp.Compare(waitingSince(x), waitingSince(y)), cmp.Compare(x.ID, y.ID))
 	})
 	return out
+}
+
+// waitingSince is when a session's attention came, in milliseconds. A
+// daemon of before the field sends none, and its sessions all count as the
+// longest wait, so that they are told apart by id alone.
+func waitingSince(s *proto.Session) int64 {
+	if s.Attention != nil {
+		return s.Attention.Since
+	}
+	return 0
 }
 
 // nextBlocked goes to the next session waiting on the user: after the
@@ -52,7 +64,7 @@ func (a *App) nextBlocked() {
 	i := slices.IndexFunc(blocked, func(s *proto.Session) bool { return s.ID == after })
 	next := blocked[(i+1)%len(blocked)] // no anchor: the first
 	a.attentionLast = next.ID
-	a.focusAttention(next.ID, next.Attention.Pane)
+	a.focusAttention(next.ID, foldOf(next).Pane)
 }
 
 // focusAttention takes the user to what a session needs: the session
@@ -65,8 +77,7 @@ func (a *App) nextBlocked() {
 // landing on a pane a zoom keeps hidden.
 //
 // It reports whether there was a session to go to. The issue detail calls it
-// with the session linked to the issue; the attention pane's rows are its
-// other caller, once that pane lands.
+// with the session linked to the issue.
 func (a *App) focusAttention(session, pane string) bool {
 	s := a.session(session)
 	if s == nil {
@@ -76,7 +87,10 @@ func (a *App) focusAttention(session, pane string) bool {
 		pane = ""
 	}
 	// The session's row shows in the sidebar, as it does when jumped to.
-	delete(a.prefs.Collapsed, s.Project)
+	if _, ok := a.prefs.Collapsed[s.Project]; ok {
+		delete(a.prefs.Collapsed, s.Project)
+		a.savePrefs()
+	}
 	if a.show != "session" || a.selected != s.ID {
 		a.selectSession(s.ID)
 	}
@@ -98,13 +112,17 @@ func (a *App) focusAttention(session, pane string) bool {
 }
 
 // focusAttentionOf takes the user to what a session needs, read from the
-// state alone: the pane its attention came from, else the pane it was in
-// last. It is the way back from an issue to its session, and the one the
-// attention pane's rows will take.
+// state alone: the pane its attention came from when it waits on the user,
+// else the pane it was in last. A session at rest names its first pane in
+// its attention, which is no reason to leave the pane the user was in, so
+// only a wait moves the focus. It is the way back from an issue to its
+// session.
 func (a *App) focusAttentionOf(session string) bool {
 	pane := ""
-	if s := a.session(session); s != nil && s.Attention != nil {
-		pane = s.Attention.Pane
+	if s := a.session(session); s != nil {
+		if f := foldOf(s); f.State == proto.AttentionWaitingUser {
+			pane = f.Pane
+		}
 	}
 	return a.focusAttention(session, pane)
 }

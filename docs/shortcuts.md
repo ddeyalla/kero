@@ -26,7 +26,7 @@ On Windows and Linux, <kbd>Ctrl</kbd> with a letter belongs to the shell (<kbd>C
 | Open Project…               | <kbd>⌘</kbd> <kbd>O</kbd>              | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>O</kbd> | `project.open`           |
 | Go to Session…              | <kbd>⌘</kbd> <kbd>P</kbd>              | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>P</kbd> | `palette.open`           |
 | Jump to Session Needing You | <kbd>⌘</kbd> <kbd>J</kbd>              | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>J</kbd> | `session.attention`      |
-| Next Session Needing You    | –                                      | –                                             | `attention.next-blocked` |
+| Next Waiting Session    | –                                      | –                                             | `attention.next-blocked` |
 | Next Session                | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>]</kbd> | <kbd>Ctrl</kbd> <kbd>PgDn</kbd>               | `session.next`           |
 | Previous Session            | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>[</kbd> | <kbd>Ctrl</kbd> <kbd>PgUp</kbd>               | `session.previous`       |
 | Rename Session              | <kbd>⌘</kbd> <kbd>R</kbd>              | –                                             | `session.rename`         |

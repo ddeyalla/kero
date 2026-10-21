@@ -12,8 +12,8 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Added
 
-- **Next Session Needing You** goes from one session that waits on the
-  user to the next: Session › **Next Session Needing You**, the command
+- **Next Waiting Session** goes from one session that waits on the
+  user to the next: Session › **Next Waiting Session**, the command
   palette, or `kero do attention.next-blocked`. It takes the sessions
   whose attention state is `waiting-user`, longest
   wait first and then by session id, shows the pane that needs you, and
@@ -22,10 +22,14 @@ builds only. What each feature is and where it stands is tracked in the
   you" when none waits. A zoom follows the focus, as when panes are cycled
   while zoomed, so the jump never lands on a pane the zoom hides. The
   issue detail's **Open the session**, and a running conversation's
-  **Open**, go to that same pane: an issue leads to what its session
-  needs, the mirror of the attention pane's way back to the issue. It
-  reads `Session.Attention`, so it needs the service restart noted below;
-  a daemon of before cycles nothing, and no state is saved for it.
+  **Open**, go to the pane that needs you when the session waits on you,
+  and leave the focus and zoom where they are when it does not. A daemon
+  of before this state reads each session's lead pane instead, as the
+  notifications do. No state is saved for it.
+- A row of the **Attention** pane whose session works on a Linear issue has
+  an **Open issue** button, which opens the Linear view on that issue: the
+  way back from a session to its issue, as the issue detail's **Open the
+  session** is the way to the session.
 - An **Attention** pane: every session that needs the user, in one list,
   the most urgent first — what it is doing or asking, the session and its
   project, the agent, the line that came with it, and how long it has been

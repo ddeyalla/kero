@@ -300,9 +300,7 @@ func (a *App) attentionRowView(c *ui.Context, pal *palette, r attentionRow) {
 		bg = pal.rowHover
 	}
 	row.Background(row.AnimateColor("bg", bg, hover))
-	if row.Clicked() {
-		a.gotoAttention(r)
-	}
+	issue := false
 	color := attentionColor(pal, r.att.State)
 	row.Children(func() {
 		ui.Row(c.Key("state")).Gap(6).AlignItems(ui.Center).Width(96).Shrink(0).Children(func() {
@@ -324,7 +322,38 @@ func (a *App) attentionRowView(c *ui.Context, pal *palette, r attentionRow) {
 			}
 			ui.Text(c, ago(r.att.Since, c.Now())).FontSize(12).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine().Shrink(0)
 		})
+		if r.session.TaskID != "" {
+			issue = a.attentionIssueButton(c, pal, r.session.TaskID)
+		}
 	})
+	// The issue's button is the row's own click when it is the target.
+	if !issue && row.Clicked() {
+		a.gotoAttention(r)
+	}
+}
+
+// attentionIssueButton is a row's way to the issue its session works on:
+// the mark of a link out, which opens the Linear workspace on that issue.
+// It is the other end of the issue detail's way to the session, and it
+// reports whether it was clicked.
+func (a *App) attentionIssueButton(c *ui.Context, pal *palette, task string) bool {
+	label := locales.AttentionOpenIssue(task)
+	b := ui.ButtonBase(c.Key("issue")).Size(26, 26).Radius(6).Center().Shrink(0).Label(label).Tooltip(label)
+	switch {
+	case b.Pressed():
+		b.Background(pal.rowHover.Alpha(0.12))
+	case b.Hovered():
+		b.Background(pal.rowHover)
+	}
+	b.Children(func() {
+		symbolMark(c, "arrow.up.right.square", 14, pal.textMuted, pal.dark)
+	})
+	if !b.Clicked() {
+		return false
+	}
+	a.openLinear()
+	a.linearOpen(task)
+	return true
 }
 
 // attentionSummary is a row's one line: what the hook said, exactly, and

@@ -233,3 +233,39 @@ func TestLinearIssueOpensSessionWithoutAttention(t *testing.T) {
 		t.Fatalf("opened %q on %q", a.selected, a.focusOf(a.session("s1")))
 	}
 }
+
+// A session from a daemon that folds no attention still cycles, read from
+// its lead pane as the notifications read it.
+func TestAttentionCycleWithoutFold(t *testing.T) {
+	a := testApp(t)
+	a.st.Sessions = append(a.st.Sessions, proto.Session{
+		ID: "old", Project: "p1", Name: "old", Lead: "old-pane", Focus: "old-pane",
+		Panes: []proto.Pane{{ID: "old-pane", Shell: "zsh", Dir: "/tmp", Status: proto.Waiting, Progress: -1}},
+	})
+	a.run("attention.next-blocked", nil)
+	if a.selected != "old" {
+		t.Fatalf("the cycle went to %q, want the session with a waiting pane", a.selected)
+	}
+	if got := a.focusOf(a.session("old")); got != "old-pane" {
+		t.Errorf("the pane in front is %q, want old-pane", got)
+	}
+}
+
+// Opening the session of an issue whose session is at rest keeps the pane
+// and the zoom where the user left them: the first pane an idle fold names
+// is no pane that needs anyone.
+func TestAttentionOfIdleSessionKeepsFocus(t *testing.T) {
+	a := testApp(t)
+	s := a.session("s1")
+	s.Attention = &proto.Attention{State: proto.AttentionIdle, Pane: "a"}
+	s.Focus, s.Zoomed = "b", "b"
+	if !a.focusAttentionOf("s1") {
+		t.Fatal("no session to go to")
+	}
+	if got := a.focusOf(s); got != "b" {
+		t.Errorf("the focus is %q, want b", got)
+	}
+	if s.Zoomed != "b" {
+		t.Errorf("the zoom is %q, want b", s.Zoomed)
+	}
+}

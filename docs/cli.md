@@ -118,7 +118,8 @@ kero do attention.next-blocked   # the next session waiting on you
 ```
 
 `attention.next-blocked` goes to the next session whose attention state is
-`waiting-user`, longest wait first, and puts the pane that needs you in
+`waiting-user` (for a daemon of before, a lead pane that waits), longest
+wait first, and puts the pane that needs you in
 front. With none waiting it does nothing and says so. It has no default
 shortcut; the Session menu, the command palette and `kero do` reach it.
 

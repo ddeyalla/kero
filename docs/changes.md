@@ -200,13 +200,14 @@ Tests: `attention_test.go`, `store_test.go` (`TestRestoreKeepsSummary`).
 
 A session that waits on the user can be gone to, and the next one can be
 gone to after it. Moving between them is `attention.next-blocked`
-(Session › **Next Session Needing You**, the command palette, or
+(Session › **Next Waiting Session**, the command palette, or
 `kero do attention.next-blocked` from an agent's shell). It has no default
 shortcut: the menu, the palette and the CLI reach it, and no key is taken
 from a pane's program for it.
 
-**The cycle.** The action reads `Session.Attention` alone, so it and the
-attention pane see one truth. The sessions it visits are those whose state
+**The cycle.** The action reads each session's fold (`foldOf`, shared with
+the notifications), so it, the notifications and the attention pane see one
+truth. The sessions it visits are those whose state
 is `waiting-user`, ordered by `Attention.Since` ascending and then by the
 session's id: the longest wait first, and the same order when two came at
 the same millisecond, whatever order kerod sent them in. Nothing is saved
@@ -219,12 +220,13 @@ session that does not wait does not start the cycle over. With no session
 waiting it
 is a no-op and says "Nothing needs you", as Jump to Session Needing You
 does. A session that stops waiting leaves the cycle, and the next press
-goes on from where it was. A daemon of before this feature sends
-no attention state, so nothing waits as far as the app can tell.
+goes on from where it was. A daemon of before this feature sends no
+attention state; `foldOf` then reads the session's lead pane (waiting is
+`Status == Waiting`), and such sessions have no `Since`, so they come first
+and are ordered by id.
 
 **Focus.** `focusAttention(session, pane)` is the one way to take the user
-to what a session needs, and the seam the attention pane's rows use once
-that pane lands. It opens the session's project in the sidebar, selects the
+to what a session needs; the issue detail and the cycle use it. It opens the session's project in the sidebar, selects the
 session, and moves both the app's focus and kerod's (`focus`) to the pane
 the attention came from; the pane's terminal then takes the keyboard, as
 the app's pane focus does (`setFocus`). A pane named that has closed since
@@ -243,9 +245,13 @@ explicitly with the `zoom` method.
 **Linear round trip.** A session linked to an issue shows in the issue's
 detail, and the detail's **Open the session**, like a running
 conversation's **Open**, now goes through `focusAttentionOf(session)`: the
-session is selected and the pane its attention came from is in front. So
-the issue leads to what its session needs. The other end is the attention
-pane's follow-up: a row there opens the issue these links name. Nothing
+session is selected, and when it waits on the user the pane its attention
+came from is in front. A session at rest keeps its focus and zoom, since
+the fold names its first pane then, which needs nobody. The other end is
+the attention pane's **Open issue** button (`attentionIssueButton` in
+`attention_pane.go`), shown on a row whose session has a `TaskID`: it
+switches to the Linear view (`openLinear`) and opens that issue
+(`linearOpen`). The row's own click is skipped for that press. Nothing
 new is stored: both ends read the link the daemon already keeps for the
 task (`session.link`, the panes' `TaskID`, `savedPane.Task`), and the app
 keeps no link of its own.
@@ -254,7 +260,9 @@ Code: [`attention_nav.go`](../attention_nav.go), `actions.go` (`run`),
 [`internal/actions/actions.go`](../internal/actions/actions.go),
 [`linear_detail.go`](../linear_detail.go) (`linearSession`, `linearRun`).
 Tests: `attention_nav_test.go` (cycle order and wrap, no session waiting,
-a zoomed session, a closed pane, the issue detail's jump).
+a zoomed session, a closed pane, the issue detail's jump, a session at
+rest, a daemon with no fold); `attention_pane_test.go`
+(`TestAttentionRowOpensIssue`).
 
 ## The Attention pane
 

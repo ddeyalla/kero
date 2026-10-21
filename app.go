@@ -1297,7 +1297,11 @@ func (a *App) jumpTo(want func(*proto.Session) bool) bool {
 	for k := 1; k <= len(ids); k++ {
 		id := ids[(i+k+len(ids))%len(ids)]
 		if s := a.session(id); s != nil && id != a.selected && want(s) {
-			delete(a.prefs.Collapsed, s.Project)
+			if _, ok := a.prefs.Collapsed[s.Project]; ok {
+				// The row shows; selectSession saves only a change of session.
+				delete(a.prefs.Collapsed, s.Project)
+				a.savePrefs()
+			}
 			a.selectSession(id)
 			return true
 		}

@@ -251,3 +251,39 @@ func TestAttentionCodexApproval(t *testing.T) {
 		t.Fatalf("the hook's message shows as %q", got)
 	}
 }
+
+// A row of a session working on an issue offers the issue, which opens in
+// the Linear view; a row of a session with none offers nothing.
+func TestAttentionRowOpensIssue(t *testing.T) {
+	a := testAttention(t,
+		attnFixture{state: proto.AttentionWaitingUser, msg: "Approve", agent: "claude"},
+		attnFixture{state: proto.AttentionWaitingUser, msg: "Approve too", agent: "claude"})
+	a.session("s2").TaskID = "BRU-25"
+	a.st.Linear = &proto.LinearState{Status: proto.LinearOK, Team: "BRU"}
+	tt := ui.NewTester(a.view, 1280, 720)
+	frames(tt)
+	if _, ok := tt.Find("Open issue BRU-25"); !ok {
+		t.Fatalf("no way to the issue; texts %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Open issue"); ok {
+		t.Error("a session with no issue offers one")
+	}
+	if err := tt.Click("Open issue BRU-25"); err != nil {
+		t.Fatal(err)
+	}
+	frames(tt)
+	if a.show != "linear" || a.lin.open != "BRU-25" {
+		t.Fatalf("show %q, issue %q; want linear with BRU-25", a.show, a.lin.open)
+	}
+	if a.selected == "s2" {
+		t.Error("the button also opened the row's session")
+	}
+
+	// Back on the pane, with the session's issue gone: no button.
+	a.show, a.selected = "session", "s1"
+	a.session("s2").TaskID = ""
+	frames(tt)
+	if _, ok := tt.Find("Open issue BRU-25"); ok {
+		t.Error("a session with no issue offers one")
+	}
+}
