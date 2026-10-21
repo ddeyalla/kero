@@ -35,6 +35,7 @@ Show the user something beside you, in a pane of its own:
     kero split --browser 5173                 # the dev server's page
     kero split --files --open docs/plan.md    # a file, Markdown as it reads
     kero split --tasks                        # the project's Linear tasks
+    kero split --plugin spotify --widget now-playing   # a plugin's widget
 
 Name a session after its task (` + "`kero rename $KERO_SESSION fix-login-redirect`" + `)
 so the user finds it in the sidebar.

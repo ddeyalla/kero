@@ -14,6 +14,8 @@ type chooserState struct {
 	open  bool
 	at    string // the pane the new one opens beside, "" the focused one
 	index int
+	// plugin asks for a widget of a plugin: the plugin rows come first.
+	plugin bool
 }
 
 // paneKind is what a pane can show, with the action that opens it and
@@ -23,13 +25,50 @@ type paneKind struct {
 	action string
 	key    ui.Key
 	letter string
+
+	// A widget of a plugin is a kind of pane too: its plugin and widget
+	// name, and what the chooser says of it.
+	plugin string
+	widget string
+	title  string
+	detail string
 }
 
 var paneKinds = []paneKind{
-	{"", "pane.new.terminal", ui.KeyT, "T"},
-	{proto.PaneTasks, "pane.new.tasks", ui.KeyL, "L"},
-	{proto.PaneFiles, "pane.new.files", ui.KeyE, "E"},
-	{proto.PaneBrowser, "pane.new.browser", ui.KeyB, "B"},
+	{view: "", action: "pane.new.terminal", key: ui.KeyT, letter: "T"},
+	{view: proto.PaneTasks, action: "pane.new.tasks", key: ui.KeyL, letter: "L"},
+	{view: proto.PaneFiles, action: "pane.new.files", key: ui.KeyE, letter: "E"},
+	{view: proto.PaneBrowser, action: "pane.new.browser", key: ui.KeyB, letter: "B"},
+}
+
+// chooserKinds is every kind the New Pane chooser offers: the app's own
+// views, then a row for each widget of each plugin known.
+func (a *App) chooserKinds() []paneKind {
+	return append(append([]paneKind{}, paneKinds...), a.pluginWidgets()...)
+}
+
+// name is a kind's name in the chooser.
+func (k paneKind) name() string {
+	if k.plugin != "" {
+		return k.title
+	}
+	return paneViewName(k.view)
+}
+
+// description is what a kind of pane is for, in the chooser.
+func (k paneKind) description() string {
+	if k.plugin != "" {
+		return k.detail
+	}
+	return paneKindDetail(k.view)
+}
+
+// icon is a kind's mark in the chooser.
+func (k paneKind) icon() *ui.SVG {
+	if k.plugin != "" {
+		return projectIcon
+	}
+	return paneViewIcon(k.view)
 }
 
 // paneKindDetail says what a kind of pane is for.
@@ -113,7 +152,7 @@ func (a *App) showInPane(s *proto.Session, pane, view string, ask bool) {
 		err := cl.Call("pane.replace", params, &ns)
 		a.update(func() {
 			if err != nil {
-				a.toast(err.Error())
+				a.toast(viewCallError(err))
 				return
 			}
 			a.dropTerm(pane)
@@ -133,7 +172,11 @@ func (a *App) chooserView(c *ui.Context, pal *palette) {
 		a.chooser.open = false
 		return
 	}
-	n := len(paneKinds)
+	kinds := a.chooserKinds()
+	n := len(kinds)
+	if a.chooser.plugin {
+		a.chooser.plugin, a.chooser.index = false, len(paneKinds)
+	}
 	a.chooser.index = (a.chooser.index%n + n) % n
 	chosen := -1
 	// Shift held, the pane opens below rather than beside, which the
@@ -159,11 +202,11 @@ func (a *App) chooserView(c *ui.Context, pal *palette) {
 		if c.Shortcut(ui.Shift, ui.KeyEnter) {
 			chosen, below = a.chooser.index, true
 		}
-		for i, k := range paneKinds {
-			if c.Shortcut(0, k.key) {
+		for i, k := range kinds {
+			if k.key != 0 && c.Shortcut(0, k.key) {
 				chosen = i
 			}
-			if c.Shortcut(ui.Shift, k.key) {
+			if k.key != 0 && c.Shortcut(ui.Shift, k.key) {
 				chosen, below = i, true
 			}
 			row := ui.Row(c.Key(i)).Height(48).Padding(0, 10).Gap(12).AlignItems(ui.Center).Radius(9)
@@ -181,16 +224,18 @@ func (a *App) chooserView(c *ui.Context, pal *palette) {
 			}
 			row.Children(func() {
 				ui.Box(c).Size(30, 30).Radius(8).Background(pal.kbd).Center().Shrink(0).Children(func() {
-					ui.Icon(c, paneViewIcon(k.view)).Size(16, 16).TextColor(pal.textMuted)
+					ui.Icon(c, k.icon()).Size(16, 16).TextColor(pal.textMuted)
 				})
 				ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
-					ui.Text(c, paneViewName(k.view)).FontSize(13.5).FontWeight(600).TextColor(pal.text).SingleLine()
-					ui.Text(c, paneKindDetail(k.view)).FontSize(12).TextColor(pal.textFaint).SingleLine().Ellipsis("…")
+					ui.Text(c, k.name()).FontSize(13.5).FontWeight(600).TextColor(pal.text).SingleLine()
+					ui.Text(c, k.description()).FontSize(12).TextColor(pal.textFaint).SingleLine().Ellipsis("…")
 				})
 				if keys := a.keys(k.action); keys != "" {
 					ui.Text(c, keys).FontSize(11.5).TextColor(pal.textFaint).SingleLine().Shrink(0)
 				}
-				kbd(c, pal, k.letter)
+				if k.letter != "" {
+					kbd(c, pal, k.letter)
+				}
 			})
 		}
 		ui.Row(c).Padding(8, 10, 4, 10).Gap(5).AlignItems(ui.Center).Children(func() {
@@ -201,7 +246,12 @@ func (a *App) chooserView(c *ui.Context, pal *palette) {
 	if chosen >= 0 {
 		at := a.chooser.at
 		a.chooser.open = false
-		a.openView(s, at, paneKinds[chosen].view, below)
+		k := kinds[chosen]
+		if k.plugin != "" {
+			a.openPluginPane(s, at, k.plugin, k.widget, below)
+			return
+		}
+		a.openView(s, at, k.view, below)
 		return
 	}
 	if !a.chooser.open {

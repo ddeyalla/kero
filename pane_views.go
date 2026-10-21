@@ -23,6 +23,8 @@ func paneViewIcon(view string) *ui.SVG {
 		return filesIcon
 	case proto.PaneBrowser:
 		return globeIcon
+	case proto.PanePlugins:
+		return projectIcon
 	}
 	return terminalIcon
 }
@@ -36,6 +38,8 @@ func paneViewName(view string) string {
 		return locales.PaneFiles()
 	case proto.PaneBrowser:
 		return locales.PaneBrowser()
+	case proto.PanePlugins:
+		return locales.PanePlugins()
 	}
 	return locales.PaneTerminal()
 }
@@ -59,6 +63,8 @@ func (a *App) viewPane(c *ui.Context, pal *palette, s *proto.Session, p *proto.P
 			a.filesPane(c, pal, s, p, body)
 		case proto.PaneBrowser:
 			a.browserPane(c, pal, s, p, body)
+		case proto.PanePlugins:
+			a.pluginPane(c, pal, s, p, body)
 		}
 	})
 }
@@ -96,6 +102,8 @@ func (a *App) viewSubtitle(s *proto.Session, p *proto.Pane) string {
 		return proto.ShortDir(p.Dir)
 	case proto.PaneBrowser:
 		return a.browserTitle(p)
+	case proto.PanePlugins:
+		return a.pluginSubtitle(p)
 	}
 	return ""
 }

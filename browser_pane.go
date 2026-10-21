@@ -322,7 +322,7 @@ func (a *App) dropBrowser(id string) {
 // sweepViews lets go of what the views of panes that closed held: their
 // web views, read folders and Linear views.
 func (a *App) sweepViews() {
-	if len(a.browsers) == 0 && len(a.files) == 0 && len(a.tasks) == 0 && len(a.cardSize) == 0 && len(a.prefs.Files) == 0 {
+	if len(a.browsers) == 0 && len(a.files) == 0 && len(a.tasks) == 0 && len(a.cardSize) == 0 && len(a.prefs.Files) == 0 && len(a.plugins.panes) == 0 {
 		return
 	}
 	alive := map[string]bool{}
@@ -370,6 +370,8 @@ func (a *App) sweepViews() {
 	if swept {
 		a.savePrefs()
 	}
+	// A plugin's panes are closed, and one hidden now is told so.
+	a.sweepPluginPanes(alive)
 }
 
 func (a *App) browserPane(c *ui.Context, pal *palette, s *proto.Session, p *proto.Pane, body ui.Element) {

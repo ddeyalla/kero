@@ -46,6 +46,7 @@ var settingsPages = []settingsPage{
 	{"keyboard", locales.PageKeyboard, glyph("f7-keyboard")},
 	{"agents", locales.PageAgents, glyph("f7-sparkles")},
 	{"linear", locales.LinearPage, trayIcon},
+	{"plugins", locales.PagePlugins, projectIcon},
 	{"advanced", locales.PageAdvanced, glyph("f7-slider-horizontal-3")},
 }
 
@@ -76,6 +77,7 @@ type settingsState struct {
 	linearKey    string                     // the Linear key, as typed
 	linearNotice string                     // what the Linear key did
 	linearSaving bool
+	pluginDraft  map[string]*string // plugin settings, as typed
 }
 
 // openSettings shows Settings over the main window, on a page.
@@ -349,6 +351,8 @@ func (a *App) settingsView(c *ui.Context) {
 								a.agentsPage(c, pal)
 							case "linear":
 								a.linearPage(c, pal)
+							case "plugins":
+								a.pluginsPage(c, pal)
 							case "advanced":
 								a.advancedPage(c, pal)
 							}
