@@ -198,3 +198,28 @@ func TestLinearKeys(t *testing.T) {
 		t.Errorf("problems %q", probs)
 	}
 }
+
+// The notifications' new keys: the wait between two tellings of the same
+// session and state, in minutes, and the sessions the user silenced, each
+// once, which read back as they were written.
+func TestNotifyThrottleAndSilence(t *testing.T) {
+	s, probs := parse("notify-throttle-minutes = 2\nsilence-session = s1\nsilence-session = s2\nsilence-session = s1\n")
+	if len(probs) != 0 {
+		t.Fatalf("problems %q", probs)
+	}
+	if s.NotifyThrottle != 2 {
+		t.Errorf("throttle %d", s.NotifyThrottle)
+	}
+	if !reflect.DeepEqual(s.SilencedSessions, []string{"s1", "s2"}) {
+		t.Errorf("silenced %q", s.SilencedSessions)
+	}
+	out := format(s, "")
+	if !strings.Contains(out, "notify-throttle-minutes = 2\n") || !strings.Contains(out, "silence-session = s1\n") {
+		t.Errorf("formatted:\n%s", out)
+	}
+	// A wait outside 0 to 60 is taken to its end.
+	s, _ = parse("notify-throttle-minutes = 500\n")
+	if s.NotifyThrottle != 60 {
+		t.Errorf("throttle %d, want 60", s.NotifyThrottle)
+	}
+}

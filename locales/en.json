@@ -12,6 +12,7 @@
   "actionNextSession": "Next Session",
   "actionPreviousSession": "Previous Session",
   "actionRenameSession": "Rename Session",
+  "actionSilenceSession": "Silence Notifications for This Session",
   "actionRestartPane": "Restart Pane",
   "actionClose": "Close",
   "actionCloseSession": "Close Session",
@@ -82,6 +83,8 @@
     }
   },
   "toastNothingNeedsYou": "Nothing needs you",
+  "toastSessionSilenced": "Notifications are off for {name}",
+  "toastSessionResumed": "Notifications are back on for {name}",
   "cliInstallFailed": "Couldn’t install the kero command: {error}",
   "cliInstalledIn": "Installed the kero command in {dir}",
   "cliAddedToPath": "Added the kero command to your PATH: new terminals have it",
@@ -158,6 +161,8 @@
   },
   "newSessionIn": "New Session in {project}",
   "sessionRename": "Rename",
+  "sessionSilenceNotifications": "Silence Notifications",
+  "sessionResumeNotifications": "Resume Notifications",
   "sessionMarkRead": "Mark as Read",
   "sessionMoveToProject": "Move to Project",
   "sessionCopyId": "Copy Session ID",
@@ -439,6 +444,17 @@
   "setNotifyDoneDetail": "While you look at another session, or another app.",
   "setNotifyFailed": "A program fails",
   "setNotifyFailedDetail": "One that reports an error (OSC 7501).",
+  "setNotifyThrottle": "Repeat after",
+  "setNotifyThrottleDetail": "A session that needs you or ends unseen tells once. A loop of the same session and state inside this window is counted, not announced.",
+  "setNotifyThrottleOff": "Off",
+  "setNotifyThrottleMinutes": "{n, plural, one {# minute} other {# minutes}}",
+  "@setNotifyThrottleMinutes": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "setHow": "How",
   "setPlaySound": "Play a sound",
   "setDockBadge": "Badge the Dock icon",

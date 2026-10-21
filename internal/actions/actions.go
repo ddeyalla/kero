@@ -34,6 +34,7 @@ var All = []Action{
 	{ID: "session.next", Title: "Next Session", Menu: "Session", Keys: "CmdOrCtrl+Shift+]", Remote: true},
 	{ID: "session.previous", Title: "Previous Session", Menu: "Session", Keys: "CmdOrCtrl+Shift+[", Remote: true},
 	{ID: "session.rename", Title: "Rename Session", Menu: "Session", Keys: "CmdOrCtrl+R"},
+	{ID: "session.silence", Title: "Silence Notifications for This Session", Menu: "Session", Remote: true},
 	{ID: "pane.restart", Title: "Restart Pane", Menu: "Session", Keys: "CmdOrCtrl+Shift+R", Remote: true},
 	{ID: "pane.close", Title: "Close", Menu: "Session", Keys: "CmdOrCtrl+W"},
 	{ID: "session.close", Title: "Close Session", Menu: "Session", Keys: "CmdOrCtrl+Shift+W"},

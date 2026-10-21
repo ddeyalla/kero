@@ -113,6 +113,8 @@ func (a *App) run(id string, args map[string]string) {
 		a.selectOffset(-1)
 	case "session.rename":
 		a.startRename(a.selected)
+	case "session.silence":
+		a.toggleSilence(a.selected)
 	case "pane.restart":
 		if s != nil {
 			a.restartSession(a.focusOf(s))
@@ -171,7 +173,7 @@ func (a *App) run(id string, args map[string]string) {
 func (a *App) item(id string) *mygo.MenuItem {
 	act, _ := actions.Find(id)
 	return &mygo.MenuItem{
-		Label:       actionTitle(id),
+		Label:       a.actionLabel(id),
 		Accelerator: a.accelerator(act),
 		Click: func(*mygo.MenuItem, *mygo.Window) {
 			a.update(func() { a.run(id, nil) })
@@ -193,6 +195,7 @@ var actionTitles = map[string]func() string{
 	"session.next":       locales.ActionNextSession,
 	"session.previous":   locales.ActionPreviousSession,
 	"session.rename":     locales.ActionRenameSession,
+	"session.silence":    locales.ActionSilenceSession,
 	"pane.restart":       locales.ActionRestartPane,
 	"pane.close":         locales.ActionClose,
 	"session.close":      locales.ActionCloseSession,
@@ -225,6 +228,15 @@ func actionTitle(id string) string {
 	}
 	act, _ := actions.Find(id)
 	return act.Title
+}
+
+// actionLabel is an action's title as this app shows it now: the silence
+// toggle reads the state of the session it is about.
+func (a *App) actionLabel(id string) string {
+	if id == "session.silence" {
+		return a.silenceTitle(a.selected)
+	}
+	return actionTitle(id)
 }
 
 // accelerator is an action's shortcut in the menus: none while the user
@@ -270,7 +282,7 @@ func (a *App) menu() *mygo.Menu {
 		{Label: locales.MenuSession(), Submenu: a.items("Session",
 			[]string{"session.new", "session.newHome", "project.open"},
 			[]string{"palette.open", "session.attention", "session.next", "session.previous"},
-			[]string{"session.rename", "pane.restart"},
+			[]string{"session.rename", "session.silence", "pane.restart"},
 			[]string{"pane.close", "session.close"})},
 		// The Edit menu's own items, then finding.
 		{Role: mygo.RoleEditMenu, Submenu: append([]*mygo.MenuItem{{Role: mygo.RoleUndo}, {Role: mygo.RoleRedo}, mygo.Separator(),

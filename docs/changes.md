@@ -263,6 +263,54 @@ The Attention pane's mark and its rows' states are symbols:
 `bell.badge`, `hand.raised.fill`, `arrow.triangle.2.circlepath`,
 `checkmark.circle.fill`, `checkmark.circle` and `circle`. The app's older
 icons stay SVG, as they are. Tests: `symbols_test.go`.
+## Notifications from attention
+
+The app tells of a session by comparing the attention kerod folded
+(`Session.Attention`) with the fold before it, in
+[`attention_notify.go`](../attention_notify.go) (`attentionWatch`, `foldOf`):
+
+- a session that comes to `waiting-user` tells once, and so does one that
+  comes to `unread` (a turn ended unseen). A return to `running` tells
+  nothing: it clears, as `done` and `idle` tell nothing;
+- one notification per change of state, not per line of output. The state
+  is what changes, and the same session and state inside
+  `notify-throttle-minutes` (five by default, `0` for no throttle) is
+  counted silently, so a chatty agent's loop does not fill Notification
+  Center. A turn that begins again after the window tells again;
+- an unseen end whose pane failed keeps the error's title and body, and
+  `notify-on-error` decides it; `notify-on-waiting` and `notify-on-done`
+  decide the rest, as they did. The sound, the Dock badge and the bounce
+  stay as they were; the badge counts the sessions whose fold waits
+  (`waiting-user`), not a pane's status.
+
+Focus is the only filter: the session the user is in, in a window in
+front, tells nothing. The watch itself knows nothing of windows or
+profiles — it is handed every session the daemon holds, so a session in a
+profile the user is not looking at still tells. That is the global rule
+the profiles of `feat/profiles-a1` will need; no profiles code is built
+here, and a later filter must not hide a session's attention from this
+watch.
+
+A session can be silenced: **Session › Silence Notifications**, the
+session's context menu, or `kero do session.silence` turns its
+notifications off until the user resumes them. The list is saved with the
+settings (`silence-session`) and survives a restart of the app. A silenced
+session tells nothing; once resumed, its next turn tells, inside the same
+throttle window. A daemon of before the `Attention` field says none, so
+`foldOf` reads the fold from the session's lead pane: nothing goes quiet
+in that window.
+
+What a notification says is the session's name and one line of what it
+needs — the fold's `Msg`, which is the hook's or the screen's line, cut to
+80 bytes by kerod — or the agent and the folder when the fold has none.
+Nothing more of the conversation is read for it, and no credential goes in
+it.
+
+Code: [`attention_notify.go`](../attention_notify.go) (`attentionWatch`,
+`foldOf`), [`app.go`](../app.go) (`notify`, `tell`, `toggleSilence`),
+[`internal/settings`](../internal/settings/config.go) (`notify-throttle-minutes`,
+`silence-session`).
+Tests: `attention_notify_test.go`, `internal/settings/config_test.go`.
 
 ## Status indicators
 
