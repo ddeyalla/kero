@@ -767,9 +767,7 @@ func (a *App) card(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32) 
 			case a.conn == connFailed && a.cl == nil:
 				a.message(c, pal, locales.ConnCantReach(), a.connErr, locales.CommonTryAgain(), func() { a.retries = 0; a.conn = connConnecting; a.connect() })
 			case !a.loaded:
-				ui.Column(c).Fill().Center().Children(func() {
-					ui.Spinner(c).Label(locales.StatusConnectingLabel())
-				})
+				working(c, pal, locales.StatusConnectingLabel())
 			default:
 				a.emptyState(c, pal)
 			}

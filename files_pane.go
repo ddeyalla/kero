@@ -643,7 +643,7 @@ func (a *App) filesTree(c *ui.Context, pal *palette, st *filesState) {
 	root := st.dirs[st.root]
 	switch {
 	case root == nil:
-		ui.Column(c).Fill().Center().Children(func() { ui.Spinner(c) })
+		working(c, pal, "")
 		return
 	case root.err != "":
 		paneNothing(c, pal, filesIcon, locales.FilesCantRead(), root.err)
@@ -723,7 +723,7 @@ func (a *App) openFound(st *filesState, path string) {
 // filesFound are the files Find found, or why there are none.
 func (a *App) filesFound(c *ui.Context, pal *palette, st *filesState) {
 	if st.index == nil {
-		ui.Column(c).Fill().Center().Children(func() { ui.Spinner(c) })
+		working(c, pal, "")
 		return
 	}
 	// Many files take a while to look through: off the main thread, what
@@ -920,7 +920,7 @@ func (a *App) fileViewer(c *ui.Context, pal *palette, st *filesState, alone bool
 	ui.Box(c).Height(1).Shrink(0).Background(pal.divider)
 	switch {
 	case f == nil:
-		ui.Column(c).Fill().Center().Children(func() { ui.Spinner(c) })
+		working(c, pal, "")
 	case f.err != "":
 		paneNothing(c, pal, fileIcon, locales.FilesCantRead(), f.err)
 	case f.tooBig:

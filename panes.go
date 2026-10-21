@@ -691,7 +691,7 @@ func (a *App) paneTerminal(c *ui.Context, pal *palette, s *proto.Session, p *pro
 			// Attaching takes a moment for a long scrollback: a spinner
 			// only once it is a noticeable one.
 			if e != nil && time.Since(e.started) > 250*time.Millisecond {
-				ui.Column(c).Fill().Center().Children(func() { ui.Spinner(c).Label(locales.PaneAttaching()) })
+				working(c, pal, locales.PaneAttaching())
 			} else {
 				c.After(260 * time.Millisecond)
 			}
