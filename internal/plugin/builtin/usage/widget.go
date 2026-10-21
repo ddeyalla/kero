@@ -55,12 +55,16 @@ func compact(size protocol.Size) bool {
 }
 
 // headRow is the title, when the pane was last read and the refresh button.
+// The short form has no room for the time, so it says that it is checking
+// until an account has been read.
 func headRow(v *view, short bool) *sdk.Node {
 	head := []*sdk.Node{sdk.Text("usage-title", locales.UsagePluginTitle()).Role(protocol.RoleTitle).Grow(1)}
 	if !short {
 		if updated := updatedLabel(v.reports, v.loading); updated != "" {
 			head = append(head, sdk.Text("usage-updated", updated).Role(protocol.RoleCaption).Color(protocol.ColorMuted))
 		}
+	} else if checking(v.reports) {
+		head = append(head, sdk.Text("usage-checking", locales.UsagePluginChecking()).Role(protocol.RoleCaption).Color(protocol.ColorMuted))
 	}
 	head = append(head, sdk.IconButton("usage-refresh", "refresh"))
 	return sdk.Row("usage-head", head...).Gap(8).Align(protocol.AlignCenter)
@@ -191,7 +195,22 @@ func summary(r accountusage.Report) string {
 	case r.Error != "":
 		return locales.UsagePluginUnavailable()
 	}
+	if r.Checked.IsZero() {
+		return locales.UsagePluginChecking()
+	}
 	return locales.UsagePluginConnect()
+}
+
+// checking tells whether an account is still waiting for its first reading:
+// it has no error to explain the wait. The short form's head says so in place
+// of the time the large form shows.
+func checking(reports []accountusage.Report) bool {
+	for _, r := range reports {
+		if r.Checked.IsZero() && r.Error == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // helpFor is what a provider's card says when it has no reading yet or the
