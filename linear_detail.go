@@ -34,9 +34,7 @@ func (a *App) linearDetailPane(c *ui.Context, pal *palette, m *linearModel, bar 
 		})
 		return
 	case d == nil:
-		ui.Column(c).Fill().Center().Children(func() {
-			ui.Spinner(c).Label(locales.LinearReading())
-		})
+		working(c, pal, locales.LinearReading())
 		return
 	}
 	// The board's copy is the live one: its state and its session move
