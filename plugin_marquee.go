@@ -23,10 +23,12 @@ const (
 // pluginMarquee is one marquee text's state across renders.
 type pluginMarquee struct {
 	since    time.Time // when this overflow began
+	text     string    // the text this turn belongs to
 	natural  float32   // the text's own width
 	avail    float32   // the room the pane gives it
 	distance float32   // how far it scrolls
 	overflow bool      // the text does not fit this frame
+	reduce   bool      // Reduce Motion is on
 	offset   float32   // how far it is scrolled this frame
 	moving   bool      // this frame asked for another one
 }
@@ -71,7 +73,6 @@ func (v *pluginView) marquee(c *ui.Context, pal *palette, n *protocol.Node, hori
 		v.marquees[n.ID] = m
 	}
 	natural, _ := c.MeasureText(0, ui.Span{Text: n.Text, Size: size, Weight: weight, Font: family})
-	m.natural = natural
 	avail := m.avail
 	if n.Width > 0 {
 		// The plugin says how wide the text is: that is the room it
@@ -79,9 +80,18 @@ func (v *pluginView) marquee(c *ui.Context, pal *palette, n *protocol.Node, hori
 		avail = float32(n.Width)
 	}
 	reduce := c.Preferences().ReduceMotion
+	fits := avail > 0 && natural <= avail+0.5
+	overflow := avail > 0 && !fits
+	// A new text, a new room, or Reduce Motion turning on or off starts
+	// the motion over: a new title must not begin in the middle of the
+	// old one's turn, nor in its pause at the end.
+	if m.text != n.Text || m.natural != natural || m.overflow != overflow || m.reduce != reduce {
+		m.since = time.Time{}
+	}
+	m.text, m.natural, m.overflow, m.reduce = n.Text, natural, overflow, reduce
 	m.offset, m.moving = 0, false
 
-	clip := ui.Row(c.Key(n.ID + "-window")).Clip().Grow(1).Shrink(1).MinWidth(0).AlignItems(ui.Center)
+	clip := ui.Row(c.Key("plugin/window:" + n.ID)).Clip().Grow(1).Shrink(1).MinWidth(0).AlignItems(ui.Center)
 	if avail > 0 {
 		clip.Width(avail)
 	}
@@ -101,9 +111,8 @@ func (v *pluginView) marquee(c *ui.Context, pal *palette, n *protocol.Node, hori
 				text.Font(family)
 			}
 			text.Grow(1)
-		case natural <= avail+0.5:
+		case fits:
 			// It fits: no motion at all.
-			m.overflow = false
 			text := e().MinWidth(0).Ellipsis("…")
 			if family != "" {
 				text.Font(family)
@@ -112,18 +121,21 @@ func (v *pluginView) marquee(c *ui.Context, pal *palette, n *protocol.Node, hori
 		case reduce:
 			// Reduce Motion: still, and the end of the line is an
 			// ellipsis instead.
-			m.overflow = true
 			text := e().MinWidth(0).Ellipsis("…")
 			if family != "" {
 				text.Font(family)
 			}
 			text.Grow(1)
 		default:
-			m.overflow = true
+			if distance := natural - avail; distance != m.distance {
+				// The room the text has to cross changed: the turn
+				// starts over from the beginning of the new one.
+				m.since = time.Time{}
+				m.distance = distance
+			}
 			if m.since.IsZero() {
 				m.since = c.Now()
 			}
-			m.distance = natural - avail
 			elapsed := c.Now().Sub(m.since)
 			m.offset = pluginMarqueeOffset(m.distance, elapsed)
 			text := e().Width(natural).Shrink(0).Translate(-m.offset, 0)

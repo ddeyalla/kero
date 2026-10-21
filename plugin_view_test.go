@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -32,11 +33,11 @@ type pluginHarness struct {
 // loader, so that no test touches the network.
 func newPluginHarness(t *testing.T, tree *protocol.Tree, send func(pluginEvent)) *pluginHarness {
 	t.Helper()
-	defaultPluginView = newPluginView()
-	defaultPluginView.fetch = stubPluginFetch()
-	h := &pluginHarness{view: defaultPluginView, tree: tree, pal: lightPalette}
+	v := newPluginView()
+	v.fetch = stubPluginFetch()
+	h := &pluginHarness{view: v, tree: tree, pal: lightPalette}
 	h.tt = ui.NewTester(func(c *ui.Context) {
-		drawPluginTree(c, &h.pal, h.tree, send)
+		drawPluginTree(c, h.view, &h.pal, h.tree, send)
 	}, 900, 700)
 	h.frames()
 	return h
@@ -299,8 +300,8 @@ func TestPluginImageFetchOffUIThreadAndCached(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var calls atomic.Int32
-	defaultPluginView = newPluginView()
-	defaultPluginView.fetch = func(pluginSource) (*ui.Bitmap, image.Image, error) {
+	v := newPluginView()
+	v.fetch = func(pluginSource) (*ui.Bitmap, image.Image, error) {
 		calls.Add(1)
 		started <- struct{}{}
 		<-release
@@ -315,7 +316,7 @@ func TestPluginImageFetchOffUIThreadAndCached(t *testing.T) {
 	}
 	pal := lightPalette
 	tt := ui.NewTester(func(c *ui.Context) {
-		drawPluginTree(c, &pal, tree(), nil)
+		drawPluginTree(c, v, &pal, tree(), nil)
 	}, 500, 400)
 
 	// A frame returns while the picture is still on its way: the fetch
@@ -341,7 +342,7 @@ func TestPluginImageFetchOffUIThreadAndCached(t *testing.T) {
 	}
 
 	close(release)
-	if !waitPluginPicture(t, defaultPluginView, pluginSource{url: "https://example.invalid/a.png"}) {
+	if !waitPluginPicture(t, v, pluginSource{url: "https://example.invalid/a.png"}) {
 		t.Fatal("the picture did not arrive")
 	}
 	tt.Frame()
@@ -390,13 +391,18 @@ func TestPluginProgressMovesFromRateAndAt(t *testing.T) {
 	if got := h.view.progress["dl"]; math.Abs(got-0.2) > 1e-9 {
 		t.Fatalf("the bar shows %v at the instant it was sent, want 0.2", got)
 	}
-	h.tt.Advance(time.Second)
-	h.tt.Frame()
+	// From here the clock moves without a test Frame: the bar must ask
+	// for the frames it needs itself, or a quiet pane would show it
+	// standing still until the plugin renders again.
+	h.tt.Advance(300 * time.Millisecond)
+	if got := h.view.progress["dl"]; math.Abs(got-0.35) > 1e-9 {
+		t.Fatalf("the bar shows %v after 0.3s at 0.5 a second, want 0.35", got)
+	}
+	h.tt.Advance(700 * time.Millisecond)
 	if got := h.view.progress["dl"]; math.Abs(got-0.7) > 1e-9 {
 		t.Fatalf("the bar shows %v after a second at 0.5 a second, want 0.7", got)
 	}
 	h.tt.Advance(10 * time.Second)
-	h.tt.Frame()
 	if got := h.view.progress["dl"]; got != 1 {
 		t.Fatalf("the bar shows %v after ten more seconds, want it clamped at 1", got)
 	}
@@ -423,4 +429,131 @@ func TestPluginFetchDataURI(t *testing.T) {
 		t.Fatalf("the picture is %dx%d, want 3x2", w, h)
 	}
 	_ = sampled
+}
+
+// TestPluginViewsStayApart keeps two panes with a plugin each apart: a
+// scroll and a focus in one are not the other's.
+func TestPluginViewsStayApart(t *testing.T) {
+	var items []protocol.Item
+	for i := 1; i <= 30; i++ {
+		items = append(items, protocol.Item{ID: fmt.Sprintf("r%02d", i), Title: fmt.Sprintf("Row %02d", i)})
+	}
+	tree := func() *protocol.Tree {
+		return pluginTree(sdk.Column("root",
+			sdk.List("files", items...),
+			sdk.SearchField("search", "Search files"),
+		).Grow(1))
+	}
+	a := newPluginHarness(t, tree(), nil)
+	b := newPluginHarness(t, tree(), nil)
+
+	r, ok := a.tt.Find("files")
+	if !ok {
+		t.Fatal("the first pane has no list")
+	}
+	x, y := r.X+r.W/2, r.Y+r.H/2
+	a.tt.Scroll(x, y, 0, -300)
+	a.tt.Frame()
+	if st := a.view.scroll["files"]; st == nil || st.Y == 0 {
+		a.tt.Scroll(x, y, 0, 300)
+		a.tt.Frame()
+	}
+	if st := a.view.scroll["files"]; st == nil || st.Y == 0 {
+		t.Fatalf("the first pane's list did not scroll: %+v", st)
+	}
+	if st := b.view.scroll["files"]; st != nil && st.Y != 0 {
+		t.Fatalf("a scroll in one pane moved the other pane's list to %v", st.Y)
+	}
+
+	if err := a.tt.Click("Search files"); err != nil {
+		t.Fatal(err)
+	}
+	a.tt.Type("abc")
+	if a.view.focus != "search" {
+		t.Fatalf("the first pane keeps %q as the focus, want its search field", a.view.focus)
+	}
+	if b.view.focus != "" {
+		t.Fatalf("the second pane took the first pane's focus %q", b.view.focus)
+	}
+}
+
+// TestPluginPictureCacheIsBounded keeps the picture cache from growing with
+// every picture the session has ever shown.
+func TestPluginPictureCacheIsBounded(t *testing.T) {
+	var nodes []*sdk.Node
+	for i := 0; i < pluginPictureBudget+12; i++ {
+		nodes = append(nodes, sdk.Image(fmt.Sprintf("pic-%02d", i), fmt.Sprintf("https://example.invalid/%d.png", i)).Size(8, 8))
+	}
+	h := newPluginHarness(t, pluginTree(sdk.Column("root", nodes...)), nil)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		h.tt.Frame()
+		h.view.mu.Lock()
+		n := len(h.view.pictures)
+		h.view.mu.Unlock()
+		if n <= pluginPictureBudget {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the pane caches %d pictures, want at most %d", n, pluginPictureBudget)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestPluginPictureRetriesAfterFailure tries a picture again, after a
+// pause, when its first fetch failed: one network blip is not a session of
+// placeholders.
+func TestPluginPictureRetriesAfterFailure(t *testing.T) {
+	var calls atomic.Int32
+	v := newPluginView()
+	v.fetch = func(pluginSource) (*ui.Bitmap, image.Image, error) {
+		if calls.Add(1) == 1 {
+			return nil, nil, errors.New("offline")
+		}
+		img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+		return ui.NewBitmap(img), img, nil
+	}
+	src := pluginSource{url: "https://example.invalid/retry.png"}
+	tree := pluginTree(sdk.Column("root", sdk.Image("pic", src.url)))
+	pal := lightPalette
+	tt := ui.NewTester(func(c *ui.Context) {
+		drawPluginTree(c, v, &pal, tree, nil)
+	}, 400, 300)
+	key := pluginSourceKey(src)
+	picture := func() *pluginPicture {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		return v.pictures[key]
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		pic := picture()
+		if pic != nil && pic.failed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the first fetch did not fail")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("the picture was fetched %d times, want once before the retry", got)
+	}
+	// The pane asks for the frame of the retry itself; Advance alone must
+	// reach it.
+	tt.Advance(pluginPictureRetry + 200*time.Millisecond)
+	for {
+		pic := picture()
+		if pic != nil && pic.bm != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the picture was not tried again after its pause")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("the picture was fetched %d times, want the retry to be the second", got)
+	}
 }

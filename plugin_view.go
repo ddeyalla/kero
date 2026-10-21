@@ -48,9 +48,26 @@ type pluginPicture struct {
 	loading bool
 	bm      *ui.Bitmap
 	failed  bool
-	tint    ui.Color // the picture's dominant color, read once
+	tries   int       // fetches started so far
+	retryAt time.Time // when a failed fetch may be tried again
+	used    uint64    // the draw that last asked for it
+	tint    ui.Color  // the picture's dominant color, read once
 	tinted  bool
 }
+
+// The pictures a pane keeps, in the number of them and in the draws they
+// may go unasked before they are dropped: a data: URI can be large, so the
+// pane does not keep every picture it has ever seen for the session.
+const (
+	pluginPictureBudget = 48
+	pluginPictureStale  = 8
+	pluginPictureTries  = 3
+	pluginPictureRetry  = 2 * time.Second
+)
+
+// pluginProgressTick is how often a progress bar that is moving asks for a
+// frame, so that it does not stand still between the plugin's renders.
+const pluginProgressTick = 100 * time.Millisecond
 
 // pluginSlider is a slider's value while the pane shows it: the value the
 // user set, which the plugin's own comes back to.
@@ -82,6 +99,7 @@ type pluginView struct {
 	marquees map[string]*pluginMarquee
 	progress map[string]float64 // the value each bar shows this frame
 	pictures map[string]*pluginPicture
+	frame    uint64 // the draw this state was last used in
 
 	// The tint the pane washes itself with: the picture's color, held at
 	// the last frame's value while the wash crossfades to the new one.
@@ -99,16 +117,15 @@ type pluginView struct {
 }
 
 // drawPluginTree draws tree for one frame in the pane pal belongs to,
-// sending what the user does to the plugin through send. A pane with one
-// plugin uses this; a pane with several keeps a pluginView for each and
-// calls its draw, so that their focus and pictures stay apart.
-func drawPluginTree(c *ui.Context, pal *palette, tree *protocol.Tree, send func(pluginEvent)) {
-	defaultPluginView.draw(c, pal, tree, send)
+// sending what the user does to the plugin through send. The host keeps
+// one pluginView for each pane, so that two panes with a plugin each do
+// not share their focus, their scrolling or their pictures.
+func drawPluginTree(c *ui.Context, v *pluginView, pal *palette, tree *protocol.Tree, send func(pluginEvent)) {
+	if v == nil {
+		return
+	}
+	v.draw(c, pal, tree, send)
 }
-
-// defaultPluginView is the state of the one plugin pane drawPluginTree
-// serves.
-var defaultPluginView = newPluginView()
 
 // newPluginView returns the state of a plugin pane, empty.
 func newPluginView() *pluginView {
@@ -132,6 +149,7 @@ func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send
 	v.invalidate = c.Invalidate
 	v.mu.Unlock()
 	v.ids = make(map[string]bool, 64)
+	v.frame++
 	// The root's own key holds the pane's place: a tree of the same root
 	// id keeps its controls, and their state, from one render to the next.
 	ui.Column(c.Key("plugin-" + tree.Root.ID)).Fill().MinWidth(0).MinHeight(0).Children(func() {
@@ -140,6 +158,7 @@ func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send
 		v.part(c, pal, tree.Root, true, send)
 	})
 	v.forget()
+	v.prunePictures()
 }
 
 // forget drops the state of the parts that the tree no longer has, while
@@ -289,7 +308,7 @@ func pluginTextColor(pal *palette, n *protocol.Node) ui.Color {
 // image draws a picture part: the picture once it is loaded, at its own
 // size, or the one the plugin asks for, rounded as it says.
 func (v *pluginView) image(c *ui.Context, pal *palette, n *protocol.Node) {
-	bm := v.picture(pluginSource{url: n.URL, data: n.Data})
+	bm := v.picture(c, pluginSource{url: n.URL, data: n.Data})
 	r := float32(n.Radius)
 	var w, h float32
 	if n.Width > 0 {
@@ -442,15 +461,24 @@ func (v *pluginView) progressBar(c *ui.Context, pal *palette, n *protocol.Node) 
 	const h = 6
 	value := pluginProgressValue(n, c.Now())
 	v.progress[n.ID] = value
+	if n.Rate > 0 && n.At > 0 && value < 1 {
+		// The plugin gave a rate, not a frame: the bar asks for its own
+		// frames, or a quiet pane would show it standing still.
+		c.After(pluginProgressTick)
+	}
 	track := pal.text.Alpha(0.12)
 	if pal.dark {
 		track = ui.RGBA(255, 255, 255, 0.16)
+	}
+	fill := pal.accent
+	if n.Color != "" {
+		fill = pluginTextColor(pal, n)
 	}
 	e := ui.Box(c.Key(n.ID)).Height(h).MinHeight(h).MinWidth(0).AlignSelf(ui.Stretch).Label(n.ID)
 	e.Draw(func(p *ui.Painter, r ui.Rect) {
 		p.Fill(r, track, h/2)
 		if value > 0 {
-			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: max(r.W*float32(value), h), H: r.H}, pal.accent, h/2)
+			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: max(r.W*float32(value), h), H: r.H}, fill, h/2)
 		}
 	})
 }
@@ -493,7 +521,7 @@ func (v *pluginView) listRow(c *ui.Context, pal *palette, n *protocol.Node, item
 	}
 	r.Background(r.AnimateColor("bg", bg, row))
 	if item.Image != "" {
-		if bm := v.picture(pluginSource{url: item.Image}); bm != nil {
+		if bm := v.picture(c, pluginSource{url: item.Image}); bm != nil {
 			ui.Image(c.Key("pic"), bm).Size(28, 28).Fit(ui.Cover).Radius(6).Shrink(0)
 		} else {
 			ui.Box(c.Key("pic")).Size(28, 28).Radius(6).Shrink(0).Background(pal.chip)
@@ -588,43 +616,110 @@ func (v *pluginView) emit(send func(pluginEvent), node, kind string, value any) 
 	}
 }
 
+// pluginSourceKey names a picture's source in the pane's cache.
+func pluginSourceKey(src pluginSource) string {
+	return src.url + "\x00" + src.data
+}
+
 // picture returns the picture of src, starting its fetch the first time
-// the tree asks for it, and nil until it arrives.
-func (v *pluginView) picture(src pluginSource) *ui.Bitmap {
-	key := src.url + "\x00" + src.data
+// the tree asks for it, and nil until it arrives. A fetch that failed is
+// tried again, a few times, after a pause.
+func (v *pluginView) picture(c *ui.Context, src pluginSource) *ui.Bitmap {
+	key := pluginSourceKey(src)
+	now := c.Now()
 	v.mu.Lock()
 	pic := v.pictures[key]
 	if pic == nil {
-		pic = &pluginPicture{src: src, loading: true}
+		pic = &pluginPicture{src: src}
 		v.pictures[key] = pic
-		fetch, invalidate := v.fetch, v.invalidate
-		go func() {
-			bm, img, err := fetch(src)
-			var tint ui.Color
-			tinted := err == nil && img != nil
-			if tinted {
-				// The picture's color is read here, off the UI
-				// goroutine, once for this picture.
-				tint = pluginDominantColor(img)
-			}
-			v.mu.Lock()
-			pic.bm, pic.failed, pic.loading = bm, err != nil, false
-			pic.tint, pic.tinted = tint, tinted
-			v.mu.Unlock()
-			if invalidate != nil {
-				invalidate()
-			}
-		}()
+	}
+	pic.used = v.frame
+	var wait time.Duration
+	switch {
+	case pic.bm != nil || pic.loading || pic.tries >= pluginPictureTries:
+	case now.Before(pic.retryAt):
+		wait = pic.retryAt.Sub(now)
+	default:
+		pic.loading, pic.failed = true, false
+		pic.tries++
+		v.startPicture(key, pic, now)
 	}
 	bm := pic.bm
 	v.mu.Unlock()
+	if wait > 0 {
+		// Ask for the frame in which the picture may be tried again.
+		c.After(wait)
+	}
 	return bm
+}
+
+// startPicture loads a picture off the UI goroutine and puts it in the
+// cache, if it is still the cache's entry when it arrives. It is called
+// with v.mu held.
+func (v *pluginView) startPicture(key string, pic *pluginPicture, started time.Time) {
+	fetch, invalidate := v.fetch, v.invalidate
+	go func() {
+		bm, img, err := fetch(pic.src)
+		var tint ui.Color
+		tinted := err == nil && img != nil
+		if tinted {
+			// The picture's color is read here, off the UI goroutine,
+			// once for this picture.
+			tint = pluginDominantColor(img)
+		}
+		v.mu.Lock()
+		if v.pictures[key] == pic {
+			pic.loading = false
+			if err != nil {
+				pic.failed = true
+				pic.retryAt = started.Add(pluginPictureRetry)
+			} else {
+				pic.bm, pic.tint, pic.tinted = bm, tint, tinted
+				pic.failed = false
+			}
+		}
+		v.mu.Unlock()
+		if invalidate != nil {
+			invalidate()
+		}
+	}()
+}
+
+// prunePictures drops the pictures the tree has not asked for in a few
+// draws, and the oldest over the budget, so a long session does not keep
+// every picture it has ever shown.
+func (v *pluginView) prunePictures() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	for key, pic := range v.pictures {
+		if pic.loading {
+			continue
+		}
+		if v.frame-pic.used > pluginPictureStale {
+			delete(v.pictures, key)
+		}
+	}
+	for len(v.pictures) > pluginPictureBudget {
+		oldestKey, oldest := "", uint64(0)
+		for key, pic := range v.pictures {
+			if pic.loading {
+				continue
+			}
+			if oldestKey == "" || pic.used < oldest {
+				oldestKey, oldest = key, pic.used
+			}
+		}
+		if oldestKey == "" {
+			break
+		}
+		delete(v.pictures, oldestKey)
+	}
 }
 
 // pictureTint returns the color the picture was read for, once it is
 // loaded.
 func (v *pluginView) pictureTint(src pluginSource) (ui.Color, bool) {
-	key := src.url + "\x00" + src.data
+	key := pluginSourceKey(src)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	pic := v.pictures[key]
@@ -702,7 +797,7 @@ func pluginDataBytes(s string) ([]byte, error) {
 	if strings.Contains(meta, ";base64") {
 		return base64.StdEncoding.DecodeString(body)
 	}
-	plain, err := url.QueryUnescape(body)
+	plain, err := url.PathUnescape(body)
 	if err != nil {
 		return nil, err
 	}

@@ -142,3 +142,47 @@ func TestPluginMarqueeStaticUnderReduceMotion(t *testing.T) {
 		t.Fatalf("under Reduce Motion after 3s offset %v moving %v, want 0 and no motion", m.offset, m.moving)
 	}
 }
+
+// TestPluginMarqueeResetsWhenTextChanges starts the motion over when the
+// same part id gets a new text: the new title must not begin in the middle
+// of the old one's turn.
+func TestPluginMarqueeResetsWhenTextChanges(t *testing.T) {
+	long := pluginMarqueeLong()
+	h := newPluginHarness(t, pluginMarqueeTree(long, 180), nil)
+	m := h.view.marquees["line"]
+	if m == nil || !m.overflow {
+		t.Fatalf("the long text does not overflow: %+v", m)
+	}
+	// Partway through the old text's scroll.
+	h.atTime(m.since.Add(pluginMarqueePause + pluginMarqueeScroll(m.distance)/2))
+	if m.offset <= 0 {
+		t.Fatalf("the long text does not scroll: offset %v", m.offset)
+	}
+
+	// The same part id gets a short text: it fits, and it is still.
+	h.show(pluginMarqueeTree("Short", 180))
+	m = h.view.marquees["line"]
+	if m == nil || m.overflow || m.offset != 0 || m.moving {
+		t.Fatalf("the short text moves: %+v", m)
+	}
+
+	// The long text comes back in the next frame: its turn starts at the
+	// beginning, not where the old text had scrolled to.
+	h.tree = pluginMarqueeTree(long, 180)
+	h.tt.Frame()
+	m = h.view.marquees["line"]
+	if m == nil || !m.overflow {
+		t.Fatal("the long text does not overflow again")
+	}
+	if m.offset != 0 {
+		t.Fatalf("the new turn starts at offset %v, want the pause at 0", m.offset)
+	}
+	h.atTime(m.since.Add(pluginMarqueePause / 2))
+	if m.offset != 0 {
+		t.Fatalf("during the new pause offset = %v, want 0", m.offset)
+	}
+	h.atTime(m.since.Add(pluginMarqueePause + pluginMarqueeScroll(m.distance)/2))
+	if m.offset <= 0 {
+		t.Fatalf("the new turn does not scroll on: offset %v", m.offset)
+	}
+}
