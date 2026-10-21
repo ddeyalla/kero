@@ -91,6 +91,14 @@ builds only. What each feature is and where it stands is tracked in the
   loading plugin — connecting, a pane attaching, Files reading, Linear
   reading — instead of the generic spinner. It follows Reduce Motion and
   turns only while it shows, at 15 frames a second.
+- The ground of work profiles: the state file now saves profiles, each a
+  thin bundle of references — a name, an accent and a background preset,
+  the ids of the projects and sessions it brings forward, the name of its
+  environment bundle, and when it was made and last used — and which
+  profile is active. Nothing is user-facing yet; the switcher's children
+  build on this. The fields are optional, nothing secret is saved, and
+  both the state file's version (2) and the protocol's (3) stay as they
+  are. No protocol change.
 
 ### Fixed
 

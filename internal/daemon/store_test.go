@@ -139,6 +139,87 @@ func TestRestoreKeepsStatus(t *testing.T) {
 	}
 }
 
+// A profile is saved in the same single write as the rest of the state,
+// and comes back with the restore; references to what is gone load
+// fine, a state file of before, without the profile fields, loads as it
+// always did, and the version stays 2.
+func TestProfileStateRoundTrip(t *testing.T) {
+	d := linearTestDaemon(t)
+	d.sessions, d.panes = nil, map[string]*pane{}
+	s, err := d.create(proto.CreateParams{View: proto.PaneFiles, Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The first profile names the live project and session, and one of
+	// each that is gone: a thin bundle loads whatever its members do.
+	d.profiles = []savedProfile{
+		{ID: "coding", Name: "Coding", Accent: "plum", Background: "rex",
+			Projects: []string{s.Project, "gone-project"}, Sessions: []string{s.ID, "gone-session"},
+			EnvRef: "dev", CreatedAt: 1700000000000, LastUsed: 1700000001000},
+		{ID: "hiring", Name: "Hiring", Accent: "sea"},
+	}
+	d.activeProfile = "coding"
+	d.saveState()
+	data, err := os.ReadFile(d.statePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved savedState
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Version != 2 {
+		t.Fatalf("version %d, want 2", saved.Version)
+	}
+	if saved.ActiveProfile != "coding" || len(saved.Profiles) != 2 {
+		t.Fatalf("saved: active %q, %+v", saved.ActiveProfile, saved.Profiles)
+	}
+	got := saved.Profiles[0]
+	if got.Name != "Coding" || got.Accent != "plum" || got.Background != "rex" ||
+		len(got.Projects) != 2 || got.Projects[0] != s.Project ||
+		len(got.Sessions) != 2 || got.Sessions[0] != s.ID ||
+		got.EnvRef != "dev" || got.CreatedAt != 1700000000000 || got.LastUsed != 1700000001000 {
+		t.Fatalf("first profile saved as %+v", got)
+	}
+
+	// A restore brings the session and the profiles back, the stale
+	// references included: loading them is not applying them.
+	d2 := linearTestDaemon(t)
+	d2.dir = d.dir
+	d2.sessions, d2.panes = nil, map[string]*pane{}
+	d2.restore()
+	if len(d2.sessions) != 1 || len(d2.sessions[0].panes) != 1 || d2.sessions[0].panes[0].info.View != proto.PaneFiles {
+		t.Fatalf("restored sessions: %+v", d2.sessions)
+	}
+	if d2.activeProfile != "coding" || len(d2.profiles) != 2 || d2.profiles[0].Name != "Coding" {
+		t.Fatalf("restored: active %q, %+v", d2.activeProfile, d2.profiles)
+	}
+
+	// A state file of before has no profile fields, and loads as it
+	// always did, with none active.
+	old := `{"version":2,"projects":[],"saved":1700000000000,"sessions":[]}`
+	d3 := linearTestDaemon(t)
+	d3.sessions, d3.panes = nil, map[string]*pane{}
+	if err := os.WriteFile(filepath.Join(d3.dir, "state.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d3.restore()
+	if len(d3.profiles) != 0 || d3.activeProfile != "" {
+		t.Fatalf("an old file came back with profiles: active %q, %+v", d3.activeProfile, d3.profiles)
+	}
+	// And what it saves again is still version 2, with no profile key to
+	// save, a file a daemon of before reads past.
+	d3.saveState()
+	data, _ = os.ReadFile(d3.statePath())
+	if strings.Contains(string(data), `"profiles"`) || strings.Contains(string(data), `"activeProfile"`) {
+		t.Fatalf("an old file's save grew profile keys: %s", data)
+	}
+	var again savedState
+	if err := json.Unmarshal(data, &again); err != nil || again.Version != 2 {
+		t.Fatalf("the save of an old load: version %d, err %v", again.Version, err)
+	}
+}
+
 func quote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)

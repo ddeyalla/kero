@@ -57,6 +57,12 @@ type Daemon struct {
 	taskMu sync.Mutex
 	tasks  map[string]*taskLog
 
+	// profiles are the saved work profiles, and activeProfile the id of
+	// the one active, empty when none. restore loads them, saveState
+	// saves them; applying one is the switch work of epic A.
+	profiles      []savedProfile
+	activeProfile string
+
 	viewed atomic.Pointer[string]
 	// theme is the colors of the client that last told them, which the
 	// panes answer programs' questions about the colors with.

@@ -602,6 +602,53 @@ See [Automatic updates](automatic-updates.md) for credentials, controls, tests
 and the fork-only publishing boundary. No automatic window or daemon restart
 is enabled.
 
+## Work profiles
+
+A profile is the unit of switching between hats: it bundles what is on
+screen, which panes and projects run, the look, and — later — an
+environment bundle. This child is the saved-state ground only: the
+switching itself (apply, RPC, switch UI, CLI verbs, env bundles and their
+trust gate) is the work that follows.
+
+**A profile is a thin bundle of references, not a copy.** `savedProfile` in
+[`internal/daemon/store.go`](../internal/daemon/store.go) holds:
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `name` | the profile's identity, as the switcher shows it |
+| `accent`, `background` | the appearance presets (Settings' `accent`/`background` ids) it puts on |
+| `projects`, `sessions` | the ids of the live projects and sessions it brings forward |
+| `envRef` | the name of its environment bundle, landed by the env child; the values are never saved here, so nothing secret is in the file |
+| `createdAt`, `lastUsed` | Unix milliseconds, as the file's other times |
+
+Membership points at live state and is resolved when the profile is
+applied, at switch time; a reference that no longer resolves is skipped,
+with a note, and never fails the restore. No session is ever duplicated:
+the per-pane `View/Target/Dir/Command/Agent/Task` state already saved with
+each session carries the layout.
+
+kerod keeps the profiles in `state.json`'s `profiles`, and the id of the
+one last active in `activeProfile` (empty when none); the daemon keeps them
+in `d.profiles`/`d.activeProfile`. `restore` loads them even when session
+restore is off, and `saveState` writes them in the same single
+`writeAtomic`: the whole state is marshalled once and renamed over the
+file, so a crash mid-save leaves the old file or the new one, never a
+half-applied profile. The fields are optional and left out when empty, so
+a state file of before loads as it always did. The saved state's version
+stays 2, and the protocol's stays 3: applying a profile (the next child)
+adds new RPC methods, and new methods never bump a version — the target of
+zero wire change in this child is met.
+`TestProfileStateRoundTrip` in `internal/daemon/store_test.go` proves the
+round trip, that stale references load, that the old file loads, and that
+the version stays 2.
+
+**This is the seam a future plugin API reads.** Profiles are daemon data
+with no wire type of their own: a plugin API can list, save and apply them
+over the daemon's RPC surface by adding methods and optional fields, never
+a version. Keep the profile additions co-located in `store.go` — the
+`savedProfile` type and the two `savedState` fields — so other children
+that also extend the saved state rebase trivially.
+
 ## Sessions and data continuity
 
 The official and personal editions have separate daemons and data:

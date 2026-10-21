@@ -66,6 +66,12 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Zoom the page (Safari's steps); the zoom chip resets it | `Cmd+=`, `Cmd+-`, `Cmd+0` | 2.0.7-local.1 | Shipped |
 | Reload the page (instead of renaming the session) | `Cmd+R` | 2.0.7-local.1 | Shipped |
 
+## Work profiles
+
+| Feature | How to use it | Since | Status |
+| --- | --- | --- | --- |
+| Profiles saved with the state: a name, an accent + background preset, the ids of the projects and sessions it brings forward, its env bundle's name, and which profile is active — thin references, resolved when applied, not copies; nothing user-facing yet, the switcher's children build on this | Automatic (saved state); no switching surface yet | Unreleased | Untried |
+
 ## Agents
 
 | Feature | How to use it | Since | Status |
