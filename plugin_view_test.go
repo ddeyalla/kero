@@ -262,6 +262,60 @@ func TestPluginFocusSurvivesRender(t *testing.T) {
 	}
 }
 
+// TestPluginSearchFieldTakesThePluginsQuery shows the query a plugin sends
+// when the field first shows and when the plugin changes it, and keeps
+// the letters typed after a change whose echo comes back late.
+func TestPluginSearchFieldTakesThePluginsQuery(t *testing.T) {
+	field := func(query string) *protocol.Tree {
+		return pluginTree(sdk.Column("root", sdk.SearchField("search", "Search files").Query(query)))
+	}
+	query := func(h *pluginHarness) string {
+		st := h.view.searches["search"]
+		if st == nil {
+			t.Fatal("the view keeps no search field")
+		}
+		return st.query
+	}
+
+	saved := newPluginHarness(t, field("miles"), nil)
+	if got := query(saved); got != "miles" {
+		t.Fatalf("a field that first shows holds %q, want the plugin's saved query", got)
+	}
+
+	var mu sync.Mutex
+	var got []pluginEvent
+	send := func(ev pluginEvent) {
+		mu.Lock()
+		got = append(got, ev)
+		mu.Unlock()
+	}
+	h := newPluginHarness(t, field(""), send)
+	if err := h.tt.Click("Search files"); err != nil {
+		t.Fatal(err)
+	}
+	h.tt.Type("abc")
+	h.tt.Advance(pluginSearchDelay + 50*time.Millisecond)
+	mu.Lock()
+	changed := hasPluginEvent(got, "search", protocol.KindChange, "abc")
+	mu.Unlock()
+	if !changed {
+		t.Fatal("no change for the typed query")
+	}
+	h.tt.Type("d")
+	h.show(field("abc"))
+	if q := query(h); q != "abcd" {
+		t.Fatalf("the plugin's echo of %q made the field %q, want the typed %q kept", "abc", q, "abcd")
+	}
+	h.show(field("abc"))
+	if q := query(h); q != "abcd" {
+		t.Fatalf("a render with the same query made the field %q", q)
+	}
+	h.show(field("coltrane"))
+	if q := query(h); q != "coltrane" {
+		t.Fatalf("the field holds %q, want the query the plugin changed it to", q)
+	}
+}
+
 // TestPluginScrollSurvivesRender keeps a list where the user scrolled it,
 // across a render of a tree with the same ids.
 func TestPluginScrollSurvivesRender(t *testing.T) {

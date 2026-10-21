@@ -483,7 +483,7 @@ func (a *App) browserBar(c *ui.Context, pal *palette, st *browserState, p *proto
 		})
 		if st.url != "" && webOnly(st.url) {
 			u := st.url
-			nav("external", externalIcon, locales.BrowserOpenDefault(), true, func() { openPath(u) })
+			nav("external", externalIcon, locales.BrowserOpenDefault(), true, func() { openURL(u) })
 		}
 	})
 	ui.Box(c).Height(1).Shrink(0).Background(pal.divider)

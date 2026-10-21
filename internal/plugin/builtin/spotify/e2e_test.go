@@ -2,6 +2,8 @@ package spotify
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -113,6 +115,20 @@ func TestSpotifyThroughTheRealApp(t *testing.T) {
 	t.Setenv("KERO_PANE", "")
 	t.Setenv("KERO_SESSION", "")
 	t.Setenv("KERO_SPOTIFY_E2E_SCRIPTS", scripts)
+	// The fake library's Web API and accounts root: the built app never
+	// calls api.spotify.com or accounts.spotify.com.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/search":
+			_, _ = w.Write([]byte(`{"albums":{"items":[]},"playlists":{"items":[]}}`))
+		case "/v1/me/playlists", "/v1/me/albums":
+			_, _ = w.Write([]byte(`{"items":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+	t.Setenv("KERO_SPOTIFY_E2E_API", api.URL)
 
 	bin := buildTestApp(t)
 	plugins, err := registry.Builtins()
@@ -195,4 +211,9 @@ func TestSpotifyThroughTheRealApp(t *testing.T) {
 		t.Fatalf("the plugin crashed: %s", message)
 	case <-time.After(200 * time.Millisecond):
 	}
+
+	// The host kills its process on a stop, which a crashed app cannot:
+	// run the real binary without the host, and close its stdin while the
+	// macOS run loop runs on its main thread. It must end on its own.
+	exitsWhenStdinCloses(t, exec.Command(bin, "plugin-run", pluginID))
 }

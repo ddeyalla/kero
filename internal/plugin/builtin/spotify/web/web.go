@@ -230,7 +230,18 @@ func New(cfg Config) *Client {
 // RedirectURI is the redirect URI the sign-in uses, which the user
 // registers in the Spotify dashboard.
 func (c *Client) RedirectURI() string {
-	return fmt.Sprintf("http://127.0.0.1:%d%s", c.redirectPort, callbackPath)
+	return redirectURI(c.redirectPort)
+}
+
+// DefaultRedirectURI is the redirect URI of a client on
+// DefaultRedirectPort, which the plugin uses, for a pane that tells the
+// user what to register before it has a client.
+func DefaultRedirectURI() string {
+	return redirectURI(DefaultRedirectPort)
+}
+
+func redirectURI(port int) string {
+	return fmt.Sprintf("http://127.0.0.1:%d%s", port, callbackPath)
 }
 
 // ClientID returns the Client ID of the user's developer app, "" when

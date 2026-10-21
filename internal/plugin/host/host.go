@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,7 +80,7 @@ type Callbacks struct {
 	// Notify is a notification the plugin asked for.
 	Notify func(plugin, title, body string)
 	// OpenURL is a link the plugin asked to open. The URL is http or
-	// https.
+	// https, or the one System Settings link openableURL allows.
 	OpenURL func(plugin, url string)
 	// Crash is a plugin that died, with the reason and the path of its
 	// log. The app shows it, and offers a restart; it does not restart
@@ -1080,8 +1081,8 @@ func (p *proc) answer(req *protocol.Request) {
 			p.fail(req.ID, protocol.CodeInvalidParams, "openURL: "+err.Error())
 			return
 		}
-		if !webURL(params.URL) {
-			p.fail(req.ID, protocol.CodeInvalidParams, "openURL: only http and https links open")
+		if !openableURL(params.URL) {
+			p.fail(req.ID, protocol.CodeInvalidParams, "openURL: only http and https links, and System Settings' Privacy & Security, open")
 			return
 		}
 		p.h.onOpenURL(p.plugin.Manifest.ID, params.URL)
@@ -1093,6 +1094,36 @@ func (p *proc) answer(req *protocol.Request) {
 
 func sortPlugins(plugins []registry.Plugin) {
 	sort.Slice(plugins, func(i, j int) bool { return plugins[i].Manifest.Name < plugins[j].Manifest.Name })
+}
+
+// systemSettingsSecurity is the one link outside the web a plugin may
+// open: System Settings' Privacy & Security, where the user allows a
+// plugin's Automation. Its anchor, after a "?", picks the section.
+const systemSettingsSecurity = "x-apple.systempreferences:com.apple.preference.security"
+
+// openableURL tells a link the app opens for a plugin: a web link, or
+// System Settings' Privacy & Security and nothing else of the system's.
+func openableURL(s string) bool {
+	return webURL(s) || securitySettingsURL(s)
+}
+
+// securitySettingsURL tells the Privacy & Security link, alone or with an
+// anchor such as "?Privacy_Automation". A longer pane name with the same
+// start, a space or a control character is refused.
+func securitySettingsURL(s string) bool {
+	rest, ok := strings.CutPrefix(s, systemSettingsSecurity)
+	if !ok {
+		return false
+	}
+	if rest != "" && !strings.HasPrefix(rest, "?") {
+		return false
+	}
+	for _, r := range rest {
+		if r <= ' ' || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // webURL tells a link the app may open: http or https, and a host.

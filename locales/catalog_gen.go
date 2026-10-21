@@ -5162,6 +5162,36 @@ func (msgs Messages) SpotifyOpen() string {
 	return Catalog.Format(msgs.locale, "spotifyOpen", nil)
 }
 
+// SpotifyNotInstalledTitle says "Spotify isn't installed"
+// in the language the app shows.
+func SpotifyNotInstalledTitle() string { return In(i18n.Locale()).SpotifyNotInstalledTitle() }
+
+// SpotifyNotInstalledTitle says "Spotify isn't installed"
+// in the language of msgs.
+func (msgs Messages) SpotifyNotInstalledTitle() string {
+	return Catalog.Format(msgs.locale, "spotifyNotInstalledTitle", nil)
+}
+
+// SpotifyNotInstalledDetail says "The pane plays what the Spotify app plays. Install Spotify for Mac, then come back."
+// in the language the app shows.
+func SpotifyNotInstalledDetail() string { return In(i18n.Locale()).SpotifyNotInstalledDetail() }
+
+// SpotifyNotInstalledDetail says "The pane plays what the Spotify app plays. Install Spotify for Mac, then come back."
+// in the language of msgs.
+func (msgs Messages) SpotifyNotInstalledDetail() string {
+	return Catalog.Format(msgs.locale, "spotifyNotInstalledDetail", nil)
+}
+
+// SpotifyGetSpotify says "Get Spotify"
+// in the language the app shows.
+func SpotifyGetSpotify() string { return In(i18n.Locale()).SpotifyGetSpotify() }
+
+// SpotifyGetSpotify says "Get Spotify"
+// in the language of msgs.
+func (msgs Messages) SpotifyGetSpotify() string {
+	return Catalog.Format(msgs.locale, "spotifyGetSpotify", nil)
+}
+
 // SpotifyAutomationTitle says "Shibu Code can't control Spotify"
 // in the language the app shows.
 func SpotifyAutomationTitle() string { return In(i18n.Locale()).SpotifyAutomationTitle() }
@@ -5242,14 +5272,16 @@ func (msgs Messages) SpotifyNoClientID() string {
 	return Catalog.Format(msgs.locale, "spotifyNoClientID", nil)
 }
 
-// SpotifyNoClientIDDetail says "Create an app in the Spotify developer dashboard, paste its Client ID in Settings › Plugins, then sign in here."
+// SpotifyNoClientIDDetail says "Create an app in the Spotify developer dashboard with {uri} as its redirect URI, paste its Client ID in Settings › …"
 // in the language the app shows.
-func SpotifyNoClientIDDetail() string { return In(i18n.Locale()).SpotifyNoClientIDDetail() }
+func SpotifyNoClientIDDetail(uri string) string {
+	return In(i18n.Locale()).SpotifyNoClientIDDetail(uri)
+}
 
-// SpotifyNoClientIDDetail says "Create an app in the Spotify developer dashboard, paste its Client ID in Settings › Plugins, then sign in here."
+// SpotifyNoClientIDDetail says "Create an app in the Spotify developer dashboard with {uri} as its redirect URI, paste its Client ID in Settings › …"
 // in the language of msgs.
-func (msgs Messages) SpotifyNoClientIDDetail() string {
-	return Catalog.Format(msgs.locale, "spotifyNoClientIDDetail", nil)
+func (msgs Messages) SpotifyNoClientIDDetail(uri string) string {
+	return Catalog.Format(msgs.locale, "spotifyNoClientIDDetail", map[string]any{"uri": uri})
 }
 
 // SpotifySetUp says "Set Up Spotify"
@@ -5350,6 +5382,36 @@ func SpotifyOffline() string { return In(i18n.Locale()).SpotifyOffline() }
 // in the language of msgs.
 func (msgs Messages) SpotifyOffline() string {
 	return Catalog.Format(msgs.locale, "spotifyOffline", nil)
+}
+
+// SpotifyRateLimited says "Spotify asked to wait, showing the last results"
+// in the language the app shows.
+func SpotifyRateLimited() string { return In(i18n.Locale()).SpotifyRateLimited() }
+
+// SpotifyRateLimited says "Spotify asked to wait, showing the last results"
+// in the language of msgs.
+func (msgs Messages) SpotifyRateLimited() string {
+	return Catalog.Format(msgs.locale, "spotifyRateLimited", nil)
+}
+
+// SpotifyRateLimitedTitle says "Spotify asked to wait"
+// in the language the app shows.
+func SpotifyRateLimitedTitle() string { return In(i18n.Locale()).SpotifyRateLimitedTitle() }
+
+// SpotifyRateLimitedTitle says "Spotify asked to wait"
+// in the language of msgs.
+func (msgs Messages) SpotifyRateLimitedTitle() string {
+	return Catalog.Format(msgs.locale, "spotifyRateLimitedTitle", nil)
+}
+
+// SpotifyRateLimitedDetail says "Too many requests in a short time. Try again in a minute."
+// in the language the app shows.
+func SpotifyRateLimitedDetail() string { return In(i18n.Locale()).SpotifyRateLimitedDetail() }
+
+// SpotifyRateLimitedDetail says "Too many requests in a short time. Try again in a minute."
+// in the language of msgs.
+func (msgs Messages) SpotifyRateLimitedDetail() string {
+	return Catalog.Format(msgs.locale, "spotifyRateLimitedDetail", nil)
 }
 
 // SpotifySearchPlaceholder says "Search albums and playlists"

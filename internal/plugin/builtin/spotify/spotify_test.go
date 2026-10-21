@@ -1,12 +1,14 @@
 package spotify
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -32,9 +34,13 @@ func TestMain(m *testing.M) {
 		}
 		runner := &fileRunner{path: os.Getenv("KERO_SPOTIFY_TEST_SCRIPTS")}
 		newBackend = func(*sdk.Conn) (*transport.Transport, transport.Source, *web.Client) {
+			// No library call of the child reaches Spotify: both roots
+			// are a loopback port nothing listens on.
 			client := web.New(web.Config{
-				OpenURL: web.OpenURLFunc(func(string) error { return nil }),
-				Secrets: web.MapSecrets{},
+				BaseURL:     "http://127.0.0.1:1",
+				AccountsURL: "http://127.0.0.1:1",
+				OpenURL:     web.OpenURLFunc(func(string) error { return nil }),
+				Secrets:     web.MapSecrets{},
 			})
 			return transport.New(runner), silentSource{}, client
 		}
@@ -96,6 +102,13 @@ func (r *recordingRunner) Run(_ context.Context, script string) (string, error) 
 		return r.output, nil
 	}
 	return playingRead(), nil
+}
+
+// fail makes every later script fail with err, or succeed for nil.
+func (r *recordingRunner) fail(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.err = err
 }
 
 // calls returns the scripts the runner ran so far.
@@ -246,6 +259,7 @@ func TestEveryStateHasItsOwnView(t *testing.T) {
 		{modeStarting, "state-starting", ""},
 		{modeIdle, "state-idle", ""},
 		{modeNotRunning, "open-spotify", ""},
+		{modeNotInstalled, "get-spotify", ""},
 		{modeAutomation, "privacy", ""},
 		{modeUnavailable, "state-unavailable", ""},
 	}
@@ -268,6 +282,7 @@ func TestEveryStateHasItsOwnView(t *testing.T) {
 		{libTokenRefused, "sign-in-again"},
 		{libPremiumLapsed, "state-premium"},
 		{libNetworkDown, "state-offline"},
+		{libRateLimited, "state-rate-limited"},
 		{libFailed, "state-library-failed"},
 	}
 	for _, test := range libraryCases {
@@ -318,14 +333,31 @@ func TestNetworkDownKeepsTheLastResults(t *testing.T) {
 		return len(s.entries) == 1 && s.entries[0].title == "Album One"
 	})
 
+	// A new query that fails offline gets the client's last results, which
+	// are for "one": they stay kept, but out of the list of "two".
 	down = true
+	s.query = "two"
 	p.runSearch("p1", "two")
 	eventually(t, "the offline state", func() bool {
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		return s.lib == libNetworkDown
+		return s.lib == libNetworkDown && !s.loading
 	})
-	if len(s.entries) != 1 || s.entries[0].title != "Album One" {
+	if len(s.entries) != 0 {
+		t.Fatalf("entries = %+v under %q, want none of another query", s.entries, "two")
+	}
+	if s.search.Query != "one" {
+		t.Fatalf("kept results are for %q, want the last good search", s.search.Query)
+	}
+
+	s.query = "one"
+	p.runSearch("p1", "one")
+	eventually(t, "the kept results of the same query", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return s.lib == libNetworkDown && !s.loading && len(s.entries) == 1
+	})
+	if s.entries[0].title != "Album One" {
 		t.Fatalf("entries = %+v, want the last results", s.entries)
 	}
 	root := draw(t, p, s)
@@ -545,4 +577,114 @@ func TestSavedStateRoundTrips(t *testing.T) {
 	if got.Tab != int(tabAlbums) || got.Query != "miles" {
 		t.Fatalf("state = %+v", got)
 	}
+}
+
+// pluginLine is one JSON-RPC line the test sends as the host would.
+func pluginLine(t *testing.T, id int, method string, params any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := protocol.Request{JSONRPC: "2.0", Method: method, Params: raw}
+	if id > 0 {
+		req.ID = json.RawMessage(fmt.Sprint(id))
+	}
+	line, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append(line, '\n')
+}
+
+// exitsWhenStdinCloses runs cmd as a plugin process, as the host would but
+// without the host's kill: it says hello, opens a visible pane so that the
+// monitor reads, answers the plugin's calls until a render shows the
+// playing track, then closes stdin, as a crashed app does, and waits for
+// the process to end on its own.
+func exitsWhenStdinCloses(t *testing.T, cmd *exec.Cmd) {
+	t.Helper()
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+	})
+
+	var writeMu sync.Mutex
+	write := func(line []byte) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_, _ = stdin.Write(line)
+	}
+	drew := make(chan struct{})
+	go func() {
+		var once sync.Once
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 0, 64<<10), protocol.MaxLine)
+		for scanner.Scan() {
+			var msg struct {
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+			}
+			line := scanner.Bytes()
+			if json.Unmarshal(line, &msg) != nil || msg.Method == "" {
+				continue
+			}
+			if msg.Method == protocol.MethodRender && strings.Contains(string(line), "Test Song") {
+				once.Do(func() { close(drew) })
+			}
+			if len(msg.ID) > 0 {
+				answer, _ := json.Marshal(protocol.Response{JSONRPC: "2.0", ID: msg.ID, Result: json.RawMessage(`{}`)})
+				write(append(answer, '\n'))
+			}
+		}
+	}()
+
+	write(pluginLine(t, 1, protocol.MethodHello, protocol.HelloParams{Protocol: protocol.Version}))
+	write(pluginLine(t, 2, protocol.MethodOpen, protocol.OpenParams{
+		Pane: "p1", Widget: widgetPlayer, Size: protocol.Size{Width: 700, Height: 600},
+	}))
+	write(pluginLine(t, 0, protocol.MethodVisible, protocol.VisibleParams{Pane: "p1", Visible: true}))
+	select {
+	case <-drew:
+	case err := <-exited:
+		t.Fatalf("the plugin ended before it drew the track: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the plugin never drew the playing track")
+	}
+
+	writeMu.Lock()
+	_ = stdin.Close()
+	writeMu.Unlock()
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("the plugin ended with %v after its stdin closed, want a clean exit", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the plugin process kept running after its stdin closed")
+	}
+}
+
+// TestClosingStdinEndsThePluginProcess runs this test binary in the
+// plugin-run role, with the fake backend, and closes its stdin while the
+// monitor reads: the process ends, so a crashed app leaves no orphan.
+func TestClosingStdinEndsThePluginProcess(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "plugin-run", pluginID)
+	cmd.Env = append(os.Environ(),
+		"KERO_SPOTIFY_TEST_CHILD=1",
+		"KERO_SPOTIFY_TEST_SCRIPTS="+filepath.Join(t.TempDir(), "scripts.log"),
+	)
+	exitsWhenStdinCloses(t, cmd)
 }

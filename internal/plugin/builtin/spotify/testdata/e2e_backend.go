@@ -40,12 +40,23 @@ type e2eSource struct{}
 func (e2eSource) Start(func()) error { return nil }
 func (e2eSource) Close() error       { return nil }
 
+// e2eClosedURL is a loopback port nothing listens on: a library call of a
+// test that set no server fails at once, and never reaches Spotify.
+const e2eClosedURL = "http://127.0.0.1:1"
+
 // newBackend is the player, the listener and a signed-in library of the
-// built app: no osascript, no network, no real credentials.
+// built app: no osascript, no real credentials, and a Web API that is the
+// test's own server, named in KERO_SPOTIFY_E2E_API.
 var newBackend = func(*sdk.Conn) (*transport.Transport, transport.Source, *web.Client) {
+	api := os.Getenv("KERO_SPOTIFY_E2E_API")
+	if api == "" {
+		api = e2eClosedURL
+	}
 	client := web.New(web.Config{
-		OpenURL: web.OpenURLFunc(func(string) error { return nil }),
-		Secrets: web.MapSecrets{web.TokensKey: "{\"access_token\":\"test\",\"token_type\":\"Bearer\",\"expires_at\":\"2099-01-01T00:00:00Z\"}"},
+		BaseURL:     api,
+		AccountsURL: api,
+		OpenURL:     web.OpenURLFunc(func(string) error { return nil }),
+		Secrets:     web.MapSecrets{web.TokensKey: "{\"access_token\":\"test\",\"token_type\":\"Bearer\",\"expires_at\":\"2099-01-01T00:00:00Z\"}"},
 	})
 	client.SetClientID("e2e-client")
 	return transport.New(e2eRunner{}), e2eSource{}, client

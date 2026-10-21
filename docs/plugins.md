@@ -43,7 +43,7 @@ A plugin ships a `kero-plugin.json` next to it:
 | `run` | The argv that starts the plugin process. A built-in plugin's run is the app's own executable with `plugin-run <id>`. |
 | `widgets` | Each widget has a `name` (unique), a `title` and a least size. |
 | `commands` | Ids and titles the app sends with `command`. Ids are unique. Each command is an item of the command palette, titled as the manifest says, and the `kero do plugin.<id>.<command>` action, which `kero actions` lists. |
-| `permissions` | `secrets` (read and write its own secrets), `notify` (post a notification) and `openURL` (open a URL in the browser). A call without its permission is refused. |
+| `permissions` | `secrets` (read and write its own secrets), `notify` (post a notification) and `openURL` (open an http or https URL in the browser, or System Settings' Privacy & Security, `x-apple.systempreferences:com.apple.preference.security` with an optional `?` anchor; any other scheme is refused). A call without its permission is refused. |
 | `settings` | Optional fields shown in Settings › Plugins: `key`, `label`, `kind` (currently `text`), `secret`, `help` (the line under the label) and `link` (an http or https page, opened by the field's **Open Link** button). The page draws only what the manifests declare. |
 
 Built-in plugins are roles of the app's binary: `kero plugin-run <id>`. An
@@ -121,7 +121,7 @@ app's palette, fonts and motion.
 | `slider` | `value`, `min`, `max`, `step` | `change` while dragging, `commit` on release |
 | `progress` | `value`, `color`, optional `rate` and `at` | — |
 | `list` | `rows` of `image`, `title`, `subtitle`, `trailing` | `select` |
-| `searchField` | `placeholder` | `change` after a short pause, `submit` |
+| `searchField` | `placeholder`, optional `text` (the query to show, such as one saved before a restart; the app puts it in the field when the field first shows and when the plugin sends another one, and ignores an echo of what the field last sent) | `change` after a short pause, `submit` |
 | `emptyState` | `title`, `detail`, one action | the action's `press` |
 | `spacer`, `divider` | — | — |
 
@@ -158,7 +158,9 @@ plugin pane.
 | `spotify` | `player` | `secrets`, `openURL` | The desktop player in a compact or a large layout: play, pause, skip, seek, volume, shuffle and repeat; albums and playlists from the Spotify Web API after a sign-in; a scrolling title and album-art tint. Set the Client ID in Settings › Plugins. |
 | `usage` | `usage` | none | Each account's usage with a bar and a percent (or its balance), and the machine's CPU and RAM; the large layout adds the reset time, the plan and every window. It refreshes only while it is visible, at most every two minutes unless you press refresh. |
 
-`openURL` opens the sign-in page and an album or playlist in the browser;
+`openURL` opens the sign-in page, the Spotify developer dashboard and the
+download page in the browser, and Privacy & Security › Automation in System
+Settings;
 `secrets` keeps the Spotify tokens in the plugin's `secrets.json`. Neither
 plugin is installed from a folder: the app embeds their manifests and starts
 them as roles of its own binary.

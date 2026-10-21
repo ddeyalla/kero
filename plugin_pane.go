@@ -174,7 +174,10 @@ func (a *App) pluginHost() *host.Host {
 				a.pluginPost(func() { a.showPluginNotification(plugin, title, body) })
 			},
 			OpenURL: func(plugin, url string) {
-				a.pluginPost(func() { openPath(url) })
+				// The host passed a web link or the Privacy & Security
+				// link: openURL opens either in the app that handles its
+				// scheme.
+				a.pluginPost(func() { openURL(url) })
 			},
 			Crash: func(plugin, message, logPath string) {
 				a.pluginPost(func() { a.pluginCrashed(plugin, message, logPath) })
@@ -829,7 +832,7 @@ func (a *App) pluginSettingRow(c *ui.Context, pal *palette, p registry.Plugin, s
 			// developer dashboard: a web page, never a file.
 			if s.Link != "" && webOnly(s.Link) {
 				if button(c, "plugin-link-"+key, locales.PluginSettingOpenLink(), "", false, pal) {
-					openPath(s.Link)
+					openURL(s.Link)
 				}
 			}
 		})

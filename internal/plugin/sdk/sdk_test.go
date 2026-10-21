@@ -439,7 +439,7 @@ func TestPartsBuildValidTree(t *testing.T) {
 		Progress("plain", 0.5),
 		Slider("seek", 0.2, 0, 1).Step(0.01),
 		List("results", protocol.Item{ID: "r1", Title: "One"}),
-		SearchField("search", "Search Spotify"),
+		SearchField("search", "Search Spotify").Query("miles"),
 		EmptyState("empty", "Nothing playing", "Open Spotify").Action("Open"),
 		Spacer("gap"),
 		Divider("line"),
@@ -464,5 +464,8 @@ func TestPartsBuildValidTree(t *testing.T) {
 	}
 	if built.Children[3].Rate != 1 || built.Children[3].At == 0 {
 		t.Fatalf("bar = %+v", built.Children[3])
+	}
+	if got := built.Children[7]; got.Type != protocol.NodeSearchField || got.Text != "miles" {
+		t.Fatalf("search = %+v, want the query in its text", got)
 	}
 }

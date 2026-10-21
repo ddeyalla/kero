@@ -88,6 +88,7 @@ type pluginSlider struct {
 type pluginSearch struct {
 	query string
 	sent  string    // the text the plugin last heard
+	given string    // the text the plugin last sent, in the node's text
 	due   time.Time // when the change is due
 	armed bool
 }
@@ -586,8 +587,19 @@ func (v *pluginView) listRow(c *ui.Context, pal *palette, n *protocol.Node, item
 func (v *pluginView) searchField(c *ui.Context, pal *palette, n *protocol.Node, send func(pluginEvent)) {
 	st := v.searches[n.ID]
 	if st == nil {
-		st = &pluginSearch{}
+		// A field that first shows takes the plugin's text, such as a
+		// query saved before a restart.
+		st = &pluginSearch{query: n.Text, sent: n.Text, given: n.Text}
 		v.searches[n.ID] = st
+	} else if n.Text != st.given {
+		// The plugin sent another text. One that echoes what the field
+		// last told it is not new, and must not undo the letters typed
+		// since; any other replaces the field's text.
+		st.given = n.Text
+		if n.Text != st.sent {
+			st.query, st.sent = n.Text, n.Text
+			st.armed = false
+		}
 	}
 	frame := ui.Row(c.Key(n.ID)).Cursor(ui.CursorText).MinWidth(0)
 	var in ui.Element
@@ -607,6 +619,7 @@ func (v *pluginView) searchField(c *ui.Context, pal *palette, n *protocol.Node, 
 	})
 	in.OnSubmit(func() {
 		st.armed = false
+		st.sent = st.query
 		v.emit(send, n.ID, protocol.KindSubmit, st.query)
 	})
 	if st.armed {

@@ -25,6 +25,10 @@ func fileManager() string {
 // openPath opens a file or folder in the app that opens it.
 func openPath(path string) { mygo.Shell.OpenPath(path) }
 
+// openURL opens a link in the app that handles its scheme, as a web page
+// in the default browser. openPath would take the link for a file's path.
+func openURL(link string) { mygo.Shell.OpenExternal(link) }
+
 // revealPath shows a file in the file manager.
 func revealPath(path string) { mygo.Shell.ShowItemInFolder(path) }
 
