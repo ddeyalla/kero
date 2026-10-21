@@ -48,6 +48,8 @@ type pluginPicture struct {
 	loading bool
 	bm      *ui.Bitmap
 	failed  bool
+	tint    ui.Color // the picture's dominant color, read once
+	tinted  bool
 }
 
 // pluginSlider is a slider's value while the pane shows it: the value the
@@ -80,6 +82,12 @@ type pluginView struct {
 	marquees map[string]*pluginMarquee
 	progress map[string]float64 // the value each bar shows this frame
 	pictures map[string]*pluginPicture
+
+	// The tint the pane washes itself with: the picture's color, held at
+	// the last frame's value while the wash crossfades to the new one.
+	tintShown  ui.Color
+	tintTarget ui.Color
+	tinted     bool
 
 	// fetch loads a picture, off the UI goroutine; tests replace it. The
 	// default reads a data: URI, or fetches a URL.
@@ -127,6 +135,8 @@ func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send
 	// The root's own key holds the pane's place: a tree of the same root
 	// id keeps its controls, and their state, from one render to the next.
 	ui.Column(c.Key("plugin-" + tree.Root.ID)).Fill().MinWidth(0).MinHeight(0).Children(func() {
+		tint, ok := v.treeTint(tree.Root)
+		v.drawTint(c, pal, tint, ok)
 		v.part(c, pal, tree.Root, true, send)
 	})
 	v.forget()
@@ -589,9 +599,17 @@ func (v *pluginView) picture(src pluginSource) *ui.Bitmap {
 		v.pictures[key] = pic
 		fetch, invalidate := v.fetch, v.invalidate
 		go func() {
-			bm, _, err := fetch(src)
+			bm, img, err := fetch(src)
+			var tint ui.Color
+			tinted := err == nil && img != nil
+			if tinted {
+				// The picture's color is read here, off the UI
+				// goroutine, once for this picture.
+				tint = pluginDominantColor(img)
+			}
 			v.mu.Lock()
 			pic.bm, pic.failed, pic.loading = bm, err != nil, false
+			pic.tint, pic.tinted = tint, tinted
 			v.mu.Unlock()
 			if invalidate != nil {
 				invalidate()
@@ -601,6 +619,19 @@ func (v *pluginView) picture(src pluginSource) *ui.Bitmap {
 	bm := pic.bm
 	v.mu.Unlock()
 	return bm
+}
+
+// pictureTint returns the color the picture was read for, once it is
+// loaded.
+func (v *pluginView) pictureTint(src pluginSource) (ui.Color, bool) {
+	key := src.url + "\x00" + src.data
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	pic := v.pictures[key]
+	if pic == nil || pic.loading || !pic.tinted {
+		return ui.Transparent, false
+	}
+	return pic.tint, true
 }
 
 // pluginMaxImageBytes keeps a huge picture from being fetched whole.
