@@ -494,6 +494,9 @@ func (a *App) sessionMenu(m *ui.Menu, s *proto.Session) {
 	if a.menuShortcut(m.Item(locales.SessionRename()), "session.rename").Chosen() {
 		a.startRename(id)
 	}
+	if m.Item(a.silenceTitle(id)).Chosen() {
+		a.defer_(func() { a.toggleSilence(id) })
+	}
 	if s.Status == proto.Exited {
 		if m.Item(locales.CommonRestart()).Chosen() {
 			a.restartSession(id)

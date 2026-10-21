@@ -323,7 +323,7 @@ type Project struct {
 type Pane struct {
 	ID string `json:"id"`
 	// View is what the pane shows: "" a terminal, else a view of the
-	// app's: PaneTasks, PaneFiles or PaneBrowser.
+	// app's: PaneTasks, PaneFiles, PaneBrowser or PaneAttention.
 	View string `json:"view,omitempty"`
 	// Target is what a view shows: the file or folder of a files pane,
 	// the address of a browser's page.
@@ -384,13 +384,14 @@ type Pane struct {
 
 // The panes that are views of the app's, not terminals.
 const (
-	PaneTasks   = "tasks"   // the Linear issues of the session's project
-	PaneFiles   = "files"   // the project's files, and one file read
-	PaneBrowser = "browser" // a web page
+	PaneTasks     = "tasks"     // the Linear issues of the session's project
+	PaneFiles     = "files"     // the project's files, and one file read
+	PaneBrowser   = "browser"   // a web page
+	PaneAttention = "attention" // what needs the user, of every session
 )
 
 // PaneViews are the views a pane can be.
-var PaneViews = []string{PaneTasks, PaneFiles, PaneBrowser}
+var PaneViews = []string{PaneTasks, PaneFiles, PaneBrowser, PaneAttention}
 
 // IsView tells a pane that is a view of the app's, not a terminal.
 func (p *Pane) IsView() bool { return p.View != "" }
@@ -441,6 +442,16 @@ type Attention struct {
 	// Pane is the pane the state comes from.
 	Pane string `json:"pane,omitempty"`
 }
+
+// The states an Attention can be in, from the most urgent down: the order
+// an attention pane lists its rows in.
+const (
+	AttentionWaitingUser = "waiting-user" // asks of the user
+	AttentionRunning     = "running"      // work under way
+	AttentionUnread      = "unread"       // ended, not seen
+	AttentionDone        = "done"         // ended, seen
+	AttentionIdle        = "idle"         // at rest
+)
 
 // PaneByID returns a pane of the session, or nil.
 func (s *Session) PaneByID(id string) *Pane {
@@ -786,7 +797,8 @@ type (
 		Ratio     float64 `json:"ratio,omitempty"`
 
 		// View makes the pane a view of the app's, which runs nothing:
-		// PaneTasks, PaneFiles or PaneBrowser, showing Target.
+		// PaneTasks, PaneFiles, PaneBrowser or PaneAttention, showing
+		// Target.
 		View   string `json:"view,omitempty"`
 		Target string `json:"target,omitempty"`
 

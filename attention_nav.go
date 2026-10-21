@@ -13,10 +13,6 @@ import (
 // one state, folded by kerod from its panes (proto.Attention); the pane
 // that showed it is what the user goes to.
 
-// attentionWaitingUser is the state that asks for the user, which
-// `attention.next-blocked` cycles.
-const attentionWaitingUser = "waiting-user"
-
 // blockedSessions returns the sessions waiting on the user, in the order
 // `attention.next-blocked` visits them: the longest wait first, and of two
 // waiting as long, by the session's id, so that a press never depends on
@@ -25,7 +21,7 @@ func (a *App) blockedSessions() []*proto.Session {
 	var out []*proto.Session
 	for i := range a.st.Sessions {
 		s := &a.st.Sessions[i]
-		if s.Attention != nil && s.Attention.State == attentionWaitingUser {
+		if s.Attention != nil && s.Attention.State == proto.AttentionWaitingUser {
 			out = append(out, s)
 		}
 	}

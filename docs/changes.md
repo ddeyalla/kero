@@ -54,15 +54,16 @@ Automation: `kero linear status|board|issue|set-state|comment`, `kero link`.
 ## Panes that show anything
 
 A pane is a terminal or a view: **Tasks** (the project's Linear issues, one
-per session), **Files** (the folder as a tree, with files read beside it) or
+per session), **Files** (the folder as a tree, with files read beside it),
 **Browser** (a web page in the system's web view, most often the dev
-server). `Cmd+Alt+N` or the pane header's **+** opens a chooser; `T`, `L`,
-`E` and `B` pick, and Shift with any of them opens the pane below rather than
-beside. `Cmd+Alt+T/L/E/B` open each directly, and **Show in This Pane**
+server) or **Attention** (every session that needs you, one list).
+`Cmd+Alt+N` or the pane header's **+** opens a chooser; `T`, `L`,
+`E`, `B` and `A` pick, and Shift with any of them opens the pane below rather than
+beside. `Cmd+Alt+T/L/E/B/A` open each directly, and **Show in This Pane**
 turns an existing pane into another kind. What a view shows is the pane's
 Target, which kerod keeps, so it opens again after a restart. Agents open
-views with `kero split --browser 5173`, `--files --open docs/plan.md` or
-`--tasks`.
+views with `kero split --browser 5173`, `--files --open docs/plan.md`,
+`--tasks` or `--attention`.
 
 - **Files**: folders are read off the main thread and refreshed with git's
   changes every few seconds. Markdown renders, and links to its headings or
@@ -74,6 +75,8 @@ views with `kero split --browser 5173`, `--files --open docs/plan.md` or
   only. In a focused Browser pane, `Cmd+L` selects the address, `Cmd+=`,
   `Cmd+-` and `Cmd+0` zoom the page, and `Cmd+R` reloads it rather than
   renaming the session.
+- **Attention**: the sessions that need you, from the state kerod folds
+  (below), with the pane each came from; a row opens that pane.
 - **Layout**: panes keep at least 280×150 points, and a split without room
   is refused. Double-clicking a divider, or `Cmd+Ctrl+=`, makes the panes
   even. New panes grow in and closing ones give their room back; terminal
@@ -82,7 +85,7 @@ views with `kero split --browser 5173`, `--files --open docs/plan.md` or
 Code: [`pane_chooser.go`](../pane_chooser.go),
 [`pane_views.go`](../pane_views.go), [`files_pane.go`](../files_pane.go),
 [`browser_pane.go`](../browser_pane.go), [`tasks_pane.go`](../tasks_pane.go),
-[`panes.go`](../panes.go).
+[`attention_pane.go`](../attention_pane.go), [`panes.go`](../panes.go).
 
 ## Agent-reported status
 
@@ -252,6 +255,123 @@ Code: [`attention_nav.go`](../attention_nav.go), `actions.go` (`run`),
 [`linear_detail.go`](../linear_detail.go) (`linearSession`, `linearRun`).
 Tests: `attention_nav_test.go` (cycle order and wrap, no session waiting,
 a zoomed session, a closed pane, the issue detail's jump).
+
+## The Attention pane
+
+The **Attention** pane shows what needs the user, of every session, in one
+list. It reads `Session.Attention` as kerod sends it and holds no state of
+its own beyond the list: it runs nothing in the daemon, so it needs no
+protocol change, and a kerod that does not send the state leaves the list
+empty rather than breaking it. Its own state — the filter, the search,
+where it is scrolled to — is the app's, one per pane (`App.attention`,
+`attention_pane.go`). The pane itself is a view as Tasks, Files and
+Browser are: kerod keeps it and its Target across a restart.
+
+A row says the state's mark and name, the session's name and its project,
+the agent, the line the state came with, and how long it has been so
+(`ago`). Rows are the sessions of the sidebar's order, the most urgent
+first — `waiting-user`, `running`, `unread`, `done`, `idle`, the daemon's
+order — and of two as urgent, the one whose state came last. A click
+selects the session and puts the keyboard in the pane the state came from
+(`Attention.Pane`), where the decision is; it does not zoom, so the panes
+beside it stay in sight.
+
+The chips narrow the list to a state and count what each shows: **All**,
+**Needs you**, **Working**, **Unread**, **Done**. The copy is the app's
+own, as the sidebar and the footer say it: `waiting-user` is **Needs
+you**. Idle sessions, at rest, have no chip: they are in **All**, last.
+The search finds what a row says — its name, project, agent, message and
+state — as plain text, and Escape clears it.
+
+An approval shows the hook's own words. Codex has no permission hook, so
+its wait comes from the transcript scan (above) and may carry no message
+from the agent: where the message is absent, the row says **Focus pane to
+approve** instead of nothing, since the approval is in the pane. A hook's
+message is shown exactly as the hook sent it.
+
+Code: [`attention_pane.go`](../attention_pane.go) (`attentionPane`,
+`attentionRows`, `gotoAttention`, `attentionSummary`),
+[`pane_views.go`](../pane_views.go) (`viewPane`), [`app.go`](../app.go)
+(`App.attention`), [`internal/cli/cli.go`](../internal/cli/cli.go)
+(`--attention`). Tests: `attention_pane_test.go`.
+
+## SF Symbols
+
+MyGo draws icons from SVG, and the app's icons are its own set
+(`icons.go`). An icon the app adds now is the system's, drawn by macOS
+through AppKit: an SF Symbol, so it matches the marks the menu bar,
+Settings and the system apps show.
+
+`symbolImage(name, points, tint, dark)` (`symbols_darwin.go`) asks
+`NSImage` for the symbol, configures it for its point size, draws it into
+an `NSBitmapImageRep` for the light or dark appearance under
+`performAsCurrentDrawingAppearance:`, tints its pixels through their alpha
+and returns a `ui.Bitmap`, which `ui.Image` shows as any other. AppKit is
+reached through purego's Objective-C runtime, as the title bar is
+(`title_bar_darwin.go`), so there is no cgo; AppKit is loaded on first use,
+which a test binary has not done.
+
+A symbol is drawn twice its size in points and shown at half it, so it
+stays crisp on the app's screens, and it is drawn once per name, size,
+tint and appearance: `symbolCache` holds the bitmap, so no frame draws a
+symbol again. On a system without symbols (`symbols_other.go`) it is nil,
+and the mark that asked for it draws nothing.
+
+`symbolMark` ([`icons.go`](../icons.go)) shows one; `paneViewMark`
+([`pane_views.go`](../pane_views.go)) picks a view's symbol or its icon.
+The Attention pane's mark and its rows' states are symbols:
+`bell.badge`, `hand.raised.fill`, `arrow.triangle.2.circlepath`,
+`checkmark.circle.fill`, `checkmark.circle` and `circle`. The app's older
+icons stay SVG, as they are. Tests: `symbols_test.go`.
+
+## Notifications from attention
+
+The app tells of a session by comparing the attention kerod folded
+(`Session.Attention`) with the fold before it, in
+[`attention_notify.go`](../attention_notify.go) (`attentionWatch`, `foldOf`):
+
+- a session that comes to `waiting-user` tells once, and so does one that
+  comes to `unread` (a turn ended unseen). A return to `running` tells
+  nothing: it clears, as `done` and `idle` tell nothing;
+- one notification per change of state, not per line of output. The state
+  is what changes, and the same session and state inside
+  `notify-throttle-minutes` (five by default, `0` for no throttle) is
+  counted silently, so a chatty agent's loop does not fill Notification
+  Center. A turn that begins again after the window tells again;
+- an unseen end whose pane failed keeps the error's title and body, and
+  `notify-on-error` decides it; `notify-on-waiting` and `notify-on-done`
+  decide the rest, as they did. The sound, the Dock badge and the bounce
+  stay as they were; the badge counts the sessions whose fold waits
+  (`waiting-user`), not a pane's status.
+
+Focus is the only filter: the session the user is in, in a window in
+front, tells nothing. The watch itself knows nothing of windows or
+profiles — it is handed every session the daemon holds, so a session in a
+profile the user is not looking at still tells. That is the global rule
+the profiles of `feat/profiles-a1` will need; no profiles code is built
+here, and a later filter must not hide a session's attention from this
+watch.
+
+A session can be silenced: **Session › Silence Notifications**, the
+session's context menu, or `kero do session.silence` turns its
+notifications off until the user resumes them. The list is saved with the
+settings (`silence-session`) and survives a restart of the app. A silenced
+session tells nothing; once resumed, its next turn tells, inside the same
+throttle window. A daemon of before the `Attention` field says none, so
+`foldOf` reads the fold from the session's lead pane: nothing goes quiet
+in that window.
+
+What a notification says is the session's name and one line of what it
+needs — the fold's `Msg`, which is the hook's or the screen's line, cut to
+80 bytes by kerod — or the agent and the folder when the fold has none.
+Nothing more of the conversation is read for it, and no credential goes in
+it.
+
+Code: [`attention_notify.go`](../attention_notify.go) (`attentionWatch`,
+`foldOf`), [`app.go`](../app.go) (`notify`, `tell`, `toggleSilence`),
+[`internal/settings`](../internal/settings/config.go) (`notify-throttle-minutes`,
+`silence-session`).
+Tests: `attention_notify_test.go`, `internal/settings/config_test.go`.
 
 ## Status indicators
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 
 	"kero/internal/proto"
@@ -60,8 +61,14 @@ type Settings struct {
 	NotifyDone    bool `json:"notifyDone"`    // an agent finished
 	NotifyFailed  bool `json:"notifyFailed"`  // a program reported it failed
 	NotifySound   bool `json:"notifySound"`
-	DockBadge     bool `json:"dockBadge"`
-	BounceDock    bool `json:"bounceDock"`
+	// NotifyThrottle is how many minutes the same session and state stays
+	// quiet after it told: 0 tells every transition.
+	NotifyThrottle int `json:"notifyThrottle"`
+	// SilencedSessions are the sessions whose notifications the user
+	// turned off, by their id.
+	SilencedSessions []string `json:"silencedSessions,omitempty"`
+	DockBadge        bool     `json:"dockBadge"`
+	BounceDock       bool     `json:"bounceDock"`
 
 	// Agents
 	RemoteControl bool `json:"remoteControl"` // kero focus and kero do drive the app
@@ -107,6 +114,7 @@ func Default() Settings {
 		NotifyWaiting:   true,
 		NotifyDone:      true,
 		NotifyFailed:    true,
+		NotifyThrottle:  5,
 		DockBadge:       true,
 		RemoteControl:   true,
 		AgentHooks:      true,
@@ -255,6 +263,7 @@ func (s Settings) Clone() Settings { return clone(s) }
 
 func clone(s Settings) Settings {
 	s.Env = append([]string(nil), s.Env...)
+	s.SilencedSessions = append([]string(nil), s.SilencedSessions...)
 	if s.Shortcuts != nil {
 		m := make(map[string]string, len(s.Shortcuts))
 		for k, v := range s.Shortcuts {
@@ -308,10 +317,34 @@ func (s *Settings) normalize() {
 	if s.Scrollback < 0 || s.Scrollback > 256 {
 		s.Scrollback = d.Scrollback
 	}
+	if s.NotifyThrottle < 0 || s.NotifyThrottle > 60 {
+		s.NotifyThrottle = d.NotifyThrottle
+	}
+	s.SilencedSessions = cleanSessions(s.SilencedSessions)
 	if s.LightTheme == "" {
 		s.LightTheme = d.LightTheme
 	}
 	if s.DarkTheme == "" {
 		s.DarkTheme = d.DarkTheme
 	}
+}
+
+// cleanSessions keeps a list of session ids as the one form of them: each
+// once, with none empty, as the settings file and the app's toggle may say
+// it.
+func cleanSessions(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
 }

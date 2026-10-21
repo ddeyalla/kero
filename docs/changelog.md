@@ -26,6 +26,21 @@ builds only. What each feature is and where it stands is tracked in the
   needs, the mirror of the attention pane's way back to the issue. It
   reads `Session.Attention`, so it needs the service restart noted below;
   a daemon of before cycles nothing, and no state is saved for it.
+- An **Attention** pane: every session that needs the user, in one list,
+  the most urgent first — what it is doing or asking, the session and its
+  project, the agent, the line that came with it, and how long it has been
+  so. A row puts the keyboard in the pane the state came from, where the
+  decision is, without zooming. Chips narrow it to **Needs you**,
+  **Working**, **Unread** or **Done** and count each; a plain-text search
+  finds a row by its words. A Codex wait whose message the agent did not
+  give says **Focus pane to approve** rather than nothing. `Cmd+Alt+A`,
+  the New Pane chooser's `A`, or `kero split --attention`. It reads the
+  attention state kerod already sends, so it needs no protocol change, and
+  it keeps the filter and search while the pane is open.
+- New icons are SF Symbols, drawn by macOS through AppKit and cached as
+  bitmaps, so they match the system at any size and in the light and the
+  dark (`symbols_darwin.go`). The Attention pane's mark and its rows'
+  states are the first. No cgo.
 - kerod keeps one attention state for every session — running,
   waiting-user, unread, done or idle — folded from its panes: the most
   urgent of them, one line of what it says, the pane it came from and the
@@ -39,6 +54,16 @@ builds only. What each feature is and where it stands is tracked in the
   permission-prompt hook, so this scan is its fallback for approvals.
   **Restart the terminal service once** (when agents are idle) for the
   state to carry it; until then nothing changes for the app.
+- Notifications now follow that attention: a session that comes to need you
+  (`waiting-user`) or ends unseen (`unread`) tells once, a return to work
+  tells nothing, and the same session and state inside five minutes is
+  counted silently, so a chatty agent's loop does not fill Notification
+  Center (`notify-throttle-minutes`). Every session kerod holds is watched,
+  so a session outside the window or profile you look at still tells.
+  Session › Silence Notifications (or a session's context menu) turns one
+  session's notifications off until you resume it (`kero do
+  session.silence`); the choice is saved (`silence-session`). Unseen ends
+  that failed keep the error's title and `notify-on-error`.
 - Accent presets: six hand-tuned themes of the app's own colors — Blue (the
   one it has had), Plum, Rose, Sea, Moss and Graphite. Each is an accent
   color in the light and in the dark, the background wash that comes with

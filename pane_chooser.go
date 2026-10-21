@@ -30,6 +30,7 @@ var paneKinds = []paneKind{
 	{proto.PaneTasks, "pane.new.tasks", ui.KeyL, "L"},
 	{proto.PaneFiles, "pane.new.files", ui.KeyE, "E"},
 	{proto.PaneBrowser, "pane.new.browser", ui.KeyB, "B"},
+	{proto.PaneAttention, "pane.new.attention", ui.KeyA, "A"},
 }
 
 // paneKindDetail says what a kind of pane is for.
@@ -41,6 +42,8 @@ func paneKindDetail(view string) string {
 		return locales.PaneFilesDetail()
 	case proto.PaneBrowser:
 		return locales.PaneBrowserDetail()
+	case proto.PaneAttention:
+		return locales.PaneAttentionDetail()
 	}
 	return locales.PaneTerminalDetail()
 }
@@ -181,7 +184,7 @@ func (a *App) chooserView(c *ui.Context, pal *palette) {
 			}
 			row.Children(func() {
 				ui.Box(c).Size(30, 30).Radius(8).Background(pal.kbd).Center().Shrink(0).Children(func() {
-					ui.Icon(c, paneViewIcon(k.view)).Size(16, 16).TextColor(pal.textMuted)
+					paneViewMark(c, k.view, 16, pal.textMuted, pal.dark)
 				})
 				ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
 					ui.Text(c, paneViewName(k.view)).FontSize(13.5).FontWeight(600).TextColor(pal.text).SingleLine()

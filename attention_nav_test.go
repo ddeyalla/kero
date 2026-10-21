@@ -36,7 +36,7 @@ func waitingSession(a *App, id string, since int64) {
 	a.st.Sessions = append(a.st.Sessions, proto.Session{
 		ID: id, Project: "p1", Name: id, Focus: id + "-pane",
 		Panes:     []proto.Pane{{ID: id + "-pane", Shell: "zsh", Dir: "/tmp", Status: proto.Waiting, Progress: -1}},
-		Attention: &proto.Attention{State: attentionWaitingUser, Since: since, Pane: id + "-pane", Msg: "May I run it?"},
+		Attention: &proto.Attention{State: proto.AttentionWaitingUser, Since: since, Pane: id + "-pane", Msg: "May I run it?"},
 	})
 }
 
@@ -45,7 +45,7 @@ func waitingSession(a *App, id string, since int64) {
 // waits too, goes on from where it went last, and wraps.
 func TestAttentionCycleOrder(t *testing.T) {
 	a := testApp(t)
-	a.st.Sessions[0].Attention = &proto.Attention{State: attentionWaitingUser, Since: 300, Pane: "b", Msg: "Approve the plan?"}
+	a.st.Sessions[0].Attention = &proto.Attention{State: proto.AttentionWaitingUser, Since: 300, Pane: "b", Msg: "Approve the plan?"}
 	waitingSession(a, "s2", 100)
 	waitingSession(a, "s3", 200)
 	// A session at work does not wait for anyone, and is never visited.
@@ -147,7 +147,7 @@ func TestAttentionNothingBlocked(t *testing.T) {
 func TestAttentionFocusWithZoom(t *testing.T) {
 	a := testApp(t)
 	s := a.session("s1")
-	s.Attention = &proto.Attention{State: attentionWaitingUser, Since: 1, Pane: "b", Msg: "Approve the migration"}
+	s.Attention = &proto.Attention{State: proto.AttentionWaitingUser, Since: 1, Pane: "b", Msg: "Approve the migration"}
 	s.Zoomed = "a"
 	tt := ui.NewTester(a.view, 1100, 640)
 	frames(tt)
@@ -199,7 +199,7 @@ func TestAttentionFocusFallsBack(t *testing.T) {
 func TestLinearIssueOpensAttentionPane(t *testing.T) {
 	a := testLinear(t)
 	testDetail(a)
-	a.session("s1").Attention = &proto.Attention{State: attentionWaitingUser, Since: time.Now().UnixMilli(), Pane: "b", Msg: "Approve the migration"}
+	a.session("s1").Attention = &proto.Attention{State: proto.AttentionWaitingUser, Since: time.Now().UnixMilli(), Pane: "b", Msg: "Approve the migration"}
 	tt := ui.NewTester(a.view, 1280, 760)
 	frames(tt)
 	if err := tt.Click("Open the session"); err != nil {
