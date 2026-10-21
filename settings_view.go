@@ -963,6 +963,14 @@ func (a *App) notificationsPage(c *ui.Context, pal *palette) {
 		})
 	})
 	settingsGroup(c, pal, locales.SetHow(), "", func() {
+		settingRow(c, pal, locales.SetNotifyThrottle(), locales.SetNotifyThrottleDetail(), func() {
+			minutes := []int{0, 1, 2, 5, 10, 30}
+			if !slices.Contains(minutes, s.NotifyThrottle) {
+				minutes = append(minutes, s.NotifyThrottle)
+				slices.Sort(minutes)
+			}
+			popup(c, "notify-throttle", &s.NotifyThrottle, minutes, notifyThrottleName, 130, pal)
+		})
 		settingRow(c, pal, locales.SetPlaySound(), "", func() { toggle(c.Key("ns"), &s.NotifySound, pal) })
 		settingRow(c, pal, locales.SetDockBadge(), locales.SetDockBadgeDetail(), func() { toggle(c.Key("nb"), &s.DockBadge, pal) })
 		settingRow(c, pal, locales.SetDockBounce(), locales.SetDockBounceDetail(), func() { toggle(c.Key("nbo"), &s.BounceDock, pal) })
@@ -978,6 +986,15 @@ func (a *App) notificationsPage(c *ui.Context, pal *palette) {
 			}
 		}()
 	}
+}
+
+// notifyThrottleName is how long the same session and state stays quiet,
+// as the pop-up names it: "Off", "5 minutes".
+func notifyThrottleName(minutes int) string {
+	if minutes == 0 {
+		return locales.SetNotifyThrottleOff()
+	}
+	return locales.SetNotifyThrottleMinutes(minutes)
 }
 
 func (a *App) agentsPage(c *ui.Context, pal *palette) {

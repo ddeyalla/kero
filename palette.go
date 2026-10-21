@@ -57,7 +57,7 @@ func (a *App) paletteItems() []paletteItem {
 	var cmds []paletteItem
 	for _, act := range actions.All {
 		id := act.ID
-		cmds = append(cmds, paletteItem{title: strings.TrimSuffix(actionTitle(act.ID), "…"), keys: actions.Glyphs(actions.Keys(act, a.set.Shortcuts)),
+		cmds = append(cmds, paletteItem{title: strings.TrimSuffix(a.actionLabel(act.ID), "…"), keys: actions.Glyphs(actions.Keys(act, a.set.Shortcuts)),
 			run: func() { a.run(id, map[string]string{"via": "palette"}) }})
 	}
 	for _, page := range settingsPages {

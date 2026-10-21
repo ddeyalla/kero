@@ -25,6 +25,16 @@ builds only. What each feature is and where it stands is tracked in the
   permission-prompt hook, so this scan is its fallback for approvals.
   **Restart the terminal service once** (when agents are idle) for the
   state to carry it; until then nothing changes for the app.
+- Notifications now follow that attention: a session that comes to need you
+  (`waiting-user`) or ends unseen (`unread`) tells once, a return to work
+  tells nothing, and the same session and state inside five minutes is
+  counted silently, so a chatty agent's loop does not fill Notification
+  Center (`notify-throttle-minutes`). Every session kerod holds is watched,
+  so a session outside the window or profile you look at still tells.
+  Session › Silence Notifications (or a session's context menu) turns one
+  session's notifications off until you resume it (`kero do
+  session.silence`); the choice is saved (`silence-session`). Unseen ends
+  that failed keep the error's title and `notify-on-error`.
 - Accent presets: six hand-tuned themes of the app's own colors — Blue (the
   one it has had), Plum, Rose, Sea, Moss and Graphite. Each is an accent
   color in the light and in the dark, the background wash that comes with

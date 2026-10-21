@@ -111,9 +111,13 @@ type App struct {
 	layoutDirty string                // a session whose divider is dragged
 	viewSent    *string
 
-	active   bool
-	focused  bool
-	statuses map[string]proto.Status // as last seen, for notifications
+	active  bool
+	focused bool
+	// watch turns the sessions' attention into notifications
+	// (attention_notify.go), and deliver shows one: a test's stub, else
+	// the system's notification.
+	watch   *attentionWatch
+	deliver func(id, title, body string)
 
 	// windowBar is the title bar as it last was in the window, which
 	// titleBar keeps in full screen, where the traffic lights are the
@@ -197,9 +201,11 @@ type confirmation struct {
 }
 
 func newApp() *App {
-	a := &App{terms: map[string]*termEntry{}, statuses: map[string]proto.Status{}, active: true, focused: true,
+	a := &App{terms: map[string]*termEntry{}, active: true, focused: true,
 		refs: map[string]*ui.Handle{}, focus: map[string]string{}, arrived: map[string]bool{},
 		hoverSeen: map[string]bool{}, hoverUntil: map[string]time.Time{}, opening: map[string]int{}}
+	a.watch = newAttentionWatch()
+	a.deliver = a.showNotification
 	a.lin = &a.linRoot
 	a.loadPrefs()
 	a.set = settings.Load()
@@ -407,49 +413,20 @@ func (a *App) showNotification(id, title, body string) {
 	go n.Show()
 }
 
-// notify tells about sessions that came to need the user, or finished,
-// while the user was elsewhere: a notification, and the Dock's badge.
+// notify tells about the sessions that came to need the user, or ended
+// unseen, and badges the Dock with how many wait. The transitions are the
+// daemon's attention fold (attention_notify.go): every session the daemon
+// holds is watched, so a session in a profile the user is not looking at
+// still tells.
 func (a *App) notify(first bool) {
 	waiting := 0
 	for i := range a.st.Sessions {
-		s := &a.st.Sessions[i]
-		prev, seen := a.statuses[s.ID]
-		a.statuses[s.ID] = s.Status
-		if s.Status == proto.Waiting {
+		if foldOf(&a.st.Sessions[i]).State == attentionWaitingUser {
 			waiting++
 		}
-		if first || !seen || prev == s.Status || s.ID == a.selected && a.active {
-			continue
-		}
-		var title, body string
-		switch {
-		case s.Status == proto.Waiting && a.set.NotifyWaiting:
-			title, body = locales.NotifyNeedsYouTitle(s.DisplayName(a.set.SessionName)), s.Message
-			if body == "" {
-				body = locales.NotifyWaitingBody()
-			}
-		case s.Status == proto.Failed && a.set.NotifyFailed:
-			title, body = locales.NotifyFailedTitle(s.DisplayName(a.set.SessionName)), s.Message
-			if body == "" {
-				body = locales.NotifyFailedBody(s.PaneName())
-			}
-		case s.Status == proto.Idle && prev == proto.Working && s.Unread && a.set.NotifyDone && (s.Agent != "" || s.Message != ""):
-			title, body = locales.NotifyDoneTitle(s.DisplayName(a.set.SessionName)), s.Message
-			if body == "" {
-				body = locales.NotifyDoneBody(s.Agent, proto.ShortDir(s.WorkDir()))
-			}
-		default:
-			continue
-		}
-		if a.set.BounceDock && (s.Status == proto.Waiting || s.Status == proto.Failed) {
-			mygo.App.Dock.Bounce(false)
-		}
-		a.showNotification(s.ID, title, body)
 	}
-	for id := range a.statuses {
-		if a.session(id) == nil {
-			delete(a.statuses, id)
-		}
+	for _, e := range a.watch.watch(a.st.Sessions, first, a.silencedSet(), a.notifyWindow()) {
+		a.tell(e)
 	}
 	if !a.set.DockBadge {
 		waiting = 0
@@ -458,6 +435,105 @@ func (a *App) notify(first bool) {
 	// waits on the main loop, which a test has not.
 	if a.win != nil {
 		mygo.App.SetBadgeCount(waiting)
+	}
+}
+
+// tell shows one session's notification, if the user asked for its kind
+// and is not looking at it. Its title and body say the session and one
+// line of what it needs, as the fold worded it: no prompt text beyond what
+// the hooks sent, and never a credential.
+func (a *App) tell(e attentionEvent) {
+	s := a.session(e.Session)
+	if s == nil {
+		return
+	}
+	// The user is in it and the app is in front: it needs no telling.
+	// Focus is the only filter, never a profile or a hidden window.
+	if s.ID == a.selected && a.active {
+		return
+	}
+	name := s.DisplayName(a.set.SessionName)
+	var title, body string
+	switch {
+	case e.State == attentionWaitingUser && a.set.NotifyWaiting:
+		title, body = locales.NotifyNeedsYouTitle(name), e.Msg
+		if body == "" {
+			body = locales.NotifyWaitingBody()
+		}
+	case e.State == attentionUnread && e.Failed && a.set.NotifyFailed:
+		title, body = locales.NotifyFailedTitle(name), e.Msg
+		if body == "" {
+			body = locales.NotifyFailedBody(s.PaneName())
+		}
+	case e.State == attentionUnread && !e.Failed && a.set.NotifyDone:
+		title, body = locales.NotifyDoneTitle(name), e.Msg
+		if body == "" {
+			body = locales.NotifyDoneBody(s.Agent, proto.ShortDir(s.WorkDir()))
+		}
+	default:
+		return
+	}
+	if a.set.BounceDock && (e.State == attentionWaitingUser || e.Failed) {
+		mygo.App.Dock.Bounce(false)
+	}
+	a.deliver(s.ID, title, body)
+}
+
+// silencedSet is the sessions whose notifications the user turned off.
+func (a *App) silencedSet() map[string]bool {
+	if len(a.set.SilencedSessions) == 0 {
+		return nil
+	}
+	m := make(map[string]bool, len(a.set.SilencedSessions))
+	for _, id := range a.set.SilencedSessions {
+		m[id] = true
+	}
+	return m
+}
+
+// silenced tells whether the user turned off a session's notifications.
+func (a *App) silenced(id string) bool {
+	return slices.Contains(a.set.SilencedSessions, id)
+}
+
+// notifyWindow is how long a session's same state stays quiet after it
+// told, as the user set it: 0 for no throttle.
+func (a *App) notifyWindow() time.Duration {
+	return time.Duration(a.set.NotifyThrottle) * time.Minute
+}
+
+// silenceTitle is the mute toggle's row, as the session's state makes it:
+// silencing, or resuming.
+func (a *App) silenceTitle(id string) string {
+	if a.silenced(id) {
+		return locales.SessionResumeNotifications()
+	}
+	return locales.SessionSilenceNotifications()
+}
+
+// toggleSilence silences a session's notifications, or resumes them. The
+// choice is saved with the settings, so a silenced session stays quiet
+// until the user says otherwise, over a restart of the app too.
+func (a *App) toggleSilence(id string) {
+	s := a.session(id)
+	if s == nil {
+		return
+	}
+	next := slices.Clone(a.set.SilencedSessions)
+	i := slices.Index(next, id)
+	off := i < 0
+	if off {
+		next = append(next, id)
+	} else {
+		next = slices.Delete(next, i, i+1)
+	}
+	a.set.SilencedSessions = next
+	a.applySettings(a.set)
+	name := s.DisplayName(a.set.SessionName)
+	if off {
+		a.toast(locales.ToastSessionSilenced(name))
+	} else {
+		a.toast(locales.ToastSessionResumed(name))
 	}
 }
 
