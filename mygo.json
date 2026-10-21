@@ -8,6 +8,11 @@
     "dir": "locales",
     "source": "en"
   },
+  "macos": {
+    "infoPlist": {
+      "NSAppleEventsUsageDescription": "Shibu Code reads and controls Spotify so that its Spotify pane can show the current track and its controls can play, skip, seek and change the volume."
+    }
+  },
   "updates": {
     "publicKey": "lvIPmYoLetZy3sgdXhoMpEZa5ERWc9TsZzpXOA8tL88=",
     "github": "ddeyalla/kero",
