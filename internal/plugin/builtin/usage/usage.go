@@ -46,6 +46,7 @@ const (
 type plugin struct {
 	src                     Source
 	usageEvery, sampleEvery time.Duration
+	clock                   func() time.Time
 
 	mu        sync.Mutex
 	conn      *sdk.Conn
@@ -55,6 +56,13 @@ type plugin struct {
 	sample    resources.Sample
 	sampleErr string
 	loading   bool
+
+	// lastRead is when the accounts were last asked for, and refreshing
+	// tells that a read is still out. A pane shown again waits out the rest
+	// of usageEvery from lastRead, so that switching tabs does not read the
+	// accounts each time.
+	lastRead   time.Time
+	refreshing bool
 
 	running bool
 	cancel  context.CancelFunc
@@ -91,6 +99,7 @@ func newPlugin(src Source) *plugin {
 		src:         src,
 		usageEvery:  refreshEvery,
 		sampleEvery: sampleEvery,
+		clock:       time.Now,
 		panes:       map[string]*pane{},
 		reports:     src.Providers(),
 		wake:        make(chan struct{}, 1),
@@ -201,52 +210,84 @@ func (p *plugin) event(_ *sdk.Conn, e protocol.EventParams) {
 
 // loop reads while at least one pane is visible: the accounts every two
 // minutes, the machine every two seconds, and both at once when the refresh
-// button asks for them. The host cancels it when the last visible pane goes
-// away or the plugin closes.
+// button asks for them. A pane is hidden whenever a frame does not draw it,
+// so a loop that starts again keeps the accounts' two minutes from the last
+// read; only the button reads them sooner. The machine's sampler starts
+// afresh, so the first CPU reading is not an average over the hidden span.
+// The host cancels the loop when the last visible pane goes away or the
+// plugin closes.
 func (p *plugin) loop(ctx context.Context) {
-	usageTick := time.NewTicker(p.usageEvery)
+	p.src.ResetSample()
+	usageTimer := time.NewTimer(p.usageWait())
 	sampleTick := time.NewTicker(p.sampleEvery)
-	defer usageTick.Stop()
+	defer usageTimer.Stop()
 	defer sampleTick.Stop()
 
-	p.refreshUsage(ctx)
 	p.sampleOnce(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-usageTick.C:
-			p.refreshUsage(ctx)
+		case <-usageTimer.C:
+			p.startRefresh(ctx)
+			usageTimer.Reset(p.usageEvery)
 		case <-sampleTick.C:
 			p.sampleOnce(ctx)
 		case <-p.wake:
-			p.refreshUsage(ctx)
+			p.startRefresh(ctx)
 			p.sampleOnce(ctx)
+			usageTimer.Reset(p.usageEvery)
 		}
 	}
 }
 
-// refreshUsage reads the accounts off the lock, then draws what it read. A
-// read that finishes after the panes went away is dropped.
-func (p *plugin) refreshUsage(ctx context.Context) {
+// usageWait is how long a loop that starts waits before it reads the
+// accounts: nothing when they were never read or usageEvery has passed, and
+// the rest of usageEvery otherwise.
+func (p *plugin) usageWait() time.Duration {
 	p.mu.Lock()
-	if ctx.Err() != nil || !p.anyVisibleLocked() {
+	defer p.mu.Unlock()
+	if p.lastRead.IsZero() {
+		return 0
+	}
+	return max(p.usageEvery-p.clock().Sub(p.lastRead), 0)
+}
+
+// startRefresh reads the accounts on a goroutine of its own, so that a slow
+// provider does not hold up the machine's bars. One read is out at a time;
+// a tick or a press while it is out is dropped. Only the loop calls it, and
+// the loop's own count in work keeps closeAll waiting for the read too.
+func (p *plugin) startRefresh(ctx context.Context) {
+	p.mu.Lock()
+	if p.refreshing || ctx.Err() != nil || !p.anyVisibleLocked() {
 		p.mu.Unlock()
 		return
 	}
+	p.refreshing = true
+	p.lastRead = p.clock()
 	previous := p.reports
 	p.loading = true
+	p.work.Add(1)
 	p.mu.Unlock()
-	p.renderAll()
+	go func() {
+		defer p.work.Done()
+		p.refreshUsage(ctx, previous)
+	}()
+}
 
+// refreshUsage reads the accounts off the lock, then draws what it read. A
+// read that finishes after the panes went away is dropped, and the head stops
+// saying it is checking.
+func (p *plugin) refreshUsage(ctx context.Context, previous []accountusage.Report) {
+	p.renderAll()
 	installed := p.src.Installed()
 	reports := p.src.Refresh(ctx, previous)
-	if ctx.Err() != nil {
-		return
-	}
 
 	p.mu.Lock()
-	p.reports, p.installed, p.loading = reports, installed, false
+	p.refreshing, p.loading = false, false
+	if ctx.Err() == nil {
+		p.reports, p.installed = reports, installed
+	}
 	p.mu.Unlock()
 	p.renderAll()
 }
@@ -312,7 +353,11 @@ func (p *plugin) visiblePanes() []string {
 // render draws one pane. The connection writes one message at a time, so the
 // frames of the handler loop and a read that just finished take their turn
 // under renderMu.
+// The view is read inside renderMu too, so that a frame read earlier is never
+// sent after a later one.
 func (p *plugin) render(id string) {
+	p.renderMu.Lock()
+	defer p.renderMu.Unlock()
 	v := p.snapshot(id)
 	if v == nil {
 		return
@@ -323,9 +368,7 @@ func (p *plugin) render(id string) {
 	if c == nil {
 		return
 	}
-	p.renderMu.Lock()
 	err := c.Render(id, widgetTree(v, time.Now()))
-	p.renderMu.Unlock()
 	if err != nil && !errors.Is(err, sdk.ErrClosed) {
 		fmt.Fprintln(os.Stderr, "the usage plugin:", err)
 	}

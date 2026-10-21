@@ -776,6 +776,8 @@
   "usagePluginChecking": "Checking…",
   "usagePluginConnect": "Connect",
   "usagePluginUnavailable": "Unavailable",
+  "usagePluginStale": "Last known usage; refresh failed",
+  "usagePluginWeek": "Week",
   "usagePluginUpdated": "Updated {when}",
   "usagePluginLastSuccessful": "Last successful update {when}",
   "usagePluginResetUnavailable": "Reset time unavailable",

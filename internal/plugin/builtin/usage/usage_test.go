@@ -28,6 +28,7 @@ type fakeSource struct {
 	mu        sync.Mutex
 	refreshes int
 	samples   int
+	resets    int
 }
 
 func (f *fakeSource) Providers() []accountusage.Report { return f.reports }
@@ -54,6 +55,18 @@ func (f *fakeSource) Sample() (resources.Sample, error) {
 	sample, err := f.sample, f.sampleErr
 	f.mu.Unlock()
 	return sample, err
+}
+
+func (f *fakeSource) ResetSample() {
+	f.mu.Lock()
+	f.resets++
+	f.mu.Unlock()
+}
+
+func (f *fakeSource) resetCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.resets
 }
 
 func (f *fakeSource) counts() (refreshes, samples int) {
@@ -306,6 +319,179 @@ func TestUsageResumesAfterHideShow(t *testing.T) {
 	})
 	p.setVisible(nil, "pane-1", false)
 	p.work.Wait()
+}
+
+// fakeClock is the plugin's clock in a test, moved by hand.
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) Add(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	c.mu.Unlock()
+}
+
+// showAndHide shows a pane, lets it run a moment, and hides it again.
+func showAndHide(p *plugin, id string) {
+	p.setVisible(nil, id, true)
+	time.Sleep(40 * time.Millisecond)
+	p.setVisible(nil, id, false)
+	p.work.Wait()
+}
+
+// TestUsageKeepsTheIntervalOverHideShow is a tab switch: a pane shown again
+// within the interval does not read the accounts, one shown after it does,
+// and the refresh button still reads them at once.
+func TestUsageKeepsTheIntervalOverHideShow(t *testing.T) {
+	src := &fakeSource{reports: testReports(time.Now()), sample: testSample(time.Now())}
+	clock := &fakeClock{now: time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)}
+	p := newPlugin(src)
+	p.usageEvery, p.sampleEvery = time.Hour, time.Hour
+	p.clock = clock.Now
+	addPane(p, "pane-1", protocol.Size{Width: 300, Height: 200})
+
+	p.setVisible(nil, "pane-1", true)
+	waitFor(t, "the first read", func() bool {
+		refreshes, _ := src.counts()
+		return refreshes == 1
+	})
+	p.setVisible(nil, "pane-1", false)
+	p.work.Wait()
+
+	clock.Add(30 * time.Minute)
+	showAndHide(p, "pane-1")
+	if refreshes, _ := src.counts(); refreshes != 1 {
+		t.Fatalf("a pane shown again within the interval read the accounts: %d reads", refreshes)
+	}
+
+	clock.Add(31 * time.Minute)
+	p.setVisible(nil, "pane-1", true)
+	waitFor(t, "the read after the interval", func() bool {
+		refreshes, _ := src.counts()
+		return refreshes == 2
+	})
+	waitFor(t, "the read to land", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return !p.refreshing
+	})
+
+	p.event(nil, protocol.EventParams{Kind: protocol.KindPress, Node: "usage-refresh"})
+	waitFor(t, "the read the button asks for", func() bool {
+		refreshes, _ := src.counts()
+		return refreshes == 3
+	})
+	p.setVisible(nil, "pane-1", false)
+	p.work.Wait()
+}
+
+// TestUsageSlowReadKeepsSampling is a provider that takes its time: the
+// machine's bars keep moving, and a press while the read is out does not
+// start a second one.
+func TestUsageSlowReadKeepsSampling(t *testing.T) {
+	src := &fakeSource{reports: testReports(time.Now()), sample: testSample(time.Now()), delay: time.Minute}
+	p := newPlugin(src)
+	p.usageEvery, p.sampleEvery = time.Hour, 5*time.Millisecond
+	addPane(p, "pane-1", protocol.Size{Width: 300, Height: 200})
+
+	p.setVisible(nil, "pane-1", true)
+	waitFor(t, "the read to start", func() bool {
+		refreshes, _ := src.counts()
+		return refreshes == 1
+	})
+	p.event(nil, protocol.EventParams{Kind: protocol.KindPress, Node: "usage-refresh"})
+	waitFor(t, "the machine to be sampled while the read is out", func() bool {
+		_, samples := src.counts()
+		return samples >= 4
+	})
+	if refreshes, _ := src.counts(); refreshes != 1 {
+		t.Fatalf("a press while a read was out started another: %d reads", refreshes)
+	}
+
+	// Hiding the pane cancels the slow read, and the head stops checking.
+	p.setVisible(nil, "pane-1", false)
+	p.work.Wait()
+	p.mu.Lock()
+	refreshing, loading := p.refreshing, p.loading
+	p.mu.Unlock()
+	if refreshing || loading {
+		t.Fatalf("a cancelled read left refreshing=%v loading=%v", refreshing, loading)
+	}
+}
+
+// TestUsageResetsTheSamplerOnShow checks that each show starts the CPU
+// sampler afresh, so its first reading is not an average over the hidden
+// span.
+func TestUsageResetsTheSamplerOnShow(t *testing.T) {
+	src := &fakeSource{reports: testReports(time.Now()), sample: testSample(time.Now())}
+	p := newPlugin(src)
+	p.usageEvery, p.sampleEvery = time.Hour, time.Hour
+	addPane(p, "pane-1", protocol.Size{Width: 300, Height: 200})
+
+	showAndHide(p, "pane-1")
+	showAndHide(p, "pane-1")
+	if got := src.resetCount(); got != 2 {
+		t.Fatalf("the sampler was reset %d times over two shows, want 2", got)
+	}
+}
+
+// TestUsageCompactMarksStale is a refresh that failed after a reading: the
+// short form mutes the last percent and says that it is the last known one.
+func TestUsageCompactMarksStale(t *testing.T) {
+	now := time.Now()
+	reports := []accountusage.Report{{
+		ID:      "claude",
+		Name:    "Claude",
+		Windows: []accountusage.Window{{Label: "Weekly", Used: 42}},
+		Checked: now.Add(-time.Hour),
+		Error:   "Rate limited",
+	}}
+	tree := widgetTree(&view{size: protocol.Size{Width: 280, Height: 150}, reports: reports}, now)
+	if err := tree.ValidateTree(); err != nil {
+		t.Fatalf("the tree is invalid: %v", err)
+	}
+	if sum := treeNode(t, tree, "sum-claude"); sum.Text != "42%" || sum.Color != protocol.ColorMuted {
+		t.Errorf("the stale summary is %q in %q, want a muted 42%%", sum.Text, sum.Color)
+	}
+	if got := treeNode(t, tree, "stale-claude"); got.Text != locales.UsagePluginStale() {
+		t.Errorf("the stale caption says %q", got.Text)
+	}
+
+	reports[0].Error = ""
+	tree = widgetTree(&view{size: protocol.Size{Width: 280, Height: 150}, reports: reports}, now)
+	if strings.Contains(treeText(tree), locales.UsagePluginStale()) {
+		t.Errorf("a fresh reading is marked stale:\n%s", treeText(tree))
+	}
+	if sum := treeNode(t, tree, "sum-claude"); sum.Color == protocol.ColorMuted {
+		t.Error("a fresh summary is muted")
+	}
+}
+
+// TestUsageCompactBalanceHasNoBar is a provider with a balance and no
+// window: the short form shows the balance without an empty bar.
+func TestUsageCompactBalanceHasNoBar(t *testing.T) {
+	now := time.Now()
+	reports := []accountusage.Report{{ID: "deepseek", Name: "DeepSeek", Balance: "$4.20", Checked: now}}
+	tree := widgetTree(&view{size: protocol.Size{Width: 280, Height: 150}, reports: reports}, now)
+	if err := tree.ValidateTree(); err != nil {
+		t.Fatalf("the tree is invalid: %v", err)
+	}
+	if got := treeNode(t, tree, "sum-deepseek"); got.Text != "$4.20" {
+		t.Errorf("the balance says %q", got.Text)
+	}
+	treeWalk(tree.Root, func(n *protocol.Node) {
+		if n.ID == "bar-deepseek" {
+			t.Error("a balance-only provider has a bar")
+		}
+	})
 }
 
 // TestUsageCloseStops checks that a closed pane stops the reads.

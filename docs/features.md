@@ -55,7 +55,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | A plugin's stderr log, rolled at 1 MB, and a failed plugin's error with a **Restart** button | Automatic | Unreleased | Untried |
 | An old terminal service without the plugin view shows one line asking to restart it | Automatic | Unreleased | Untried |
 | Spotify widget: playback, seek, volume, shuffle and repeat, and albums and playlists, compact and large | New Pane chooser › Spotify, palette, `kero split --plugin spotify`; Client ID in Settings › Plugins | Unreleased | Untried |
-| Usage widget: every account's bar and percent, with reset, plan and windows and the machine's CPU and RAM in the large pane | New Pane chooser › Usage, palette, `kero split --plugin usage` | Unreleased | Untried |
+| Usage widget: every account's bar and percent and the machine's CPU and RAM, with reset, plan and windows in the large pane | New Pane chooser › Usage, palette, `kero split --plugin usage` | Unreleased | Untried |
 
 ### Files pane
 

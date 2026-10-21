@@ -776,10 +776,19 @@ uses `tint`.
 
 The Usage widget (`usage`, widget `usage`) reads `internal/usage` and
 `internal/resources` directly and has no network code and no permissions. The
-compact layout draws each account with a bar and its percent used; the large
-layout adds the reset time, the plan, the windows and the balance, and the
-machine's CPU and RAM. It starts its read loop when a pane becomes visible and
-cancels it when none is, so a hidden widget does no work.
+compact layout draws each account with its percent used (or its balance) and
+a bar when it has a window, mutes a percent whose refresh failed and says it is
+the last known one, and draws the machine's CPU and RAM. The large layout adds
+the time of the last read, the reset time, the plan, every window, the balance
+line, the sign-in help and the notes on the machine and the accounts. It starts
+its read loop when a pane becomes visible and cancels it when none is, so a
+hidden widget does no work. A pane is hidden whenever a frame does not draw it,
+so the loop keeps the time of the last account read: a pane shown again within
+two minutes waits out the rest of them, and only the refresh button reads at
+once. The account read runs on a goroutine of its own, one at a time, so a
+slow provider does not hold up the CPU and RAM bars, and each show starts the
+CPU sampler afresh, so its first reading does not average over the hidden
+span.
 
 Code: [`internal/plugin/builtin/spotify/`](../internal/plugin/builtin/spotify/)
 (the plugin, its compact and large layouts and the end-to-end test),

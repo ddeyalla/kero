@@ -71,15 +71,32 @@ func headRow(v *view, short bool) *sdk.Node {
 }
 
 // compactCard is one account in the short form: its name and percent over
-// its bar, which is all a small pane has room for.
+// its bar, which is all a small pane has room for. An account with no window,
+// such as a balance, has no bar. When a refresh failed, the percent is the
+// last known one: it is muted, with a caption that says so, as the sidebar
+// marks a stale ring.
 func compactCard(r accountusage.Report) *sdk.Node {
-	return sdk.Column("card-"+r.ID,
-		sdk.Row("row-"+r.ID,
-			sdk.Text("name-"+r.ID, r.Name).Role(protocol.RoleBody).Lines(1).Grow(1),
-			sdk.Text("sum-"+r.ID, summary(r)).Role(protocol.RoleCaption),
-		).Align(protocol.AlignSpaceBetween).Gap(6),
-		sdk.Progress("bar-"+r.ID, firstUsed(r)/100),
-	).Gap(3)
+	sum := sdk.Text("sum-"+r.ID, summary(r)).Role(protocol.RoleCaption)
+	if stale(r) {
+		sum.Color(protocol.ColorMuted)
+	}
+	children := []*sdk.Node{sdk.Row("row-"+r.ID,
+		sdk.Text("name-"+r.ID, r.Name).Role(protocol.RoleBody).Lines(1).Grow(1),
+		sum,
+	).Align(protocol.AlignSpaceBetween).Gap(6)}
+	if len(r.Windows) > 0 {
+		children = append(children, sdk.Progress("bar-"+r.ID, firstUsed(r)/100))
+	}
+	if stale(r) {
+		children = append(children, sdk.Text("stale-"+r.ID, locales.UsagePluginStale()).Role(protocol.RoleCaption).Color(protocol.ColorMuted).Lines(1))
+	}
+	return sdk.Column("card-"+r.ID, children...).Gap(3)
+}
+
+// stale tells whether an account shows its last successful reading because
+// the latest refresh failed.
+func stale(r accountusage.Report) bool {
+	return r.Error != "" && !r.Checked.IsZero()
 }
 
 // accountCard is one account in the large form: the plan and the summary,
@@ -250,7 +267,7 @@ func updatedLabel(reports []accountusage.Report, loading bool) string {
 // windowName is a window's name as the card says it, shortly: a week.
 func windowName(label string) string {
 	if label == "Weekly" {
-		return "Week"
+		return locales.UsagePluginWeek()
 	}
 	return label
 }

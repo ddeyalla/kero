@@ -26,6 +26,10 @@ type Source interface {
 
 	// Sample reads the CPU and the memory of this Mac.
 	Sample() (resources.Sample, error)
+
+	// ResetSample forgets the last CPU reading, so that the next sample does
+	// not average over the time no pane was on screen.
+	ResetSample()
 }
 
 // liveSource is the app's own accounts and machine.
@@ -53,4 +57,12 @@ func (s *liveSource) Sample() (resources.Sample, error) {
 		return resources.Sample{}, s.err
 	}
 	return s.sampler.Read()
+}
+
+// ResetSample drops the sampler; the next sample makes a new one, which has
+// no earlier reading to compare and so shows no CPU until the one after.
+func (s *liveSource) ResetSample() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sampler, s.err = nil, nil
 }

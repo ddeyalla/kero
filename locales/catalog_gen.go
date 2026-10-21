@@ -5662,6 +5662,26 @@ func (msgs Messages) UsagePluginUnavailable() string {
 	return Catalog.Format(msgs.locale, "usagePluginUnavailable", nil)
 }
 
+// UsagePluginStale says "Last known usage; refresh failed"
+// in the language the app shows.
+func UsagePluginStale() string { return In(i18n.Locale()).UsagePluginStale() }
+
+// UsagePluginStale says "Last known usage; refresh failed"
+// in the language of msgs.
+func (msgs Messages) UsagePluginStale() string {
+	return Catalog.Format(msgs.locale, "usagePluginStale", nil)
+}
+
+// UsagePluginWeek says "Week"
+// in the language the app shows.
+func UsagePluginWeek() string { return In(i18n.Locale()).UsagePluginWeek() }
+
+// UsagePluginWeek says "Week"
+// in the language of msgs.
+func (msgs Messages) UsagePluginWeek() string {
+	return Catalog.Format(msgs.locale, "usagePluginWeek", nil)
+}
+
 // UsagePluginUpdated says "Updated {when}"
 // in the language the app shows.
 func UsagePluginUpdated(when string) string { return In(i18n.Locale()).UsagePluginUpdated(when) }

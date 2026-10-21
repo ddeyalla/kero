@@ -156,7 +156,7 @@ plugin pane.
 | Plugin | Widget | Permissions | What it shows |
 | --- | --- | --- | --- |
 | `spotify` | `player` | `secrets`, `openURL` | The desktop player in a compact or a large layout: play, pause, skip, seek, volume, shuffle and repeat; albums and playlists from the Spotify Web API after a sign-in; a scrolling title and album-art tint. Set the Client ID in Settings › Plugins. |
-| `usage` | `usage` | none | Each account's usage with a bar and a percent; the large layout adds the reset time, the plan and windows, and the machine's CPU and RAM. It refreshes only while it is visible. |
+| `usage` | `usage` | none | Each account's usage with a bar and a percent (or its balance), and the machine's CPU and RAM; the large layout adds the reset time, the plan and every window. It refreshes only while it is visible, at most every two minutes unless you press refresh. |
 
 `openURL` opens the sign-in page and an album or playlist in the browser;
 `secrets` keeps the Spotify tokens in the plugin's `secrets.json`. Neither

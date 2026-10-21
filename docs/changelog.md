@@ -139,10 +139,11 @@ builds only. What each feature is and where it stands is tracked in the
   an offline read apart. Sign in once from Settings › Plugins with a Spotify
   Client ID; the tokens stay in the plugin's secrets file. Its commands are in
   the command palette and are `kero do` actions, with no key bindings. The Usage
-  widget shows each account's usage in a bar and a percent, and the large one
-  adds the reset time and the plan, windows and balance, plus the machine's CPU
-  and RAM. It reads the same data as the Usage tab, needs no permission, and
-  refreshes only while it is visible.
+  widget shows each account's usage in a bar and a percent (or its balance),
+  and the machine's CPU and RAM; the large one adds the reset time, the plan
+  and every window. It reads the same data as the Usage tab, needs no
+  permission, and refreshes only while it is visible, at most every two
+  minutes unless you press refresh.
 
 ### Fixed
 

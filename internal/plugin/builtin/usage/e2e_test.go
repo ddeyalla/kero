@@ -48,6 +48,8 @@ func (fakeSource) Sample() (resources.Sample, error) {
 	}, nil
 }
 
+func (fakeSource) ResetSample() {}
+
 func fakeReports() []accountusage.Report {
 	now := time.Now()
 	return []accountusage.Report{
