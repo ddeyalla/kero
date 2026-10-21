@@ -67,6 +67,32 @@ func TestUsageViews(t *testing.T) {
 	a.closeUsage()
 }
 
+// The harness bar folds into rows while its names fit, and shows the rings
+// alone when three rows of them would leave no room for a name.
+func TestUsageBarRows(t *testing.T) {
+	room := []float32{72, 69, 93, 92}
+	cases := []struct {
+		avail float32
+		rows  int
+		named bool
+	}{
+		{424, 1, true},
+		{252, 2, true},
+		{184, 1, false},
+	}
+	for _, c := range cases {
+		rows, named := usageBarRows(room, c.avail)
+		seen := 0
+		for _, line := range rows {
+			seen += len(line)
+		}
+		if len(rows) != c.rows || named != c.named || seen != len(room) {
+			t.Errorf("at %g wide: %v rows, named %v, %d harnesses; want %d, %v, %d",
+				c.avail, len(rows), named, seen, c.rows, c.named, len(room))
+		}
+	}
+}
+
 // At the narrowest sidebar the rings stay whole while the names shorten or
 // give way: an item still finds its harness, inside the sidebar.
 func TestUsageRingsAtMinimumWidth(t *testing.T) {

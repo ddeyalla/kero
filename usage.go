@@ -134,39 +134,37 @@ const (
 )
 
 // usageSidebar is the harness bar above the machine's meters: a ring for
-// each harness this Mac has set up, its name beside it, and, on hover, a
-// card with the allowances the modal shows in full.
+// each harness this Mac has set up, its name beside it where it fits, and,
+// on hover, a card with the allowances the modal shows in full.
 func (a *App) usageSidebar(c *ui.Context, pal *palette) {
 	reports := a.usageInstalled()
 	// Each item wants room for its whole name: the ring, its gap, the name
-	// and the padding. Where the names do not fit, the items share the row
-	// evenly and the names ellipsize, keeping every ring whole.
+	// and the padding.
 	room := make([]float32, len(reports))
-	var need float32
 	for i, r := range reports {
 		w, _ := c.MeasureText(0, ui.Span{Text: r.Name, Size: 11.5})
 		room[i] = usageRingSize + usageNameGap + w + usageItemPad + 1.5
-		need += room[i]
 	}
 	avail := a.prefs.SidebarWidth - 16
-	tight := len(reports) > 0 && need > avail
-	share := float32(0)
-	if tight {
-		share = (avail - 2*float32(len(reports)-1)) / float32(len(reports))
-	}
+	rows, named := usageBarRows(room, avail)
 	var anchor ui.Element
 	var shown usage.Report
 	var card bool
-	ui.Row(c.Key("account-usage")).Width(a.prefs.SidebarWidth).Shrink(0).Justify(ui.SpaceBetween).Padding(3, 8, 4, 8).Gap(2).Children(func() {
-		for i, r := range reports {
-			w := room[i]
-			if tight {
-				w = share
-			}
-			item := a.usageHarness(c, pal, r, w)
-			if a.usage.hover == r.ID {
-				anchor, shown, card = item, r, true
-			}
+	ui.Column(c.Key("account-usage")).Width(a.prefs.SidebarWidth).Shrink(0).Padding(3, 8, 4, 8).Gap(1).Children(func() {
+		for _, line := range rows {
+			ui.Row(c).Fill().Justify(ui.SpaceBetween).Gap(2).Children(func() {
+				for _, i := range line {
+					w := room[i]
+					if !named {
+						w = usageRingSize + usageItemPad
+					}
+					w = min(w, avail)
+					item := a.usageHarness(c, pal, reports[i], w, named)
+					if a.usage.hover == reports[i].ID {
+						anchor, shown, card = item, reports[i], true
+					}
+				}
+			})
 		}
 	})
 	if card {
@@ -174,9 +172,60 @@ func (a *App) usageSidebar(c *ui.Context, pal *palette) {
 	}
 }
 
-// usageHarness is one ring and name, width DIPs wide, a click opening the
-// modal. Its card stays while the pointer goes from the ring to the card.
-func (a *App) usageHarness(c *ui.Context, pal *palette, r usage.Report, width float32) ui.Element {
+// usageBarRows arranges the harnesses in the sidebar's width, by their
+// widths with their names: one row while they all fit, else as many rows
+// as the names take, two at most. A bar that would need three rows has no
+// room for names, and shows the rings alone, which the hover card names.
+func usageBarRows(room []float32, avail float32) ([][]int, bool) {
+	const gap = 2
+	all := make([]int, len(room))
+	var total float32
+	for i, w := range room {
+		all[i] = i
+		total += w
+		if i > 0 {
+			total += gap
+		}
+	}
+	if len(room) == 0 || total <= avail {
+		return [][]int{all}, len(room) > 0
+	}
+	var rows [][]int
+	var line []int
+	var used float32
+	for i, w := range room {
+		add := w
+		if len(line) > 0 {
+			add += gap
+		}
+		if len(line) > 0 && used+add > avail {
+			rows = append(rows, line)
+			line, used, add = nil, 0, w
+		}
+		line = append(line, i)
+		used += add
+	}
+	if len(line) > 0 {
+		rows = append(rows, line)
+	}
+	// Balance the last row with the one before it, so that a ring does
+	// not sit alone under a full row.
+	if n := len(rows); n > 1 && len(rows[n-1]) == 1 && len(rows[n-2]) >= 3 {
+		prev := rows[n-2]
+		moved := prev[len(prev)-1]
+		rows[n-2] = prev[:len(prev)-1]
+		rows[n-1] = append([]int{moved}, rows[n-1]...)
+	}
+	if len(rows) > 2 {
+		return [][]int{all}, false
+	}
+	return rows, true
+}
+
+// usageHarness is one ring and, where there is room for it, its name, in
+// width DIPs, a click opening the modal. Its card stays while the pointer
+// goes from the ring to the card.
+func (a *App) usageHarness(c *ui.Context, pal *palette, r usage.Report, width float32, named bool) ui.Element {
 	key := "usage-" + r.ID
 	summary := usageSummary(r, a.usage.loading)
 	item := ui.ButtonBase(c.Key(key)).Width(width).MinWidth(0).Height(28).Padding(0, usageItemPad/2).Radius(5).
@@ -189,7 +238,7 @@ func (a *App) usageHarness(c *ui.Context, pal *palette, r usage.Report, width fl
 			usageRing(c, pal, r)
 			// A name with no room would show only an ellipsis: let the ring
 			// speak there, and the card on hover.
-			if width-usageRingSize-usageNameGap-usageItemPad >= 16 {
+			if named && width-usageRingSize-usageNameGap-usageItemPad >= 16 {
 				ui.Text(c, r.Name).FontSize(11.5).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
 			}
 		})

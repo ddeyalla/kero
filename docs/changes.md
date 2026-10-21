@@ -146,6 +146,45 @@ Code: [`internal/cli/hook_events.go`](../internal/cli/hook_events.go),
 [`internal/daemon/session.go`](../internal/daemon/session.go) (`look`).
 Tests: `hook_events_test.go`, `internal/daemon/hooks_test.go`.
 
+## Status indicators
+
+A session row, and each count chip in the footer, draw the session's state
+with one small mark, in `statusIconP` ([`view.go`](../view.go)):
+
+- **Working** turns MyGo's loading ring, a faint track with an arc going
+  round it (`loading.Ring`), and stands still where the desktop asks for
+  less motion. A program that reports its own progress (OSC 7501) fills a
+  determinate arc instead, from the top clockwise, on the same track.
+- **Needs you** is an amber ring, heavier than the others, with a filled
+  amber dot in its middle: it is the one state that should pull the eye.
+- **Done** is a filled disc with a dark check until the session is read
+  (unread, and its name is bolder), and a faint check once read.
+- **Inactive** — a session whose shell has exited — is a filled half moon,
+  so it reads as asleep rather than failed. Failed sessions keep the red
+  error disc.
+
+The accessible labels are Working, Needs you, Done, Inactive and Failed,
+from `locales/en.json`, so a screen reader says the state the icon draws.
+The marks are 15 points in a row and 12 in the footer chips.
+
+Tests: `view_test.go` (`TestSessionStatusIcons`, `TestStatusIconProgress`).
+
+## Busy indicators
+
+Where the app itself is busy — the connecting card before a session shows, a
+pane attaching to a session, Files reading a directory or finding, an issue
+being read — it draws the loading ring of MyGo's loading plugin:
+`working` in [`loading_ui.go`](../loading_ui.go), 16 points in the muted text
+color, with the same accessible label the spinner had. The ring asks for a
+frame only while it shows, and stands in loading.dev's reduced-motion pose
+when the desktop asks for less motion. Nothing else in the app animates
+continuously.
+
+Code: [`loading_ui.go`](../loading_ui.go), and the call sites in
+[`view.go`](../view.go), [`panes.go`](../panes.go),
+[`files_pane.go`](../files_pane.go) and
+[`linear_detail.go`](../linear_detail.go). Test: `loading_ui_test.go`.
+
 ## Account usage
 
 Claude and Codex use existing CLI login credentials. OpenCode Go uses its
@@ -155,12 +194,33 @@ the background every two minutes, preserve the last successful observation
 after errors, and respect rate-limit backoff. Explicit provider-key overrides
 are atomically stored with mode `0600` in the personal data directory.
 
-The sidebar opens an in-window modal with allowance windows, reset times,
-refresh and provider configuration. Cmd+Shift+U opens it; Cmd+R refreshes
-while open; Esc/Cmd+W closes it. There is no extra tab or window.
+The sidebar's bottom bar is one ring per harness this Mac has installed:
+Claude, Codex and OpenCode Go when their CLI is on `PATH` or their sign-in
+file is found, and DeepSeek when a key is saved; with none found it shows
+every provider, so a new user sees what can be connected. The first
+allowance is the arc, amber as any of the harness's windows nears 90%. The
+names sit beside the rings while they fit — in rows when the sidebar can't
+hold them in one, and the rings alone at the narrowest sidebar, where the
+hover card names them instead. Hovering a ring shows the plan, every
+allowance window with its percentage and reset, a balance, or why the
+harness is not connected; clicking it, or `Cmd+Shift+U`, opens the full
+in-window modal with refresh, provider configuration and keys. The CPU and
+RAM meters stay below the bar, unchanged (`resources.go`).
+
+Detecting what is installed is `usage.Installed()`, which checks `PATH`
+and the sign-in files without asking the keychain for a secret, and is
+recomputed with each two-minute refresh. The bar's rows come from
+`usageBarRows` in [`usage.go`](../usage.go); a ring is `usageRing`, the card
+`usageHover`, its reset text `usageReset`.
+
+The modal shows allowance windows, reset times, refresh and provider
+configuration, and its own error and connection states. `Cmd+Shift+U` opens
+it; `Cmd+R` refreshes while open; Esc/Cmd+W closes it. There is no extra tab
+or window.
 
 Code: [`usage.go`](../usage.go), [`internal/usage/`](../internal/usage/).
 Automation: `kero usage --json` and `kero do usage.open`.
+Tests: `usage_test.go`, `internal/usage/usage_test.go`.
 
 ## Settings in the window
 
@@ -211,7 +271,9 @@ Automation: `kero resources --json`.
 ## Terminal responsiveness and attachments
 
 The local build targets the host architecture: Apple Silicon is `arm64`;
-Intel/AMD is `amd64`. Continuous status animation was removed. The daemon's
+Intel/AMD is `amd64`. The terminal's own status line no longer animates
+constantly; the only continuous motion is a working session's loading ring,
+which turns only while that session works. The daemon's
 synchronized-redraw scheduling now advances completed frames past an older
 50ms retry, with a fake-clock regression test. The measured isolated transport
 median improved from 55.93ms to 16.90ms (15 samples per build). GPU rendering,

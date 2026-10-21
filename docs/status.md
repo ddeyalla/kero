@@ -19,6 +19,12 @@ Every pane has a status, shown in the sidebar:
 | `error`   | The program reported that it failed           |
 | `exited`  | The program ended; the pane keeps its output  |
 
+A session's mark says its state at a glance: a turning ring while it works,
+or a ring filling to the progress the program reported; an amber ring with a
+dot when it needs you; a filled check when it is done and you have not read
+it, and a faint check once you have; and a half moon when the session is
+inactive, its shell exited. The count chips in the footer use the same marks.
+
 Kero tells a coding agent's status from what its screen shows: its spinner, a permission prompt, its prompt waiting for you. Redrawing the same screen, as when you resize a pane, changes nothing. Claude Code and Codex also [report their turns](#agents-that-report-their-turns) through Kero's hook, which is quicker and surer than the screen. Other programs are `working` while their title shows a spinner, or when they [report their status](#reporting-status-from-a-program).
 
 ### Agents that report their turns

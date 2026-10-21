@@ -71,6 +71,22 @@ builds only. What each feature is and where it stands is tracked in the
   service once** (when agents are idle) for the reports to reach the panes;
   until then the hooks do nothing. No protocol change.
 - `agent-hooks` configuration key, `true` by default.
+- Account usage in the sidebar is a ring for each harness this Mac has
+  installed — Claude, Codex, OpenCode Go or DeepSeek — with the first
+  allowance as its arc and amber as any window nears its limit, its name
+  beside it where the sidebar has room and rows of rings where it does not.
+  Hovering one shows the plan, every allowance window with the percentage
+  and its reset, a balance, or why it is not connected; clicking it, or
+  `Cmd+Shift+U`, opens the full modal as before. The CPU and RAM meters stay
+  below the bar.
+- Session states read at a glance: a working session turns a loading ring
+  (or fills it when its program reports progress), one that needs you shows
+  an amber ring with a dot, one done and unseen a filled check, one done and
+  read a faint check, and an inactive — exited — one a half moon.
+- The app's own busy states use the same loading.dev ring from MyGo's
+  loading plugin — connecting, a pane attaching, Files reading, Linear
+  reading — instead of the generic spinner. It follows Reduce Motion and
+  turns only while it shows.
 
 ### Fixed
 
