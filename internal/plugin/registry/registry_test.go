@@ -83,11 +83,15 @@ func TestKnownListsInstalledPlugins(t *testing.T) {
 		"widgets": [{"name": "main", "title": "Main"}]
 	}`)
 	plugins := Known(dir)
-	if len(plugins) != 1 || plugins[0].Manifest.ID != "demo" {
+	demo, ok := Find(plugins, "demo")
+	if !ok {
 		t.Fatalf("Known is %+v, want the demo plugin", plugins)
 	}
-	if _, ok := Find(plugins, "demo"); !ok {
-		t.Error("the demo plugin is not found")
+	if demo.Builtin {
+		t.Error("the installed demo plugin is marked built-in")
+	}
+	if usage, ok := Find(plugins, "usage"); !ok || !usage.Builtin {
+		t.Errorf("Known is %+v, want the built-in usage plugin too", plugins)
 	}
 	if _, ok := Find(plugins, "other"); ok {
 		t.Error("a plugin that is not there is found")

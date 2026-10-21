@@ -751,3 +751,42 @@ manifests and their run functions), [`internal/actions/`](../internal/actions/)
 [`plugin_marquee.go`](../plugin_marquee.go), [`plugin_tint.go`](../plugin_tint.go),
 [`pane_chooser.go`](../pane_chooser.go), [`actions.go`](../actions.go),
 [`internal/cli/cli.go`](../internal/cli/cli.go) and `main.go` (`plugin-run`).
+
+**Two built-in plugins ship with the app.** They are ordinary plugins in every
+way that matters to the host: their manifests are embedded in the binary, their
+`run` is the app's own executable with `plugin-run <id>`, and they speak to the
+host only through `internal/plugin/sdk`. That keeps the same contract in front
+of the app's own features and a plugin later installed from a folder.
+
+The Spotify widget (`spotify`, widget `player`) is a compact player and a
+large one. It reads and commands the desktop app through the AppleScript
+transport; its library calls (search, playlists, albums) go through the Web API
+client with PKCE sign-in, a loopback redirect at
+`http://127.0.0.1:43821/callback`, the Client ID set in Settings › Plugins and
+the tokens kept in the plugin's `secrets.json`. The plugin process calls
+`transport.RunLoop()` on its main goroutine after starting `sdk.Run`, because
+the distributed-notification listener needs the main run loop. Playback states
+(not running, the Automation refusal, playing, idle) and library states (no
+Client ID, signed out, token refused, Premium lapsed, offline, ready) are typed,
+not strings, so each draws its own empty state. The large layout keeps the
+Search, Playlists and Albums tabs under the player in every playback state; a
+one-second local tick moves the seek bar and the elapsed clock between reads,
+without another AppleScript call. The title uses `marquee` and the album art
+uses `tint`.
+
+The Usage widget (`usage`, widget `usage`) reads `internal/usage` and
+`internal/resources` directly and has no network code and no permissions. The
+compact layout draws each account with a bar and its percent used; the large
+layout adds the reset time, the plan, the windows and the balance, and the
+machine's CPU and RAM. It starts its read loop when a pane becomes visible and
+cancels it when none is, so a hidden widget does no work.
+
+Code: [`internal/plugin/builtin/spotify/`](../internal/plugin/builtin/spotify/)
+(the plugin, its compact and large layouts and the end-to-end test),
+[`…/spotify/transport/`](../internal/plugin/builtin/spotify/transport/) (AppleScript and
+the distributed notification) and [`…/spotify/web/`](../internal/plugin/builtin/spotify/web/)
+(PKCE sign-in and the Web API client),
+[`internal/plugin/builtin/usage/`](../internal/plugin/builtin/usage/) (the Usage
+plugin and its source seam), and
+[`internal/plugin/registry/manifests/`](../internal/plugin/registry/manifests/)
+(the two manifests).

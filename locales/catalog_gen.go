@@ -5591,3 +5591,249 @@ func UsageStale() string { return In(i18n.Locale()).UsageStale() }
 func (msgs Messages) UsageStale() string {
 	return Catalog.Format(msgs.locale, "usageStale", nil)
 }
+
+// UsagePluginTitle says "Usage"
+// in the language the app shows.
+func UsagePluginTitle() string { return In(i18n.Locale()).UsagePluginTitle() }
+
+// UsagePluginTitle says "Usage"
+// in the language of msgs.
+func (msgs Messages) UsagePluginTitle() string {
+	return Catalog.Format(msgs.locale, "usagePluginTitle", nil)
+}
+
+// UsagePluginPercent says "{percent}%"
+// in the language the app shows.
+func UsagePluginPercent(percent string) string { return In(i18n.Locale()).UsagePluginPercent(percent) }
+
+// UsagePluginPercent says "{percent}%"
+// in the language of msgs.
+func (msgs Messages) UsagePluginPercent(percent string) string {
+	return Catalog.Format(msgs.locale, "usagePluginPercent", map[string]any{"percent": percent})
+}
+
+// UsagePluginUsed says "{percent}% used"
+// in the language the app shows.
+func UsagePluginUsed(percent string) string { return In(i18n.Locale()).UsagePluginUsed(percent) }
+
+// UsagePluginUsed says "{percent}% used"
+// in the language of msgs.
+func (msgs Messages) UsagePluginUsed(percent string) string {
+	return Catalog.Format(msgs.locale, "usagePluginUsed", map[string]any{"percent": percent})
+}
+
+// UsagePluginBalance says "{balance} remaining"
+// in the language the app shows.
+func UsagePluginBalance(balance string) string { return In(i18n.Locale()).UsagePluginBalance(balance) }
+
+// UsagePluginBalance says "{balance} remaining"
+// in the language of msgs.
+func (msgs Messages) UsagePluginBalance(balance string) string {
+	return Catalog.Format(msgs.locale, "usagePluginBalance", map[string]any{"balance": balance})
+}
+
+// UsagePluginChecking says "Checking…"
+// in the language the app shows.
+func UsagePluginChecking() string { return In(i18n.Locale()).UsagePluginChecking() }
+
+// UsagePluginChecking says "Checking…"
+// in the language of msgs.
+func (msgs Messages) UsagePluginChecking() string {
+	return Catalog.Format(msgs.locale, "usagePluginChecking", nil)
+}
+
+// UsagePluginConnect says "Connect"
+// in the language the app shows.
+func UsagePluginConnect() string { return In(i18n.Locale()).UsagePluginConnect() }
+
+// UsagePluginConnect says "Connect"
+// in the language of msgs.
+func (msgs Messages) UsagePluginConnect() string {
+	return Catalog.Format(msgs.locale, "usagePluginConnect", nil)
+}
+
+// UsagePluginUnavailable says "Unavailable"
+// in the language the app shows.
+func UsagePluginUnavailable() string { return In(i18n.Locale()).UsagePluginUnavailable() }
+
+// UsagePluginUnavailable says "Unavailable"
+// in the language of msgs.
+func (msgs Messages) UsagePluginUnavailable() string {
+	return Catalog.Format(msgs.locale, "usagePluginUnavailable", nil)
+}
+
+// UsagePluginUpdated says "Updated {when}"
+// in the language the app shows.
+func UsagePluginUpdated(when string) string { return In(i18n.Locale()).UsagePluginUpdated(when) }
+
+// UsagePluginUpdated says "Updated {when}"
+// in the language of msgs.
+func (msgs Messages) UsagePluginUpdated(when string) string {
+	return Catalog.Format(msgs.locale, "usagePluginUpdated", map[string]any{"when": when})
+}
+
+// UsagePluginLastSuccessful says "Last successful update {when}"
+// in the language the app shows.
+func UsagePluginLastSuccessful(when string) string {
+	return In(i18n.Locale()).UsagePluginLastSuccessful(when)
+}
+
+// UsagePluginLastSuccessful says "Last successful update {when}"
+// in the language of msgs.
+func (msgs Messages) UsagePluginLastSuccessful(when string) string {
+	return Catalog.Format(msgs.locale, "usagePluginLastSuccessful", map[string]any{"when": when})
+}
+
+// UsagePluginResetUnavailable says "Reset time unavailable"
+// in the language the app shows.
+func UsagePluginResetUnavailable() string { return In(i18n.Locale()).UsagePluginResetUnavailable() }
+
+// UsagePluginResetUnavailable says "Reset time unavailable"
+// in the language of msgs.
+func (msgs Messages) UsagePluginResetUnavailable() string {
+	return Catalog.Format(msgs.locale, "usagePluginResetUnavailable", nil)
+}
+
+// UsagePluginResetDue says "Reset due · refresh to check"
+// in the language the app shows.
+func UsagePluginResetDue() string { return In(i18n.Locale()).UsagePluginResetDue() }
+
+// UsagePluginResetDue says "Reset due · refresh to check"
+// in the language of msgs.
+func (msgs Messages) UsagePluginResetDue() string {
+	return Catalog.Format(msgs.locale, "usagePluginResetDue", nil)
+}
+
+// UsagePluginResets says "Resets {when}"
+// in the language the app shows.
+func UsagePluginResets(when string) string { return In(i18n.Locale()).UsagePluginResets(when) }
+
+// UsagePluginResets says "Resets {when}"
+// in the language of msgs.
+func (msgs Messages) UsagePluginResets(when string) string {
+	return Catalog.Format(msgs.locale, "usagePluginResets", map[string]any{"when": when})
+}
+
+// UsagePluginThisMac says "This Mac"
+// in the language the app shows.
+func UsagePluginThisMac() string { return In(i18n.Locale()).UsagePluginThisMac() }
+
+// UsagePluginThisMac says "This Mac"
+// in the language of msgs.
+func (msgs Messages) UsagePluginThisMac() string {
+	return Catalog.Format(msgs.locale, "usagePluginThisMac", nil)
+}
+
+// UsagePluginCpu says "CPU"
+// in the language the app shows.
+func UsagePluginCpu() string { return In(i18n.Locale()).UsagePluginCpu() }
+
+// UsagePluginCpu says "CPU"
+// in the language of msgs.
+func (msgs Messages) UsagePluginCpu() string {
+	return Catalog.Format(msgs.locale, "usagePluginCpu", nil)
+}
+
+// UsagePluginRam says "RAM"
+// in the language the app shows.
+func UsagePluginRam() string { return In(i18n.Locale()).UsagePluginRam() }
+
+// UsagePluginRam says "RAM"
+// in the language of msgs.
+func (msgs Messages) UsagePluginRam() string {
+	return Catalog.Format(msgs.locale, "usagePluginRam", nil)
+}
+
+// UsagePluginCpuValue says "{percent}%"
+// in the language the app shows.
+func UsagePluginCpuValue(percent string) string {
+	return In(i18n.Locale()).UsagePluginCpuValue(percent)
+}
+
+// UsagePluginCpuValue says "{percent}%"
+// in the language of msgs.
+func (msgs Messages) UsagePluginCpuValue(percent string) string {
+	return Catalog.Format(msgs.locale, "usagePluginCpuValue", map[string]any{"percent": percent})
+}
+
+// UsagePluginMemory says "{used} / {total} GiB"
+// in the language the app shows.
+func UsagePluginMemory(used string, total string) string {
+	return In(i18n.Locale()).UsagePluginMemory(used, total)
+}
+
+// UsagePluginMemory says "{used} / {total} GiB"
+// in the language of msgs.
+func (msgs Messages) UsagePluginMemory(used string, total string) string {
+	return Catalog.Format(msgs.locale, "usagePluginMemory", map[string]any{"used": used, "total": total})
+}
+
+// UsagePluginNoValue says "—"
+// in the language the app shows.
+func UsagePluginNoValue() string { return In(i18n.Locale()).UsagePluginNoValue() }
+
+// UsagePluginNoValue says "—"
+// in the language of msgs.
+func (msgs Messages) UsagePluginNoValue() string {
+	return Catalog.Format(msgs.locale, "usagePluginNoValue", nil)
+}
+
+// UsagePluginAcrossAllApps says "Across all apps. RAM includes active, wired and compressed memory; reclaimable cache is excluded."
+// in the language the app shows.
+func UsagePluginAcrossAllApps() string { return In(i18n.Locale()).UsagePluginAcrossAllApps() }
+
+// UsagePluginAcrossAllApps says "Across all apps. RAM includes active, wired and compressed memory; reclaimable cache is excluded."
+// in the language of msgs.
+func (msgs Messages) UsagePluginAcrossAllApps() string {
+	return Catalog.Format(msgs.locale, "usagePluginAcrossAllApps", nil)
+}
+
+// UsagePluginAccountNote says "Account limits come from each provider; they are separate from a session's context window."
+// in the language the app shows.
+func UsagePluginAccountNote() string { return In(i18n.Locale()).UsagePluginAccountNote() }
+
+// UsagePluginAccountNote says "Account limits come from each provider; they are separate from a session's context window."
+// in the language of msgs.
+func (msgs Messages) UsagePluginAccountNote() string {
+	return Catalog.Format(msgs.locale, "usagePluginAccountNote", nil)
+}
+
+// UsagePluginHelpClaude says "Reads your Claude Code sign-in. Run claude and sign in, then refresh."
+// in the language the app shows.
+func UsagePluginHelpClaude() string { return In(i18n.Locale()).UsagePluginHelpClaude() }
+
+// UsagePluginHelpClaude says "Reads your Claude Code sign-in. Run claude and sign in, then refresh."
+// in the language of msgs.
+func (msgs Messages) UsagePluginHelpClaude() string {
+	return Catalog.Format(msgs.locale, "usagePluginHelpClaude", nil)
+}
+
+// UsagePluginHelpCodex says "Reads your Codex sign-in, or OpenCode’s OpenAI login. Run codex login, then refresh."
+// in the language the app shows.
+func UsagePluginHelpCodex() string { return In(i18n.Locale()).UsagePluginHelpCodex() }
+
+// UsagePluginHelpCodex says "Reads your Codex sign-in, or OpenCode’s OpenAI login. Run codex login, then refresh."
+// in the language of msgs.
+func (msgs Messages) UsagePluginHelpCodex() string {
+	return Catalog.Format(msgs.locale, "usagePluginHelpCodex", nil)
+}
+
+// UsagePluginHelpOpencode says "Reads your OpenCode workspace key. If it expired, sign in through OpenCode or enter a replacement key in the Usage tab."
+// in the language the app shows.
+func UsagePluginHelpOpencode() string { return In(i18n.Locale()).UsagePluginHelpOpencode() }
+
+// UsagePluginHelpOpencode says "Reads your OpenCode workspace key. If it expired, sign in through OpenCode or enter a replacement key in the Usage tab."
+// in the language of msgs.
+func (msgs Messages) UsagePluginHelpOpencode() string {
+	return Catalog.Format(msgs.locale, "usagePluginHelpOpencode", nil)
+}
+
+// UsagePluginHelpDeepseek says "Direct DeepSeek API credit. For DeepSeek through OpenCode Go, use the OpenCode allowance instead."
+// in the language the app shows.
+func UsagePluginHelpDeepseek() string { return In(i18n.Locale()).UsagePluginHelpDeepseek() }
+
+// UsagePluginHelpDeepseek says "Direct DeepSeek API credit. For DeepSeek through OpenCode Go, use the OpenCode allowance instead."
+// in the language of msgs.
+func (msgs Messages) UsagePluginHelpDeepseek() string {
+	return Catalog.Format(msgs.locale, "usagePluginHelpDeepseek", nil)
+}

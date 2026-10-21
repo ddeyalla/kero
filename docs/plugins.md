@@ -147,6 +147,22 @@ once; a plugin that stops reading its input is stopped after five seconds.
 A plugin's `notify` shows a system notification. A click on it shows a pane
 of the plugin, found at the click.
 
+## Built-in plugins
+
+Two plugins ship in the binary, and both use everything on this page:
+`kero plugin-run <id>` starts them, and the app opens their widget like any
+plugin pane.
+
+| Plugin | Widget | Permissions | What it shows |
+| --- | --- | --- | --- |
+| `spotify` | `player` | `secrets`, `openURL` | The desktop player in a compact or a large layout: play, pause, skip, seek, volume, shuffle and repeat; albums and playlists from the Spotify Web API after a sign-in; a scrolling title and album-art tint. Set the Client ID in Settings › Plugins. |
+| `usage` | `usage` | none | Each account's usage with a bar and a percent; the large layout adds the reset time, the plan and windows, and the machine's CPU and RAM. It refreshes only while it is visible. |
+
+`openURL` opens the sign-in page and an album or playlist in the browser;
+`secrets` keeps the Spotify tokens in the plugin's `secrets.json`. Neither
+plugin is installed from a folder: the app embeds their manifests and starts
+them as roles of its own binary.
+
 ## Not here yet
 
 Installing a plugin from a folder or a git URL, updating and removing it, the
