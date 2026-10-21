@@ -12,6 +12,20 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Added
 
+- **Next Session Needing You** goes from one session that waits on the
+  user to the next: Session › **Next Session Needing You**, the command
+  palette, or `kero do attention.next-blocked`. It takes the sessions
+  whose attention state is `waiting-user`, longest
+  wait first and then by session id, shows the pane that needs you, and
+  puts the keyboard in it. It starts after the session shown when that one
+  waits too, goes on from the one it went to last, and says "Nothing needs
+  you" when none waits. A zoom follows the focus, as when panes are cycled
+  while zoomed, so the jump never lands on a pane the zoom hides. The
+  issue detail's **Open the session**, and a running conversation's
+  **Open**, go to that same pane: an issue leads to what its session
+  needs, the mirror of the attention pane's way back to the issue. It
+  reads `Session.Attention`, so it needs the service restart noted below;
+  a daemon of before cycles nothing, and no state is saved for it.
 - kerod keeps one attention state for every session — running,
   waiting-user, unread, done or idle — folded from its panes: the most
   urgent of them, one line of what it says, the pane it came from and the

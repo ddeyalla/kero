@@ -114,6 +114,9 @@ type App struct {
 	active   bool
 	focused  bool
 	statuses map[string]proto.Status // as last seen, for notifications
+	// attentionLast is the session `attention.next-blocked` went to last:
+	// where the next press goes on from.
+	attentionLast string
 
 	// windowBar is the title bar as it last was in the window, which
 	// titleBar keeps in full screen, where the traffic lights are the

@@ -31,6 +31,7 @@ var All = []Action{
 	{ID: "project.open", Title: "Open Project…", Menu: "Session", Keys: "CmdOrCtrl+O"},
 	{ID: "palette.open", Title: "Go to Session…", Menu: "Session", Keys: "CmdOrCtrl+P", Remote: true},
 	{ID: "session.attention", Title: "Jump to Session Needing You", Menu: "Session", Keys: "CmdOrCtrl+J", Remote: true},
+	{ID: "attention.next-blocked", Title: "Next Session Needing You", Menu: "Session", Remote: true},
 	{ID: "session.next", Title: "Next Session", Menu: "Session", Keys: "CmdOrCtrl+Shift+]", Remote: true},
 	{ID: "session.previous", Title: "Previous Session", Menu: "Session", Keys: "CmdOrCtrl+Shift+[", Remote: true},
 	{ID: "session.rename", Title: "Rename Session", Menu: "Session", Keys: "CmdOrCtrl+R"},

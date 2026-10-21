@@ -316,7 +316,9 @@ func (a *App) linearSession(c *ui.Context, pal *palette, d *proto.LinearIssueDet
 		if live.Session != "" {
 			ui.Row(c).Gap(8).Wrap().Children(func() {
 				if len(d.Runs) == 0 && button(c, "linear-open-session", locales.LinearOpenSession(), "", true, pal) {
-					a.selectSession(live.Session)
+					// The issue opens the session where it needs the
+					// user, its attention pane.
+					a.focusAttentionOf(live.Session)
 					a.linearClose()
 				}
 				if button(c, "linear-unlink", locales.LinearUnlink(), "", false, pal) {
@@ -396,7 +398,7 @@ func (a *App) linearRun(c *ui.Context, pal *palette, d *proto.LinearIssueDetail,
 			switch {
 			case running:
 				if miniButton(c, pal, key+"-open", locales.LinearOpenRun()) {
-					a.selectSession(r.Session)
+					a.focusAttentionOf(r.Session)
 					a.linearClose()
 				}
 			case resume != nil:

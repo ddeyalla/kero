@@ -9,6 +9,7 @@
   "actionOpenProject": "Open Project…",
   "actionGoToSession": "Go to Session…",
   "actionJumpToAttention": "Jump to Session Needing You",
+  "actionNextBlocked": "Next Session Needing You",
   "actionNextSession": "Next Session",
   "actionPreviousSession": "Previous Session",
   "actionRenameSession": "Rename Session",

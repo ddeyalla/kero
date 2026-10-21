@@ -124,6 +124,16 @@ func (msgs Messages) ActionJumpToAttention() string {
 	return Catalog.Format(msgs.locale, "actionJumpToAttention", nil)
 }
 
+// ActionNextBlocked says "Next Session Needing You"
+// in the language the app shows.
+func ActionNextBlocked() string { return In(i18n.Locale()).ActionNextBlocked() }
+
+// ActionNextBlocked says "Next Session Needing You"
+// in the language of msgs.
+func (msgs Messages) ActionNextBlocked() string {
+	return Catalog.Format(msgs.locale, "actionNextBlocked", nil)
+}
+
 // ActionNextSession says "Next Session"
 // in the language the app shows.
 func ActionNextSession() string { return In(i18n.Locale()).ActionNextSession() }
