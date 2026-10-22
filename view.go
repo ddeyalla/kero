@@ -104,6 +104,9 @@ func b2f(b bool) float32 {
 }
 
 func (a *App) view(c *ui.Context) {
+	for _, e := range a.terms {
+		e.shown = false
+	}
 	pal := a.paletteFor(c)
 	c.SetTheme(borderless(c, pal))
 	// Every plugin pane this frame draws marks itself: the rest are
@@ -167,6 +170,13 @@ func (a *App) view(c *ui.Context) {
 			fn()
 		}
 		c.Invalidate()
+	}
+	// Apply the completed composition once, without toggling terminals
+	// that remain visible from one frame to the next.
+	for _, e := range a.terms {
+		if e.term != nil {
+			e.term.SetVisible(e.shown)
+		}
 	}
 }
 

@@ -1887,3 +1887,27 @@ Known limits remain: Attention search and filters live only while the pane is
 open, and a Codex transcript discovery miss may walk the full sessions tree.
 The transcript dedupe retains what it told after a screen override to avoid
 reclaiming the same working state on every scan.
+
+## Hidden terminal redraws (BRU-331)
+
+`App.view` clears terminal entries' `shown` markers before composing panes.
+`paneTerminal` marks entries actually drawn; the completed frame applies that
+visibility through MyGo's `Terminal.SetVisible`. New attachments start hidden,
+so an attachment that finishes after its session was left cannot redraw it.
+The host still streams output and preserves titles, bells and notifications.
+Revealing a terminal requests one fresh frame; unchanged visibility requests
+none. Settings leaves the terminals composed beneath its overlay visible.
+
+The implementation lives in `app.go`, `view.go`, `panes.go` and the MyGo
+terminal plugin. `terminal_visibility_test.go` covers session switches, zoom,
+late attachment, built-in views and Settings. MyGo's visibility tests cover
+hidden output and callbacks, reveal, timer quiescence and concurrent updates.
+No daemon protocol, saved state or pane API changes.
+
+In the tester, four hidden terminals producing 20 output cycles caused 20
+window builds before the change and none afterward. An isolated native run
+with five visited sessions recorded 3,732 builds per minute while four hidden
+terminals streamed before the change, and 10 afterward. The latter sample
+lost focus partway through, so it is supporting evidence rather than a
+focused idle-budget comparison. Visible output still produced frames and
+revealing a terminal showed its current text. The installed app was not tested.

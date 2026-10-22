@@ -665,6 +665,7 @@ func (a *App) paneTerminal(c *ui.Context, pal *palette, s *proto.Session, p *pro
 	ui.Box(c.Key("body")).Grow(1).MinHeight(0).Children(func() {
 		switch {
 		case e != nil && e.term != nil:
+			e.shown = true
 			ref := a.paneRef(p.ID)
 			termView := terminal.View(c.Key("term"), e.term).Fill().Bind(ref)
 			// Our drop goes first: it takes images too, which the

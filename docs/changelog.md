@@ -432,6 +432,8 @@ builds only. What each feature is and where it stands is tracked in the
   notification clicks reveal the asking pane under zoom. Opening an Attention
   row saves the expanded project in sidebar preferences.
 
+- Output from hidden terminal panes no longer redraws the window. Switching
+  sessions or unzooming a pane shows its latest output immediately (BRU-331).
 - The app connects at once after a terminal service restart. Sessions appear
   as they come back, in their saved order, with up to four restoring at a
   time. The saved state stays intact until restoration finishes (BRU-229).

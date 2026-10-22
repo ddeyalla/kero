@@ -159,9 +159,11 @@ func TestUsageThroughTheRealHost(t *testing.T) {
 
 	// Showing the pane reads the fake source again and draws again, this
 	// time with the cost the visible pane reads.
-	h.Visible("pane-1", true)
 	drain(renders)
-	second := waitForRender(t, renders, "pane-1", "$12.50")
+	h.Visible("pane-1", true)
+	// Cost and account reads finish independently. Wait for both before
+	// pressing Refresh, which coalesces presses while a read is in flight.
+	second := waitForRender(t, renders, "pane-1", "$12.50", "57% left")
 	if err := second.ValidateTree(); err != nil {
 		t.Fatalf("the visible tree is invalid: %v", err)
 	}
@@ -285,13 +287,24 @@ type renderEvent struct {
 	tree protocol.Tree
 }
 
-func waitForRender(t *testing.T, ch <-chan renderEvent, pane, contains string) protocol.Tree {
+func waitForRender(t *testing.T, ch <-chan renderEvent, pane string, contains ...string) protocol.Tree {
 	t.Helper()
 	deadline := time.After(10 * time.Second)
 	for {
 		select {
 		case event := <-ch:
-			if event.pane == pane && strings.Contains(treeText(event.tree), contains) {
+			if event.pane != pane {
+				continue
+			}
+			text := treeText(event.tree)
+			matches := true
+			for _, part := range contains {
+				if !strings.Contains(text, part) {
+					matches = false
+					break
+				}
+			}
+			if matches {
 				return event.tree
 			}
 		case <-deadline:
