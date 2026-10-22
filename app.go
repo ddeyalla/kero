@@ -77,6 +77,7 @@ type termEntry struct {
 	stream  *client.Stream
 	err     string
 	started time.Time
+	shown   bool // included in the current pane composition
 }
 
 // App is the app's state. It lives on the main thread: other goroutines
@@ -842,6 +843,7 @@ func (a *App) ensureTerm(id string) {
 			})
 			return
 		}
+		term.SetVisible(false)
 		term.Resize(stream.Welcome.Cols, stream.Welcome.Rows)
 		stream.OnResized = term.Resize
 		close(g.ready)
