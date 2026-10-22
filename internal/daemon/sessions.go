@@ -27,8 +27,16 @@ type session struct {
 	unlinked map[string]bool
 }
 
-// state returns what the subscribers see.
-func (d *Daemon) state() proto.State {
+// state returns what the subscribers see: the sessions, and the Linear
+// workspace with the links, for a client that asks once.
+func (d *Daemon) state() proto.State { return d.stateOf(true) }
+
+// broadcastState is the state of a broadcast: the workspace goes on an
+// event of its own (proto.Message.Linear), only when it changed, so the
+// state a storm of titles sends carries none of it.
+func (d *Daemon) broadcastState() proto.State { return d.stateOf(false) }
+
+func (d *Daemon) stateOf(withLinear bool) proto.State {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	st := proto.State{
@@ -40,7 +48,7 @@ func (d *Daemon) state() proto.State {
 	for _, s := range d.sessions {
 		st.Sessions = append(st.Sessions, d.sessionInfo(s))
 	}
-	if d.linear != nil {
+	if withLinear && d.linear != nil {
 		lin := *d.linear
 		lin.Issues = d.linearIssues()
 		st.Linear = &lin

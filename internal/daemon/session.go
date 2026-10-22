@@ -233,7 +233,9 @@ func (s *pane) onTitle(title string) {
 	if s.info.Title != title {
 		s.info.Title = title
 		s.looked = false
-		s.d.changed()
+		// Agents' spinners change the title many times a second, and a
+		// title is nothing the saved state has.
+		s.d.broadcast()
 	}
 }
 

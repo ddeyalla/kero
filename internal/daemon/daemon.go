@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -70,6 +71,16 @@ type Daemon struct {
 	saveCh   chan struct{}
 	quit     chan struct{}
 	quitOnce sync.Once
+
+	// linearOut is the workspace last sent to the subscribers, which the
+	// broadcast sends again only when it differs (sendLinear), under
+	// linearOutMu.
+	linearOutMu sync.Mutex
+	linearOut   *proto.LinearState
+	// dropped counts the events a client was too far behind to take, and
+	// dropAt is when the log last said so (dropEvent).
+	dropped atomic.Int64
+	dropAt  atomic.Int64
 }
 
 // Run runs the daemon until it is told to shut down, or has had no session
@@ -174,11 +185,17 @@ func (d *Daemon) viewedID() string { return *d.viewed.Load() }
 
 // changed asks for the state to go to the subscribers, and to disk.
 func (d *Daemon) changed() {
+	d.broadcast()
+	d.save()
+}
+
+// broadcast asks for the state to go to the subscribers, and nothing to
+// disk: what only the window shows, as a pane's title, has nothing saved.
+func (d *Daemon) broadcast() {
 	select {
 	case d.changeCh <- struct{}{}:
 	default:
 	}
-	d.save()
 }
 
 // save asks for the state to go to disk.
@@ -206,13 +223,49 @@ func (d *Daemon) broadcastLoop() {
 		case <-d.changeCh:
 		default:
 		}
-		st := d.state()
-		d.mu.Lock()
-		for c := range d.subs {
-			c.event(proto.Message{Event: "state", State: &st})
-		}
-		d.mu.Unlock()
+		d.broadcastNow()
 	}
+}
+
+// broadcastNow sends the subscribers what changed: the sessions, every
+// time, and the Linear workspace, only when it is not the one they have.
+func (d *Daemon) broadcastNow() {
+	st := d.broadcastState()
+	lin := d.linearState()
+	d.mu.Lock()
+	for c := range d.subs {
+		c.event(proto.Message{Event: "state", State: &st})
+	}
+	d.mu.Unlock()
+	d.sendLinear(lin)
+}
+
+// sendLinear sends the workspace as an event of its own, when it differs
+// from the last one sent: it changes with the workspace and with the
+// sessions tasks show, not with a title, and encoding it per subscriber is
+// what a storm of titles would pay.
+func (d *Daemon) sendLinear(lin *proto.LinearState) {
+	d.linearOutMu.Lock()
+	same := reflect.DeepEqual(d.linearOut, lin)
+	d.linearOut = lin
+	d.linearOutMu.Unlock()
+	if same {
+		return
+	}
+	d.mu.Lock()
+	for c := range d.subs {
+		c.event(proto.Message{Event: "linear", Linear: lin})
+	}
+	d.mu.Unlock()
+}
+
+// sendLinearTo gives a client that has just subscribed the workspace it
+// holds, and keeps it as the last one sent.
+func (d *Daemon) sendLinearTo(c *controlConn, lin *proto.LinearState) {
+	d.linearOutMu.Lock()
+	d.linearOut = lin
+	d.linearOutMu.Unlock()
+	c.event(proto.Message{Event: "linear", Linear: lin})
 }
 
 func (d *Daemon) tickLoop() {
@@ -465,6 +518,7 @@ type controlConn struct {
 	enc  *json.Encoder
 	out  chan proto.Message
 	done chan struct{}
+	d    *Daemon // for the count of what a client was too slow to take
 }
 
 func (c *controlConn) write(m proto.Message) {
@@ -477,11 +531,32 @@ func (c *controlConn) write(m proto.Message) {
 }
 
 // event queues an event for a subscriber, dropping it when it is far
-// behind: the next state replaces it anyway.
+// behind: the next state replaces it anyway, and a Linear event comes again
+// with the next change of the workspace.
 func (c *controlConn) event(m proto.Message) {
 	select {
 	case c.out <- m:
 	default:
+		if c.d != nil {
+			c.d.dropEvent()
+		}
+	}
+}
+
+// dropEvent counts an event a client was too far behind to take, and says so
+// in the log at most once a minute while it happens: a window that builds
+// for every state can fall this far behind, and the count says that it did.
+func (d *Daemon) dropEvent() {
+	n := d.dropped.Add(1)
+	now := time.Now().UnixMilli()
+	last := d.dropAt.Load()
+	if now-last < 60_000 || !d.dropAt.CompareAndSwap(last, now) {
+		return
+	}
+	// The log is a file write, and the event dropped may have come with
+	// d.mu held: it goes on a goroutine of its own.
+	if lg := d.log; lg != nil {
+		go lg.Printf("%d events dropped: a client is behind", n)
 	}
 }
 
@@ -571,7 +646,7 @@ func (d *Daemon) serveAttach(conn net.Conn, r *bufio.Reader, hello proto.Hello, 
 }
 
 func (d *Daemon) serveControl(conn net.Conn, r *bufio.Reader) {
-	c := &controlConn{conn: conn, enc: json.NewEncoder(conn), out: make(chan proto.Message, 64), done: make(chan struct{})}
+	c := &controlConn{conn: conn, enc: json.NewEncoder(conn), out: make(chan proto.Message, 64), done: make(chan struct{}), d: d}
 	defer close(c.done)
 	defer func() {
 		d.mu.Lock()
