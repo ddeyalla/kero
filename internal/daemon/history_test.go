@@ -91,7 +91,9 @@ func TestRestoreShortAndEmptyHistory(t *testing.T) {
 				t.Fatal("the pane did not restore")
 			}
 			t.Cleanup(func() { p.close() })
-			text := p.readText(true, 0)
+			p.mu.Lock()
+			text := p.term.Text()
+			p.mu.Unlock()
 			restored := strings.Contains(text, "restored")
 			if name == "short" && (!restored || !strings.Contains(text, "line 4999")) {
 				t.Fatalf("the short history did not restore its last line:\n%s", text)

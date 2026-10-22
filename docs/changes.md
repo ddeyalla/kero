@@ -568,7 +568,11 @@ The Linear workspace moved from `state.json` to `linear.json`
 In memory and to the app it is as before. `saveState` writes
 `linear.json` only when the workspace is a new copy (`linearSet` replaces
 it and never changes it in place), and writes it before `state.json`, so a
-crash between the two writes loses nothing. Migration: the restore reads
+crash between the two writes loses nothing. Each delta read moves
+`fetchedAt`, which `linearEqual` counts as a change, so `linear.json` is
+still written after every successful read (about every 30 s), as the
+blob in `state.json` was; what changed is that a status flip no longer
+rewrites it. Migration: the restore reads
 `linear.json`, and takes the workspace from an old `state.json` when
 `linear.json` has none or an older one (by `fetchedAt`). The next save
 writes it to `linear.json` and leaves it out of `state.json`. The

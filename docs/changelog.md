@@ -141,7 +141,9 @@ builds only. What each feature is and where it stands is tracked in the
   each HEAD file every 1.6 s, so a branch switch still links its session
   within 2 seconds. It writes `state.json` at most once every 2 seconds
   under a storm of status changes, and keeps the Linear workspace in a
-  file of its own, `linear.json`, written only as the workspace changes.
+  file of its own, `linear.json`, written when a read of Linear brings a
+  new copy (about every 30 seconds while a key is set) instead of with
+  every status change.
   An existing `state.json` with the workspace in it loads as before, and
   the next save moves the workspace out. Going back to an older release
   loses only the cached workspace until it is read from Linear again.

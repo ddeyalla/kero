@@ -122,7 +122,7 @@ func TestStateSaveDebounce(t *testing.T) {
 	if after == 0 {
 		t.Fatal("the last change was never saved")
 	}
-	t.Logf("a 1 s storm saved %d times at a wait of %v (at %v: %d per 2 s)", during, wait, stateWait, 1)
+	t.Logf("a 1 s storm saved %d times at a wait of %v", during, wait)
 }
 
 // A branch switched is seen at the next check of its HEAD file, which
