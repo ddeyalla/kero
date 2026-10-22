@@ -123,11 +123,11 @@ func TestSidebarTopSpacing(t *testing.T) {
 	if gap := top - (buttons.Y + buttons.H); gap < 16 {
 		t.Errorf("the first row is %v below the sidebar's buttons, crowded", gap)
 	}
-	project, ok := tt.Find("demo") // a project's name, 10 into its row
+	project, ok := tt.Find("demo") // a project's name, 12 into its row, as its sessions' marks
 	if !ok {
 		t.Fatalf("no project row; texts %q", tt.Texts())
 	}
-	if x := project.X - 10; x != windowLights[0].X {
+	if x := project.X - 12; x != windowLights[0].X {
 		t.Errorf("the project's row starts %v in, not at the close light's %v", x, windowLights[0].X)
 	}
 }

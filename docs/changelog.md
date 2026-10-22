@@ -130,6 +130,17 @@ builds only. What each feature is and where it stands is tracked in the
   reading — instead of the generic spinner. It follows Reduce Motion and
   turns only while it shows, at 15 frames a second.
 
+- Session titles carry a mark at their head that follows the work, an SF
+  Symbol the app derives and never stores in the name: `exclamationmark.circle`
+  (amber) when the session needs you, `ladybug` when its linked Linear task
+  is labeled Bug, `hourglass` while it works, and `checkmark.circle` once its
+  work has ended and you have seen it. Needs you comes first, then the bug,
+  then work, then done; a plain shell, a turn ended unseen, a failure or an
+  exit have none. The title truncates, not the mark, and the time and the
+  status glyph keep their places. The sidebar rows and the command palette's
+  session rows show it. It reads what the app already receives, so it needs
+  no protocol change.
+
 ### Fixed
 
 - A restart of the terminal service no longer loses the sessions' marks:
@@ -177,6 +188,15 @@ builds only. What each feature is and where it stands is tracked in the
   backdrop, instead of in a window of its own. `Cmd+,` opens and closes it;
   Esc, a click beside the card and `Cmd+W` close it. In a small window the
   sidebar shows its pages' icons and the search moves into the page's header.
+
+- The sidebar's project groups read as groups: each header has room above
+  it and sits close to its own sessions, the first header has the same room
+  under the Linear row, and the header's name lines up with its sessions'
+  marks. The count and "needs you" no longer shrink, and the add button's
+  place is kept while it is hidden, so the header does not move when the
+  pointer comes over it. A project title with an emoji, such as
+  `🐛 kero-deyalla`, keeps it through a rename and a restart, shows it in
+  color, and is cut short only between whole characters.
 
 ### Documentation
 

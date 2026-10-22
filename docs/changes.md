@@ -346,6 +346,68 @@ points in a row and 12 in the footer chips.
 Tests: `view_test.go` (`TestSessionStatusIcons`, `TestStatusIconProgress`),
 `loading_ui_test.go` (`TestLoadingRingThrottled`).
 
+## Sidebar project groups and title marks
+
+**Project groups.** A project's header in the sidebar is
+`projectHeaderH` (24) tall, `projectGap` (20) below the project above it and
+with no margin under it, so it sits on its own sessions and reads as their
+heading (`groupView` in [`view.go`](../view.go)). The first header has the
+same gap under the Linear row; with the Linear row off it starts where the
+rows always did. The header's name is 12 in, the left edge of its sessions'
+title marks. Its parts keep one order and one place — name, count, chevron,
+then "needs you" and the add button at the right — and the count and
+"needs you" never shrink: the name gives way. The add button's 20-point
+place is kept while it is hidden, so the header does not move when the
+pointer comes over it.
+
+**Emoji in a project title.** A project's title is user data, so an emoji
+in it is allowed (the SF Symbols rule is about icons). It needed no change:
+`project.rename` trims and stores the title as it is, `proto.Project.Name`
+carries it, and the store saves it, so it survives a restart; the project's
+id and directory never change. MyGo cuts a single line at grapheme
+boundaries, so an ellipsis never falls inside an emoji, and its text
+falls back to a font that has the glyph. `squash`, which matches a
+project to a Linear project, drops the emoji. `kero projects` and `kero ls`
+print it; `text/tabwriter` counts it as one column where the terminal draws
+two, so that row's later columns are one off.
+
+**Title marks.** A session's title can carry a mark at its head, an SF
+Symbol that the app derives each frame from the state it already has and
+never writes into the name (`titleMark` in
+[`title_marks.go`](../title_marks.go)). The set is closed, in this order:
+
+1. `exclamationmark.circle`, in the attention amber: the session is
+   `waiting` on the user.
+2. `ladybug`: the session's `TaskID` is an issue of the Linear workspace the
+   app has (`State.Linear.Issues`) with a label named Bug. Linear has no issue
+   type but its labels. A bug outranks working and done, since it is what the
+   task is, but not needs you.
+3. `hourglass`: the session is `working`.
+4. `checkmark.circle`, faint: the session is idle and read, and its work
+   ended — kerod's attention fold says `done`, a program left a message, or
+   its status changed since its pane began (an agent whose turn kerod saw on
+   the screen leaves no message behind).
+
+A plain shell, a turn ended but unseen (its bold title and filled check say
+so), a failure and an exit have no mark. The mark has its own 12-point slot
+that never shrinks, empty for a session without one, so every title starts
+at one edge, and the title is what truncates; the time and the status glyph
+at the right keep their places. The command palette's session rows draw the
+same mark. Each mark has an accessible label (Needs you, Bug work,
+Working, Done).
+
+Not done: a "stashed" mark needs a state to park a session in, which is a
+protocol change, and is deferred (BRU-176). Detecting that a session runs
+the tests is not cheap (the foreground program is only `go` or `npm`), so
+only the task's label marks a bug. The session's pane header does not show
+the mark.
+
+Code: [`title_marks.go`](../title_marks.go) (`titleMark`, `turnEnded`,
+`bugTask`, `titleMarkView`), [`view.go`](../view.go) (`groupView`,
+`sessionRow`), [`palette.go`](../palette.go). Tests: `title_marks_test.go`,
+`title_bar_test.go` (`TestSidebarTopSpacing`),
+`internal/daemon/project_name_test.go`.
+
 ## Busy indicators
 
 Where the app itself is busy — the connecting card before a session shows, a

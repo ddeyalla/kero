@@ -174,6 +174,10 @@ func (a *App) paletteView(c *ui.Context, pal *palette) {
 					} else {
 						ui.Icon(c, returnIcon).Size(14, 14).TextColor(pal.textFaint)
 					}
+					if isSession {
+						// The title's mark, as the sidebar's row has it.
+						titleMarkView(c, pal, titleMark(it.session, a.st.Linear))
+					}
 					ui.Text(c, it.title).FontSize(13.5).TextColor(pal.text).SingleLine().Ellipsis("…").Shrink(0).MaxWidth(300)
 					ui.Text(c, it.detail).FontSize(12.5).TextColor(pal.textFaint).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
 					if it.keys != "" {

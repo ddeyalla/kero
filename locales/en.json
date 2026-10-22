@@ -207,6 +207,7 @@
   "statusDone": "Done",
   "statusUnread": "Unread",
   "statusIdle": "Idle",
+  "statusBugWork": "Bug work",
   "updateRestartTip": "Kero was updated: restart the background service to run the new version",
   "updatedTitle": "Kero was updated",
   "updatedDetail": "The background service that runs your sessions is from another version. Restart it: your sessions start again where they were, with their history.",
