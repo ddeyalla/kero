@@ -33,16 +33,22 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		runner := &fileRunner{path: os.Getenv("KERO_SPOTIFY_TEST_SCRIPTS")}
+		player := transport.New(runner)
 		newBackend = func(*sdk.Conn) (*transport.Transport, transport.Source, *web.Client) {
 			// No library call of the child reaches Spotify: both roots
-			// are a loopback port nothing listens on.
+			// are a loopback port nothing listens on. The saved sign-in
+			// has the streaming scope, so the pane plays.
 			client := web.New(web.Config{
 				BaseURL:     "http://127.0.0.1:1",
 				AccountsURL: "http://127.0.0.1:1",
 				OpenURL:     web.OpenURLFunc(func(string) error { return nil }),
-				Secrets:     web.MapSecrets{},
+				Secrets:     web.MapSecrets{web.TokensKey: streamingTokens()},
 			})
-			return transport.New(runner), silentSource{}, client
+			return player, silentSource{}, client
+		}
+		engineEager = true
+		newEngine = func(*sdk.Conn, *web.Client, func(transport.Snapshot), func(error)) playerEngine {
+			return desktopEngine{player}
 		}
 		if err := serve(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -74,6 +80,23 @@ func (r *fileRunner) Run(_ context.Context, script string) (string, error) {
 	defer file.Close()
 	_, _ = file.WriteString(script + "\n---\n")
 	return playingRead(), nil
+}
+
+// desktopEngine is the engine of a test: the fake desktop player behind
+// the engine's seam, so a test drives the player with a fake runner.
+type desktopEngine struct{ *transport.Transport }
+
+func (desktopEngine) Start() error { return nil }
+func (desktopEngine) Close() error { return nil }
+
+// streamingTokens is a saved sign-in with the streaming scope.
+func streamingTokens() string {
+	data, _ := json.Marshal(web.Token{
+		AccessToken: "test-access",
+		Scope:       web.ScopeStreaming,
+		ExpiresAt:   time.Now().Add(time.Hour),
+	})
+	return string(data)
 }
 
 // silentSource is a Source that listens to nothing, so the monitor polls.
@@ -132,7 +155,9 @@ func playingRead() string {
 func testPlugin(size protocol.Size, playback playbackMode, lib libraryMode) (*plugin, *session, *recordingRunner) {
 	runner := &recordingRunner{}
 	p := newPlugin()
-	p.player = transport.New(runner)
+	p.desktop = transport.New(runner)
+	p.engine = desktopEngine{p.desktop}
+	p.player = p.engine
 	s := &session{
 		pane:     "p1",
 		widget:   widgetPlayer,
@@ -155,6 +180,32 @@ func testPlugin(size protocol.Size, playback playbackMode, lib libraryMode) (*pl
 	}
 	p.panes["p1"] = s
 	return p, s, runner
+}
+
+// twinPane returns another pane that shows what a pane shows. A session
+// holds a lock, so a test builds the twin and does not copy it.
+func twinPane(s *session, pane string) *session {
+	return &session{
+		pane:     pane,
+		widget:   s.widget,
+		size:     s.size,
+		playback: s.playback,
+		lib:      s.lib,
+		tab:      s.tab,
+		loaded:   make(map[tabKind]bool),
+		snap:     s.snap,
+	}
+}
+
+// countRenders replaces drawTree with a counter, and returns the count.
+func countRenders(t *testing.T) func() int {
+	t.Helper()
+	var mu sync.Mutex
+	n := 0
+	previous := drawTree
+	drawTree = func(*sdk.Conn, string, protocol.Tree) { mu.Lock(); n++; mu.Unlock() }
+	t.Cleanup(func() { drawTree = previous })
+	return func() int { mu.Lock(); defer mu.Unlock(); return n }
 }
 
 // nodes is every node of a tree in draw order.
@@ -198,28 +249,64 @@ func draw(t *testing.T, p *plugin, s *session) *protocol.Node {
 	return tree.Root
 }
 
-func TestCompactLayout(t *testing.T) {
+func TestSmallLayout(t *testing.T) {
 	p, s, _ := testPlugin(protocol.Size{Width: 280, Height: 150}, modePlaying, libReady)
 	root := draw(t, p, s)
 
 	art := find(root, "art")
-	if art == nil || art.Width != 40 || art.Height != 40 || !art.Tint {
-		t.Fatalf("art = %+v, want 40 by 40 and tinted", art)
+	if art == nil || art.Width != 48 || art.Height != 48 || !art.Tint {
+		t.Fatalf("art = %+v, want 48 by 48 and tinted", art)
 	}
 	title := find(root, "title")
 	if title == nil || title.Text != "Test Song" || !title.Marquee {
 		t.Fatalf("title = %+v, want the marquee track", title)
 	}
-	for _, id := range []string{"artist", "prev", "play", "next", "progress"} {
+	if play := find(root, "play"); play == nil || !play.Primary || play.Width != 40 {
+		t.Fatalf("play = %+v, want a 40 point disc", play)
+	}
+	for _, id := range []string{"artist", "progress"} {
 		if find(root, id) == nil {
-			t.Errorf("compact player has no %q", id)
+			t.Errorf("small player has no %q", id)
 		}
 	}
-	if find(root, "seek") != nil || find(root, "search") != nil {
-		t.Error("the compact player drew the large controls")
+	for _, id := range []string{"prev", "next", "seek", "search", "results"} {
+		if find(root, id) != nil {
+			t.Errorf("the small player drew %q", id)
+		}
 	}
 	if got := find(root, "progress"); got.Value < 0.24 || got.Value > 0.26 {
 		t.Errorf("progress = %v, want a quarter of the track", got.Value)
+	}
+}
+
+func TestMediumLayout(t *testing.T) {
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	for i := range 8 {
+		s.entries = append(s.entries, entry{id: fmt.Sprintf("album-%d", i), title: "Album", uri: "spotify:album:a1"})
+	}
+	root := draw(t, p, s)
+
+	if art := find(root, "art"); art == nil || art.Width != 64 || !art.Tint {
+		t.Fatalf("art = %+v, want 64 wide and tinted", art)
+	}
+	if play := find(root, "play"); play == nil || !play.Primary || play.Width != 44 {
+		t.Fatalf("play = %+v, want a 44 point disc", play)
+	}
+	for _, id := range []string{"prev", "next", "progress"} {
+		if find(root, id) == nil {
+			t.Errorf("medium player has no %q", id)
+		}
+	}
+	results := find(root, "results")
+	if results == nil || results.Variant != protocol.VariantGrid || results.Width < 48 {
+		t.Fatalf("results = %+v, want a grid of tiles", results)
+	}
+	// One row: the tiles that fit the pane's width, no more.
+	if room := rowRoom(400); len(results.Items)*(results.Width+gridGap)-gridGap > room {
+		t.Fatalf("%d tiles of %d do not fit one row of %d", len(results.Items), results.Width, room)
+	}
+	if find(root, "seek") != nil || find(root, "tabs") != nil {
+		t.Error("the medium player drew the large controls")
 	}
 }
 
@@ -229,24 +316,94 @@ func TestLargeLayout(t *testing.T) {
 	root := draw(t, p, s)
 
 	art := find(root, "art")
-	if art == nil || art.Width != 96 || art.Height != 96 || !art.Tint {
-		t.Fatalf("art = %+v, want 96 by 96 and tinted", art)
+	if art == nil || art.Width != 56 || art.Height != 56 || !art.Tint {
+		t.Fatalf("art = %+v, want 56 by 56 and tinted", art)
 	}
-	if title := find(root, "title"); title == nil || !title.Marquee || title.Text != "Test Song" {
-		t.Fatalf("title = %+v", title)
+	if title := find(root, "title"); title == nil || !title.Marquee || title.Text != "Test Song" || title.Role != protocol.RoleTitle {
+		t.Fatalf("title = %+v, want the marquee title", title)
+	}
+	if play := find(root, "play"); play == nil || !play.Primary || play.Width != 40 {
+		t.Fatalf("play = %+v, want a 40 point disc", play)
 	}
 	seek := find(root, "seek")
 	if seek == nil || seek.Type != "slider" || seek.Step == 0 {
 		t.Fatalf("seek = %+v, want a slider", seek)
 	}
 	volume := find(root, "volume")
-	if volume == nil || volume.Type != "slider" {
-		t.Fatalf("volume = %+v, want a slider", volume)
+	if volume == nil || volume.Type != "slider" || volume.Width != volumeWidth || volume.Value != 70 {
+		t.Fatalf("volume = %+v, want an 80 point slider at 70", volume)
 	}
-	for _, id := range []string{"tab-search", "tab-playlists", "tab-albums", "search", "results"} {
+	// Two rows: the head, then the seek bar and the volume, side by side.
+	head, bar := find(root, "head"), find(root, "seek-row")
+	if head == nil || bar == nil || find(head, "repeat") == nil || find(bar, "mute") == nil || find(bar, "volume") == nil {
+		t.Fatalf("the wide player is not two rows: head %+v, bar %+v", head, bar)
+	}
+	if mute := find(root, "mute"); mute == nil || mute.Icon != "volume" {
+		t.Fatalf("mute = %+v, want the speaker symbol", mute)
+	}
+	for _, id := range []string{"tab-search", "tab-playlists", "tab-albums", "tab-queue", "search", "results"} {
 		if find(root, id) == nil {
 			t.Errorf("large player has no %q", id)
 		}
+	}
+	if results := find(root, "results"); results.Variant != protocol.VariantGrid {
+		t.Errorf("results = %+v, want a grid", results)
+	}
+}
+
+func TestLayoutOfASize(t *testing.T) {
+	cases := []struct {
+		size protocol.Size
+		want layout
+	}{
+		{protocol.Size{}, layoutLarge},
+		{protocol.Size{Width: 280, Height: 150}, layoutSmall},
+		{protocol.Size{Width: 299, Height: 600}, layoutSmall},
+		{protocol.Size{Width: 600, Height: 229}, layoutSmall},
+		{protocol.Size{Width: 300, Height: 230}, layoutMedium},
+		{protocol.Size{Width: 900, Height: 419}, layoutMedium},
+		{protocol.Size{Width: 300, Height: 420}, layoutLarge},
+	}
+	for _, test := range cases {
+		if got := layoutOf(test.size); got != test.want {
+			t.Errorf("layoutOf(%+v) = %v, want %v", test.size, got, test.want)
+		}
+	}
+}
+
+// Without the engine the pane asks for the sign-in that plays here, and
+// never offers to open the desktop app.
+func TestTheGateAsksForASignInBeforePlaying(t *testing.T) {
+	cases := []struct {
+		name       string
+		lib        libraryMode
+		streamable bool
+		signingIn  bool
+		id         string
+	}{
+		{"no client id", libNoClientID, false, false, "setup"},
+		{"signed out", libSignedOut, false, false, "sign-in"},
+		{"signed in before streaming", libReady, false, false, "sign-in-again"},
+		{"token refused", libTokenRefused, false, false, "sign-in-again"},
+		{"engine did not start", libReady, true, false, "state-unavailable"},
+		{"signing in", libSignedOut, false, true, "state-signing-in"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			p, s, _ := testPlugin(protocol.Size{Width: 700, Height: 600}, modePlaying, test.lib)
+			p.engine, p.player = nil, p.desktop
+			p.streamable = test.streamable
+			s.signingIn = test.signingIn
+			root := draw(t, p, s)
+			if find(root, test.id) == nil {
+				t.Fatalf("no %q in %q", test.id, texts(root))
+			}
+			for _, id := range []string{"play", "open-spotify", "get-spotify", "privacy", "results"} {
+				if find(root, id) != nil {
+					t.Errorf("the gate drew %q", id)
+				}
+			}
+		})
 	}
 }
 
@@ -256,11 +413,6 @@ func TestEveryStateHasItsOwnView(t *testing.T) {
 		id   string
 		text string
 	}{
-		{modeStarting, "state-starting", ""},
-		{modeIdle, "state-idle", ""},
-		{modeNotRunning, "open-spotify", ""},
-		{modeNotInstalled, "get-spotify", ""},
-		{modeAutomation, "privacy", ""},
 		{modeUnavailable, "state-unavailable", ""},
 	}
 	for _, test := range playbackCases {
@@ -366,24 +518,19 @@ func TestNetworkDownKeepsTheLastResults(t *testing.T) {
 	}
 }
 
-func TestSeekPreviewsThenCommits(t *testing.T) {
+// A drag of the seek slider changes nothing and draws nothing: the host holds
+// the knob. The release seeks, and draws once.
+func TestSeekCommitsOnRelease(t *testing.T) {
 	p, s, runner := testPlugin(protocol.Size{Width: 700, Height: 600}, modePlaying, libReady)
+	renders := countRenders(t)
+	p.conn = &sdk.Conn{}
 
-	p.event(nil, protocol.EventParams{Pane: "p1", Node: "seek", Kind: protocol.KindChange, Value: 0.75})
-	p.mu.Lock()
-	if s.seek == nil || *s.seek != 150*time.Second {
-		t.Fatalf("seek preview = %v, want 150s", s.seek)
-	}
-	preview := s.position()
-	p.mu.Unlock()
-	if preview != 150*time.Second {
-		t.Fatalf("position while dragging = %s, want 150s", preview)
-	}
-	if len(runner.calls()) != 0 {
-		t.Fatal("a drag ran a seek before the release")
+	p.event(nil, protocol.EventParams{Pane: "p1", Node: "seek", Kind: protocol.KindChange, Value: 150.0})
+	if len(runner.calls()) != 0 || renders() != 0 {
+		t.Fatalf("a drag ran %d scripts and drew %d trees", len(runner.calls()), renders())
 	}
 
-	p.event(nil, protocol.EventParams{Pane: "p1", Node: "seek", Kind: protocol.KindCommit, Value: 0.75})
+	p.event(nil, protocol.EventParams{Pane: "p1", Node: "seek", Kind: protocol.KindCommit, Value: 150.0})
 	eventually(t, "the seek command", func() bool {
 		for _, script := range runner.calls() {
 			if strings.Contains(script, "set player position to 150.000") {
@@ -394,13 +541,18 @@ func TestSeekPreviewsThenCommits(t *testing.T) {
 	})
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if s.seek != nil {
-		t.Fatal("the preview did not clear on release")
+	if s.snap.Position != 150*time.Second {
+		t.Fatalf("position = %s after the seek, want 150s", s.snap.Position)
+	}
+	if renders() != 1 {
+		t.Fatalf("the release drew %d trees, want 1", renders())
 	}
 }
 
+// At the large size a tile opens its tracks; where a track list has no room,
+// the medium size, a tile plays at once.
 func TestPlayFromASearchResult(t *testing.T) {
-	p, s, runner := testPlugin(protocol.Size{Width: 700, Height: 600}, modePlaying, libReady)
+	p, s, runner := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
 	s.entries = []entry{{id: "album-a1", title: "Album One", uri: "spotify:album:a1"}}
 
 	p.event(nil, protocol.EventParams{Pane: "p1", Node: "results", Kind: protocol.KindSelect, Value: "album-a1"})
@@ -547,9 +699,12 @@ func TestManifestIsRegistered(t *testing.T) {
 	if !plugin.Builtin {
 		t.Fatal("spotify is not builtin")
 	}
-	want := []string{"secrets", "openURL"}
+	want := []string{"secrets", "openURL", "web", "ambient"}
+	if len(plugin.Manifest.Permissions) != len(want) {
+		t.Fatalf("permissions = %v, want %v", plugin.Manifest.Permissions, want)
+	}
 	for i, permission := range plugin.Manifest.Permissions {
-		if i >= len(want) || permission != want[i] {
+		if permission != want[i] {
 			t.Fatalf("permissions = %v, want %v", plugin.Manifest.Permissions, want)
 		}
 	}

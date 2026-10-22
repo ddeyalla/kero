@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -103,8 +105,8 @@ func TestSearch(t *testing.T) {
 	if album.ArtistLine() != "Daft Punk" {
 		t.Errorf("ArtistLine = %q", album.ArtistLine())
 	}
-	if album.Artwork() != "https://i/64" {
-		t.Errorf("Artwork = %q, want the smallest image", album.Artwork())
+	if album.Artwork() != "https://i/300" {
+		t.Errorf("Artwork = %q, want the smallest image of 300 px or more", album.Artwork())
 	}
 
 	if len(result.Playlists) != 2 {
@@ -114,7 +116,7 @@ func TestSearch(t *testing.T) {
 	if playlist.ID != "p1" || playlist.Owner != "Ada" || playlist.TotalTracks != 42 {
 		t.Errorf("playlist = %+v", playlist)
 	}
-	if playlist.Artwork() != "https://i/p60" {
+	if playlist.Artwork() != "https://i/p300" {
 		t.Errorf("playlist Artwork = %q", playlist.Artwork())
 	}
 	if second := result.Playlists[1]; second.ID != "p2" || second.Owner != "" || second.Artwork() != "" {
@@ -186,7 +188,7 @@ func TestPlaylists(t *testing.T) {
 	if len(list) != 2 {
 		t.Fatalf("playlists = %+v", list)
 	}
-	if list[0].ID != "p1" || list[0].Owner != "Ada" || list[0].TotalTracks != 3 || list[0].Artwork() != "https://i/60" {
+	if list[0].ID != "p1" || list[0].Owner != "Ada" || list[0].TotalTracks != 3 || list[0].Artwork() != "https://i/300" {
 		t.Errorf("playlist = %+v", list[0])
 	}
 	if list[1].Owner != "bob" {
@@ -236,7 +238,7 @@ func TestAlbums(t *testing.T) {
 		t.Fatalf("albums = %+v", list)
 	}
 	album := list[0]
-	if album.ID != "a1" || album.TotalTracks != 14 || album.Artwork() != "https://i/64" {
+	if album.ID != "a1" || album.TotalTracks != 14 || album.Artwork() != "https://i/640" {
 		t.Errorf("album = %+v", album)
 	}
 	if album.ArtistLine() != "Daft Punk, Guest" {
@@ -1389,13 +1391,208 @@ func TestSpotifyMessage(t *testing.T) {
 	}
 }
 
-func TestSmallImage(t *testing.T) {
-	if got := SmallImage(nil); got != "" {
-		t.Errorf("SmallImage(nil) = %q", got)
+func TestPickImage(t *testing.T) {
+	if got := PickImage(nil, TileImageWidth); got != "" {
+		t.Errorf("PickImage(nil) = %q", got)
 	}
 	images := []Image{{URL: "big", Width: 640}, {URL: "small", Width: 64}, {URL: "mid", Width: 300}}
-	if got := SmallImage(images); got != "small" {
-		t.Errorf("SmallImage = %q", got)
+	cases := []struct {
+		min  int
+		want string
+	}{
+		{min: 32, want: "small"},
+		{min: 64, want: "small"},
+		{min: 65, want: "mid"},
+		{min: TileImageWidth, want: "mid"},
+		{min: 301, want: "big"},
+		// Nothing is that wide: the widest image is the best there is.
+		{min: 1000, want: "big"},
+	}
+	for _, c := range cases {
+		if got := PickImage(images, c.min); got != c.want {
+			t.Errorf("PickImage(min %d) = %q, want %q", c.min, got, c.want)
+		}
+	}
+	// Covers that give no width: the first one, which Spotify lists as the
+	// largest.
+	if got := PickImage([]Image{{URL: "first"}, {URL: "second"}}, TileImageWidth); got != "first" {
+		t.Errorf("PickImage without widths = %q", got)
+	}
+	// Without a wide enough cover, the widest known one wins over one with
+	// no width.
+	if got := PickImage([]Image{{URL: "none"}, {URL: "mid", Width: 300}}, TileImageWidth); got != "mid" {
+		t.Errorf("PickImage = %q, want the widest known", got)
+	}
+}
+
+func TestCachedSearchServesAnEarlierQuery(t *testing.T) {
+	now := testNow()
+	var requests atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		io.WriteString(w, `{"albums":{"items":[{"id":"a1","name":"Discovery"}]},"playlists":{"items":[]}}`)
+	}))
+	defer api.Close()
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, liveToken(now)),
+		Now:      func() time.Time { return now },
+	})
+
+	if _, ok := client.CachedSearch("daft punk"); ok {
+		t.Fatal("CachedSearch had an answer before any search")
+	}
+	if _, err := client.Search(context.Background(), "Daft Punk"); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := client.CachedSearch("  daft punk ")
+	if !ok || got.Query != "daft punk" || len(got.Albums) != 1 {
+		t.Fatalf("CachedSearch = %+v, %v, want the answer under the query as typed", got, ok)
+	}
+	if requests.Load() != 1 {
+		t.Errorf("requests = %d, CachedSearch must send none", requests.Load())
+	}
+	if _, ok := client.CachedSearch("   "); ok {
+		t.Error("CachedSearch answered an empty query")
+	}
+
+	now = now.Add(searchCacheTTL - time.Second)
+	if _, ok := client.CachedSearch("daft punk"); !ok {
+		t.Error("the answer expired too early")
+	}
+	now = now.Add(2 * time.Second)
+	if _, ok := client.CachedSearch("daft punk"); ok {
+		t.Error("the answer outlived the TTL")
+	}
+}
+
+func TestCachedSearchKeepsTheLastQueries(t *testing.T) {
+	now := testNow()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"albums":{"items":[{"id":"a1","name":"A"}]},"playlists":{"items":[]}}`)
+	}))
+	defer api.Close()
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, liveToken(now)),
+		Now:      func() time.Time { return now },
+	})
+	for i := 0; i < searchCacheSize+1; i++ {
+		if _, err := client.Search(context.Background(), fmt.Sprintf("query %d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := client.CachedSearch("query 0"); ok {
+		t.Error("the oldest query was kept past the limit")
+	}
+	if _, ok := client.CachedSearch(fmt.Sprintf("query %d", searchCacheSize)); !ok {
+		t.Error("the newest query was not kept")
+	}
+
+	// Signing out forgets the answers with the other results.
+	if err := client.SignOut(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := client.CachedSearch(fmt.Sprintf("query %d", searchCacheSize)); ok {
+		t.Error("an answer survived the sign-out")
+	}
+}
+
+func TestLibraryLoadsInFlightAreShared(t *testing.T) {
+	now := testNow()
+	var requests atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			close(started)
+		}
+		<-release
+		io.WriteString(w, `{"items":[{"id":"p1","name":"One"}]}`)
+	}))
+	defer api.Close()
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, liveToken(now)),
+		Now:      func() time.Time { return now },
+	})
+
+	type answer struct {
+		list []Playlist
+		err  error
+	}
+	answers := make(chan answer, 3)
+	call := func() {
+		list, err := client.Playlists(context.Background())
+		answers <- answer{list, err}
+	}
+	go call()
+	<-started
+	go call()
+	go call()
+	// The two followers must be waiting on the flight before it answers.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	for i := 0; i < 3; i++ {
+		if a := <-answers; a.err != nil || len(a.list) != 1 || a.list[0].ID != "p1" {
+			t.Fatalf("answer %d = %+v", i, a)
+		}
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("requests = %d, want one for the three calls", got)
+	}
+}
+
+func TestAFollowerOutlivesTheCallerThatStartedTheLoad(t *testing.T) {
+	now := testNow()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var requests atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			close(started)
+		}
+		<-release
+		io.WriteString(w, `{"items":[{"id":"p1","name":"One"}]}`)
+	}))
+	defer api.Close()
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, liveToken(now)),
+		Now:      func() time.Time { return now },
+	})
+
+	leaderCtx, cancel := context.WithCancel(context.Background())
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := client.Playlists(leaderCtx)
+		leaderDone <- err
+	}()
+	<-started
+	type answer struct {
+		list []Playlist
+		err  error
+	}
+	followed := make(chan answer, 1)
+	go func() {
+		list, err := client.Playlists(context.Background())
+		followed <- answer{list, err}
+	}()
+	// The caller that started the load gives up; the follower still waits.
+	cancel()
+	if err := <-leaderDone; err == nil {
+		t.Error("the caller that gave up got an answer")
+	}
+	close(release)
+	if a := <-followed; a.err != nil || len(a.list) != 1 {
+		t.Fatalf("follower = %+v, want the load's answer", a)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("requests = %d, want one", got)
 	}
 }
 
@@ -1407,5 +1604,74 @@ func TestClip(t *testing.T) {
 	}
 	if clipped := clip("  two\nlines  "); clipped != "two lines" {
 		t.Errorf("clip = %q", clipped)
+	}
+}
+
+func TestCurrentTrackAndLastPlayed(t *testing.T) {
+	now := testNow()
+	var paths []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/v1/me/player":
+			w.WriteHeader(http.StatusNoContent)
+		case "/v1/me/player/recently-played":
+			if got := r.URL.Query().Get("limit"); got != "1" {
+				t.Errorf("limit = %q", got)
+			}
+			io.WriteString(w, `{"items":[{"track":{"uri":"spotify:track:t1","name":"Juicy","type":"track","duration_ms":1500,
+				"artists":[{"name":"A"},{"name":"B"}],
+				"album":{"name":"Al","images":[{"url":"https://i/64","width":64},{"url":"https://i/640","width":640}]}},
+				"context":{"uri":"spotify:artist:x","type":"artist"}}]}`)
+		}
+	}))
+	defer api.Close()
+	token := liveToken(now)
+	token.Scope = "user-read-recently-played"
+	client := New(Config{
+		ClientID: "client-id",
+		BaseURL:  api.URL,
+		Secrets:  seededSecrets(t, token),
+		Now:      func() time.Time { return now },
+	})
+
+	// No device is a 204 with no body: no track, no error.
+	if track, err := client.CurrentTrack(context.Background()); err != nil || track != nil {
+		t.Fatalf("CurrentTrack = %+v, %v; want nil, nil", track, err)
+	}
+	track, err := client.LastPlayed(context.Background())
+	if err != nil || track == nil {
+		t.Fatalf("LastPlayed = %+v, %v", track, err)
+	}
+	if track.URI != "spotify:track:t1" || track.ArtistLine() != "A, B" || track.Image != "https://i/640" || track.Duration != 1500*time.Millisecond {
+		t.Fatalf("track = %+v", track)
+	}
+	// An artist cannot start at a track, so the track plays alone.
+	if track.ContextURI != "" || track.OtherDevice {
+		t.Fatalf("context %q, other device %t", track.ContextURI, track.OtherDevice)
+	}
+}
+
+func TestLastPlayedWithoutItsScopeSendsNothing(t *testing.T) {
+	now := testNow()
+	var calls atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+	}))
+	defer api.Close()
+	token := liveToken(now)
+	token.Scope = "streaming"
+	client := New(Config{ClientID: "client-id", BaseURL: api.URL, Secrets: seededSecrets(t, token), Now: func() time.Time { return now }})
+	if _, err := client.LastPlayed(context.Background()); !errors.Is(err, ErrMissingScope) {
+		t.Fatalf("LastPlayed = %v, want ErrMissingScope", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("%d requests sent", calls.Load())
+	}
+	if client.Current() != StateReady {
+		t.Fatalf("state = %q, want the sign-in kept", client.Current())
+	}
+	if !slices.Contains(DefaultScopes, ScopeRecentlyPlayed) {
+		t.Fatal("DefaultScopes lacks the recently-played scope")
 	}
 }

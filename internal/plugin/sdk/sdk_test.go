@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -467,5 +470,170 @@ func TestPartsBuildValidTree(t *testing.T) {
 	}
 	if got := built.Children[7]; got.Type != protocol.NodeSearchField || got.Text != "miles" {
 		t.Fatalf("search = %+v, want the query in its text", got)
+	}
+}
+
+// A tree equal to the one last sent for a pane is not sent again; a
+// different one is, and so is one after a failed render.
+func TestRenderSkipsAnUnchangedTree(t *testing.T) {
+	h := newHost()
+	defer h.close()
+	done := make(chan error, 1)
+	errs := runPlugin(t, h, Handlers{
+		Open: func(c *Conn, e OpenEvent) {
+			var err error
+			for _, text := range []string{"a", "a", "b", "b", "a"} {
+				if err = c.Render(e.Pane, Text("t", text).Tree()); err != nil {
+					break
+				}
+			}
+			done <- err
+		},
+	})
+	if resp := h.hello(t, protocol.Version); resp.Error != nil {
+		t.Fatalf("hello: %v", resp.Error)
+	}
+	open, err := protocol.NewNotification(protocol.MethodOpen, protocol.OpenParams{Pane: "p1", Widget: "player"})
+	if err != nil {
+		t.Fatalf("NewNotification: %v", err)
+	}
+	h.send(t, open)
+
+	var texts []string
+	for range 3 {
+		req := h.request(t, 5*time.Second)
+		var params protocol.RenderParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			t.Fatalf("render params: %v", err)
+		}
+		texts = append(texts, params.Tree.Root.Text)
+		h.respond(t, req.ID, struct{}{})
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if got := strings.Join(texts, ""); got != "aba" {
+		t.Fatalf("sent %q, want aba: the repeats are skipped", got)
+	}
+	h.in.Close()
+	waitEnd(t, errs)
+}
+
+// A failed render is not remembered, so the same tree goes out again.
+func TestRenderRetriesAfterAFailure(t *testing.T) {
+	h := newHost()
+	defer h.close()
+	done := make(chan [2]error, 1)
+	errs := runPlugin(t, h, Handlers{
+		Open: func(c *Conn, e OpenEvent) {
+			tree := Text("t", "x").Tree()
+			done <- [2]error{c.Render(e.Pane, tree), c.Render(e.Pane, tree)}
+		},
+	})
+	if resp := h.hello(t, protocol.Version); resp.Error != nil {
+		t.Fatalf("hello: %v", resp.Error)
+	}
+	open, _ := protocol.NewNotification(protocol.MethodOpen, protocol.OpenParams{Pane: "p1", Widget: "player"})
+	h.send(t, open)
+	req := h.request(t, 5*time.Second)
+	h.fail(t, req.ID, protocol.CodeInvalidParams, "no")
+	req = h.request(t, 5*time.Second)
+	h.respond(t, req.ID, struct{}{})
+	got := <-done
+	if got[0] == nil || got[1] != nil {
+		t.Fatalf("renders = %v, want a failure then success", got)
+	}
+	h.in.Close()
+	waitEnd(t, errs)
+}
+
+// Renders from many goroutines, with opens between them, neither race nor
+// grow the record of panes past its bound.
+func TestRenderRacesWithForgetAndStaysBounded(t *testing.T) {
+	h := newHost()
+	defer h.close()
+	c := &Conn{
+		enc:     protocol.NewEncoder(io.Discard),
+		pending: map[string]chan *protocol.Response{},
+		done:    make(chan struct{}),
+	}
+	// Answer every call at once.
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range 50 {
+				pane := "p" + strconv.Itoa((i+j)%3)
+				if j%7 == 0 {
+					c.forgetRender(pane)
+				}
+				_ = c.paneRender(pane)
+			}
+		}()
+	}
+	wg.Wait()
+	for i := range 2 * maxRenderPanes {
+		c.paneRender("pane-" + strconv.Itoa(i))
+	}
+	c.rendersMu.Lock()
+	n := len(c.renders)
+	c.rendersMu.Unlock()
+	if n > maxRenderPanes {
+		t.Fatalf("the record holds %d panes, want at most %d", n, maxRenderPanes)
+	}
+}
+
+// A forget that waits for a render in flight is not undone by its store.
+func TestForgetWinsOverARenderInFlight(t *testing.T) {
+	h := newHost()
+	defer h.close()
+	done := make(chan error, 1)
+	errs := runPlugin(t, h, Handlers{
+		Open: func(c *Conn, e OpenEvent) {
+			go func() { done <- c.Render(e.Pane, Text("t", "x").Tree()) }()
+		},
+		Close: func(c *Conn, pane string) {
+			// The close arrives while the render waits for the host.
+			c.mu.Lock()
+			c.mu.Unlock()
+		},
+	})
+	if resp := h.hello(t, protocol.Version); resp.Error != nil {
+		t.Fatalf("hello: %v", resp.Error)
+	}
+	open, _ := protocol.NewNotification(protocol.MethodOpen, protocol.OpenParams{Pane: "p1", Widget: "w"})
+	h.send(t, open)
+	req := h.request(t, 5*time.Second)
+	closeMsg, _ := protocol.NewNotification(protocol.MethodClose, protocol.CloseParams{Pane: "p1"})
+	h.send(t, closeMsg)
+	time.Sleep(50 * time.Millisecond)
+	h.respond(t, req.ID, struct{}{})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	// Open again: the same tree must be sent again.
+	h.send(t, open)
+	req = h.request(t, 5*time.Second)
+	h.respond(t, req.ID, struct{}{})
+	h.in.Close()
+	waitEnd(t, errs)
+}
+
+// Active switches an icon button on, and Leading and Active travel on the
+// items of a list.
+func TestActiveParts(t *testing.T) {
+	on := IconButton("shuffle", "shuffle").Active(true).Build()
+	off := IconButton("repeat", "repeat").Build()
+	if !on.Active || off.Active {
+		t.Fatalf("active = %v and %v, want true and false", on.Active, off.Active)
+	}
+	list := List("tracks", protocol.Item{ID: "t-0", Title: "A", Leading: "1", Active: true}).Build()
+	tree := protocol.Tree{Root: Column("root", IconButton("shuffle", "shuffle").Active(true), List("tracks", list.Items...)).Build()}
+	if err := tree.ValidateTree(); err != nil {
+		t.Fatal(err)
+	}
+	if item := list.Items[0]; item.Leading != "1" || !item.Active {
+		t.Fatalf("item = %+v", item)
 	}
 }

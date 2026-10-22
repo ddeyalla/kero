@@ -1,6 +1,7 @@
 package spotify
 
 import (
+	"kero/internal/plugin/builtin/spotify/engine"
 	"kero/internal/plugin/builtin/spotify/transport"
 	"kero/internal/plugin/builtin/spotify/web"
 	"kero/internal/plugin/sdk"
@@ -16,4 +17,19 @@ var newBackend = func(conn *sdk.Conn) (*transport.Transport, transport.Source, *
 		Secrets: web.ConnSecrets(conn),
 	})
 	return transport.New(transport.OSAscript{}), transport.NewSource(), client
+}
+
+// newEngine makes the engine of one plugin process: its page runs in the
+// host's web view, and it asks the Web API client for the access token.
+var newEngine = func(conn *sdk.Conn, library *web.Client, emit func(transport.Snapshot), onError func(error)) playerEngine {
+	// A plugin that has no connection to its host has no web view to run.
+	if conn == nil {
+		return nil
+	}
+	return engine.New(engine.Config{
+		Web:     conn,
+		Token:   library.AccessToken,
+		Emit:    emit,
+		OnError: onError,
+	})
 }

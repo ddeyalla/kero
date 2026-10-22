@@ -9,11 +9,19 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
 // maxResponse caps the body of one Web API answer.
 const maxResponse = 8 << 20
+
+const (
+	// searchCacheSize is how many queries CachedSearch remembers, and
+	// searchCacheTTL how long it believes an answer.
+	searchCacheSize = 20
+	searchCacheTTL  = 2 * time.Minute
+)
 
 // errTokenStale is the API refusing the access token. The client
 // refreshes the token and tries once more.
@@ -38,9 +46,9 @@ type Album struct {
 	Images      []Image
 }
 
-// Artwork is the smallest cover URL, which the list shows, or "" when
-// Spotify gave no cover.
-func (a Album) Artwork() string { return SmallImage(a.Images) }
+// Artwork is the cover URL for a grid tile, or "" when Spotify gave no
+// cover. See PickImage for which cover that is.
+func (a Album) Artwork() string { return PickImage(a.Images, TileImageWidth) }
 
 // ArtistLine joins the artists for the second line of a result.
 func (a Album) ArtistLine() string { return strings.Join(a.Artists, ", ") }
@@ -56,8 +64,8 @@ type Playlist struct {
 	Images      []Image
 }
 
-// Artwork is the smallest cover URL, or "" when Spotify gave none.
-func (p Playlist) Artwork() string { return SmallImage(p.Images) }
+// Artwork is the cover URL for a grid tile, or "" when Spotify gave none.
+func (p Playlist) Artwork() string { return PickImage(p.Images, TileImageWidth) }
 
 // SearchResult is what a search found.
 type SearchResult struct {
@@ -68,19 +76,43 @@ type SearchResult struct {
 	Playlists []Playlist
 }
 
-// SmallImage returns the URL of the smallest image, which is what a list
-// row shows. It returns "" when there are no images.
-func SmallImage(images []Image) string {
+// TileImageWidth is the width in device pixels that a grid tile asks of
+// its cover. A tile is 160 to 200 points wide and the display may be 2x, so
+// the 64 px cover looks blurred, and the 640 px one costs memory and time
+// for nothing. Spotify gives covers of 640, 300 and 64 px, so this picks
+// the 300 px one, and the same URL serves the tile, the drill-in header and
+// the row that plays.
+const TileImageWidth = 300
+
+// PickImage returns the URL of the smallest image that is at least minWidth
+// pixels wide, so that a cover is sharp but not larger than it needs to
+// be. When no image is that wide it returns the widest one. Images that
+// give no width count as the narrowest; when none gives a width, the first
+// image is used, which Spotify lists as the largest. It returns "" when
+// there are no images.
+func PickImage(images []Image, minWidth int) string {
 	if len(images) == 0 {
 		return ""
 	}
-	small := images[0]
-	for _, img := range images[1:] {
-		if img.Width < small.Width {
-			small = img
+	pick := -1
+	for i, img := range images {
+		if img.Width < minWidth {
+			continue
+		}
+		if pick < 0 || img.Width < images[pick].Width {
+			pick = i
 		}
 	}
-	return small.URL
+	if pick >= 0 {
+		return images[pick].URL
+	}
+	pick = 0
+	for i, img := range images[1:] {
+		if img.Width > images[pick].Width {
+			pick = i + 1
+		}
+	}
+	return images[pick].URL
 }
 
 // Search finds albums and playlists. An empty query finds nothing and
@@ -136,6 +168,9 @@ func (c *Client) Search(ctx context.Context, query string) (SearchResult, error)
 	// Keep the result only while no sign-in or sign-out came between
 	// and no newer search got its answer first.
 	c.cacheMu.Lock()
+	if c.gen == gen {
+		c.rememberSearchLocked(result)
+	}
 	if c.gen == gen && seq > c.lastSearchSeq {
 		c.lastSearch = result
 		c.lastSearchSet = true
@@ -145,6 +180,106 @@ func (c *Client) Search(ctx context.Context, query string) (SearchResult, error)
 	return result, nil
 }
 
+// searchKey is what two spellings of one query share: Spotify does not
+// tell upper and lower case apart.
+func searchKey(query string) string {
+	return strings.ToLower(strings.TrimSpace(query))
+}
+
+// cachedSearch is the answer to one query and the time it came.
+type cachedSearch struct {
+	key    string
+	result SearchResult
+	at     time.Time
+}
+
+// rememberSearchLocked keeps the answer to a query as the newest of the
+// last searchCacheSize, and is called with cacheMu held.
+func (c *Client) rememberSearchLocked(result SearchResult) {
+	key := searchKey(result.Query)
+	kept := c.searches[:0]
+	for _, entry := range c.searches {
+		if entry.key != key {
+			kept = append(kept, entry)
+		}
+	}
+	kept = append(kept, cachedSearch{key: key, result: result, at: c.now()})
+	if len(kept) > searchCacheSize {
+		kept = kept[len(kept)-searchCacheSize:]
+	}
+	c.searches = kept
+}
+
+// CachedSearch returns the answer of an earlier search of this query, if
+// it is less than two minutes old, and whether there was one. It sends no
+// request: the pane shows it at once, and still asks Search for the news.
+// The result's Query is the query as it is spelled here.
+func (c *Client) CachedSearch(query string) (SearchResult, bool) {
+	q := strings.TrimSpace(query)
+	key := searchKey(q)
+	if key == "" {
+		return SearchResult{}, false
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	for _, entry := range c.searches {
+		if entry.key == key && c.now().Sub(entry.at) < searchCacheTTL {
+			result := entry.result
+			result.Query = q
+			return result, true
+		}
+	}
+	return SearchResult{}, false
+}
+
+// flight is one library load in flight, and what it answered.
+type flight struct {
+	done chan struct{}
+	val  any
+	err  error
+}
+
+// libraryLoadTimeout bounds one shared library load. The load does not take
+// the context of the caller that started it, because the others wait for
+// its answer too, so it has a deadline of its own.
+const libraryLoadTimeout = 8 * time.Second
+
+// shared runs load once for all the callers that ask for the same name at
+// the same time: the others wait for its answer. The load runs under its
+// own deadline, not the context of the caller that started it, so that
+// this caller giving up does not fail the others. A caller whose context
+// ends first stops waiting, and the load goes on for the rest. The flight
+// is keyed by the account generation too, so a call after a sign-out and a
+// sign-in does not join the load of the old account.
+func (c *Client) shared(ctx context.Context, name string, load func(context.Context) (any, error)) (any, error) {
+	key := fmt.Sprintf("%d/%s", c.cacheGen(), name)
+	c.flightMu.Lock()
+	if c.flights == nil {
+		c.flights = make(map[string]*flight)
+	}
+	f, ok := c.flights[key]
+	if !ok {
+		f = &flight{done: make(chan struct{})}
+		c.flights[key] = f
+		go func() {
+			loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), libraryLoadTimeout)
+			defer cancel()
+			f.val, f.err = load(loadCtx)
+			c.flightMu.Lock()
+			delete(c.flights, key)
+			c.flightMu.Unlock()
+			close(f.done)
+		}()
+	}
+	c.flightMu.Unlock()
+	select {
+	case <-f.done:
+		return f.val, f.err
+	case <-ctx.Done():
+		return nil, networkError(ctx, ctx.Err())
+	}
+}
+
 // cacheGen is the generation a call starts with.
 func (c *Client) cacheGen() uint64 {
 	c.cacheMu.Lock()
@@ -152,8 +287,15 @@ func (c *Client) cacheGen() uint64 {
 	return c.gen
 }
 
-// Playlists returns the user's playlists, up to the first 50.
+// Playlists returns the user's playlists, up to the first 50. Calls at
+// the same time share one request.
 func (c *Client) Playlists(ctx context.Context) ([]Playlist, error) {
+	val, err := c.shared(ctx, "playlists", func(ctx context.Context) (any, error) { return c.loadPlaylists(ctx) })
+	list, _ := val.([]Playlist)
+	return list, err
+}
+
+func (c *Client) loadPlaylists(ctx context.Context) ([]Playlist, error) {
 	gen := c.cacheGen()
 	params := url.Values{}
 	params.Set("limit", "50")
@@ -184,8 +326,15 @@ func (c *Client) Playlists(ctx context.Context) ([]Playlist, error) {
 	return list, nil
 }
 
-// Albums returns the user's saved albums, up to the first 50.
+// Albums returns the user's saved albums, up to the first 50. Calls at
+// the same time share one request.
 func (c *Client) Albums(ctx context.Context) ([]Album, error) {
+	val, err := c.shared(ctx, "albums", func(ctx context.Context) (any, error) { return c.loadAlbums(ctx) })
+	list, _ := val.([]Album)
+	return list, err
+}
+
+func (c *Client) loadAlbums(ctx context.Context) ([]Album, error) {
 	gen := c.cacheGen()
 	params := url.Values{}
 	params.Set("limit", "50")
@@ -312,13 +461,18 @@ func (c *Client) doGet(ctx context.Context, path string, params url.Values, toke
 		}
 		// The token is valid, but the app or the user may not use this
 		// endpoint. That is not the same as a refused token.
-		return fmt.Errorf("spotify: forbidden (HTTP 403): %s", message)
+		return fmt.Errorf("%w: %s", ErrForbidden, message)
 	case resp.StatusCode == http.StatusTooManyRequests:
 		return c.rateLimited(resp, spotifyMessage(raw))
 	case resp.StatusCode >= 500:
 		return fmt.Errorf("%w: HTTP %d: %s", ErrNetworkDown, resp.StatusCode, spotifyMessage(raw))
 	case resp.StatusCode < 200 || resp.StatusCode > 299:
 		return fmt.Errorf("spotify: request failed (HTTP %d): %s", resp.StatusCode, spotifyMessage(raw))
+	}
+	// An answer with no content, such as the player of a user with no
+	// device, leaves out as it is.
+	if resp.StatusCode == http.StatusNoContent || len(raw) == 0 {
+		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("spotify: response: %v", err)

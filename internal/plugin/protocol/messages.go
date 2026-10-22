@@ -111,3 +111,18 @@ type NotifyParams struct {
 type OpenURLParams struct {
 	URL string `json:"url"`
 }
+
+// WebOpenParams runs a page of this machine in a web view with no window:
+// the plugin's own engine, such as one that plays audio. The page is
+// http on a loopback address, and the plugin talks to it by that server.
+// The page of an id that is open already is loaded again.
+type WebOpenParams struct {
+	ID  string `json:"id"`
+	URL string `json:"url"`
+}
+
+// WebCloseParams ends the web view of an id. The host also ends every
+// web view of a plugin whose process stops.
+type WebCloseParams struct {
+	ID string `json:"id"`
+}

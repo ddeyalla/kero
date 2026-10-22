@@ -54,7 +54,12 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Image tint: a soft gradient of the picture's own color behind the pane, crossfaded and contrast clamped | `tint` on an image part | Unreleased | Untried |
 | A plugin's stderr log, rolled at 1 MB, and a failed plugin's error with a **Restart** button | Automatic | Unreleased | Untried |
 | An old terminal service without the plugin view shows one line asking to restart it | Automatic | Unreleased | Untried |
-| Spotify widget: playback, seek, volume, shuffle and repeat, and albums and playlists, compact and large | New Pane chooser › Spotify, palette, `kero split --plugin spotify`; Client ID in Settings › Plugins | Unreleased | Untried |
+| Spotify widget: plays in the app with no Spotify app open (Premium), through Spotify's Web Playback SDK; engine starts on the first play and closes after 10 idle minutes; sign in again for the new scopes | New Pane chooser › Spotify, palette, `kero split --plugin spotify`; Client ID in Settings › Plugins | Unreleased | Untried |
+| Spotify compact player: two rows from 440 points wide (art, title, controls; seek, time, mute, volume), three rows narrower; shown once music plays | Spotify pane | Unreleased | Untried |
+| Spotify browse: a playlist or album tile opens its numbered track list, a row plays in context, the drill-in survives a restart; **Up next** tab | Spotify pane, large layout | Unreleased | Untried |
+| Sign Out of Spotify (keeps the Client ID, stops the engine) | Settings › Plugins › Spotify; palette › Sign Out of Spotify | Unreleased | Untried |
+| Colour from music: a plugin with the `ambient` permission tints the accent, focus edge, cursor, selection and the cards, capped to 3:1 contrast | Settings › Appearance › Colour from music; `ambient-color = false` off | Unreleased | Untried |
+| Plugin panes that scroll as one page (`Tree.Scroll`), plugin icon buttons drawn as SF Symbols, and a smooth pane: unchanged trees skipped, seek bar and clock moved by the host | Automatic; Spotify uses all | Unreleased | Untried |
 | Usage widget: every account's bar and percent and the machine's CPU and RAM, with reset, plan and windows in the large pane | New Pane chooser › Usage, palette, `kero split --plugin usage` | Unreleased | Untried |
 
 ### Files pane

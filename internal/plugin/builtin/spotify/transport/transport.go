@@ -102,8 +102,11 @@ func (s State) String() string {
 
 // Snapshot is what the player was doing when the transport read it.
 type Snapshot struct {
-	State      State
-	Track      string
+	State State
+	Track string
+	// URI is the Spotify URI of the track. Only the engine knows it; the
+	// desktop app's reads leave it empty.
+	URI        string
 	Artist     string
 	Album      string
 	ArtworkURL string
@@ -412,6 +415,19 @@ func (t *Transport) Play(ctx context.Context, uri string) error {
 	return t.run(ctx, commandScript(`tell application "Spotify" to play track "`+uri+`"`))
 }
 
+// PlayFrom starts a track inside its album or playlist, so that what
+// follows it is the rest of that context. contextURI is the album or the
+// playlist, and trackURI the track in it.
+func (t *Transport) PlayFrom(ctx context.Context, contextURI, trackURI string) error {
+	if err := checkURI(contextURI); err != nil {
+		return err
+	}
+	if err := checkURI(trackURI); err != nil {
+		return err
+	}
+	return t.run(ctx, commandScript(`tell application "Spotify" to play track "`+trackURI+`" in context "`+contextURI+`"`))
+}
+
 // checkURI rejects a string that is not a Spotify URI before it reaches
 // an AppleScript, where a quote could end the string early.
 func checkURI(uri string) error {
@@ -574,3 +590,24 @@ func parseState(text string) State {
 func parseBool(text string) bool {
 	return strings.EqualFold(strings.TrimSpace(text), "true")
 }
+
+// Player is what a pane controls: the Spotify desktop app through a
+// Transport, or the engine that plays in the app itself. Every command
+// takes effect on the player that plays now, and Read returns what it
+// does.
+type Player interface {
+	PlayPause(ctx context.Context) error
+	Next(ctx context.Context) error
+	Previous(ctx context.Context) error
+	// Launch opens the player's app. A player that is no app has nothing
+	// to open and reports ErrNotInstalled.
+	Launch(ctx context.Context) error
+	Seek(ctx context.Context, position time.Duration) error
+	Volume(ctx context.Context, volume int) error
+	Shuffle(ctx context.Context, on bool) error
+	Repeat(ctx context.Context, on bool) error
+	Play(ctx context.Context, uri string) error
+	Read(ctx context.Context) (Snapshot, error)
+}
+
+var _ Player = (*Transport)(nil)

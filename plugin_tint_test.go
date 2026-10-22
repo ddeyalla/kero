@@ -87,8 +87,8 @@ func TestPluginDominantColor(t *testing.T) {
 	}
 }
 
-// TestPluginTintClampKeepsContrast holds the tint in the band the text can
-// sit on, in both appearances.
+// TestPluginTintClampKeepsContrast holds the tint in the dark band that
+// light text sits on, whatever the picture's color.
 func TestPluginTintClampKeepsContrast(t *testing.T) {
 	sources := []ui.Color{
 		ui.RGB(255, 255, 255),
@@ -99,20 +99,39 @@ func TestPluginTintClampKeepsContrast(t *testing.T) {
 		ui.RGB(128, 128, 128),
 	}
 	for _, src := range sources {
-		light := pluginTintClamp(src, false)
-		dark := pluginTintClamp(src, true)
-		if l := pluginLuma(light); l < 0.60 || l > 0.90 {
-			t.Errorf("light tint of %v has luma %v, want 0.60..0.90", src, l)
+		tint := pluginTintClamp(src)
+		if l := pluginLuma(tint); l < 0.03 || l > 0.12 {
+			t.Errorf("tint of %v has luma %v, want 0.03..0.12", src, l)
 		}
-		if l := pluginLuma(dark); l < 0.04 || l > 0.18 {
-			t.Errorf("dark tint of %v has luma %v, want 0.04..0.18", src, l)
-		}
-		if pluginLuma(dark) >= pluginLuma(light) {
-			t.Errorf("%v: dark tint is not darker than light tint", src)
+		// White text keeps at least 4.5:1 on it.
+		if ratio := 1.05 / (pluginLuma(tint) + 0.05); ratio < 4.5 {
+			t.Errorf("tint of %v gives white text %.1f:1", src, ratio)
 		}
 	}
-	if got := pluginTintClamp(ui.Transparent, false); got.A != 0 {
+	// The hue stays: a red picture gives a red wash.
+	if red := pluginTintClamp(ui.RGB(210, 60, 40)); red.R <= red.G || red.R <= red.B {
+		t.Errorf("red tint = %v, want red to lead", red)
+	}
+	if got := pluginTintClamp(ui.Transparent); got.A != 0 {
 		t.Errorf("transparent picture tint = %v, want transparent", got)
+	}
+}
+
+// TestPluginDominantColorPrefersAVividColor picks the album's color, not
+// the dark or grey ground most covers have.
+func TestPluginDominantColorPrefersAVividColor(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			if y < 3 {
+				img.Set(x, y, color.RGBA{R: 200, G: 30, B: 40, A: 255})
+			} else {
+				img.Set(x, y, color.RGBA{R: 20, G: 20, B: 22, A: 255})
+			}
+		}
+	}
+	if got := pluginDominantColor(img); got.R < 150 || got.G > 80 {
+		t.Errorf("dominant = %v, want the red that covers a third", got)
 	}
 }
 
@@ -135,14 +154,14 @@ func TestPluginTintSamplesOncePerPicture(t *testing.T) {
 	if !h.view.tinted {
 		t.Fatal("the pane took no tint from the picture")
 	}
-	want := pluginTintClamp(ui.RGB(210, 60, 40), false)
+	want := pluginTintClamp(ui.RGB(210, 60, 40))
 	if h.view.tintTarget != want {
 		t.Errorf("tint = %v, want the clamped picture color %v", h.view.tintTarget, want)
 	}
 }
 
 // TestPluginTintClampsInBothAppearances draws the same picture in the light
-// and the dark appearance: the wash stays in the band of each.
+// and the dark appearance: the wash stays in the same dark band.
 func TestPluginTintClampsInBothAppearances(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		h := newPluginTintHarness(t, map[string]ui.Color{
@@ -160,13 +179,9 @@ func TestPluginTintClampsInBothAppearances(t *testing.T) {
 		if !h.view.tinted {
 			t.Fatalf("dark=%v: the pane took no tint", dark)
 		}
-		l := pluginLuma(h.view.tintTarget)
-		if dark {
-			if l < 0.04 || l > 0.18 {
-				t.Errorf("dark appearance luma = %v, want 0.04..0.18", l)
-			}
-		} else if l < 0.60 || l > 0.90 {
-			t.Errorf("light appearance luma = %v, want 0.60..0.90", l)
+		// The wash is dark in both, so the parts on it draw light.
+		if l := pluginLuma(h.view.tintTarget); l < 0.03 || l > 0.12 {
+			t.Errorf("dark=%v: luma = %v, want 0.03..0.12", dark, l)
 		}
 	}
 }
@@ -199,7 +214,7 @@ func TestPluginTintCrossfadeSettles(t *testing.T) {
 	h.show(pluginTintTree(red))
 	h.frames()
 	want := h.view.tintTarget
-	if want != pluginTintClamp(ui.RGB(210, 60, 40), false) {
+	if want != pluginTintClamp(ui.RGB(210, 60, 40)) {
 		t.Fatalf("red target = %v", want)
 	}
 	h.tree = pluginTintTree(blue)
@@ -212,7 +227,7 @@ func TestPluginTintCrossfadeSettles(t *testing.T) {
 	if got, want := h.view.tintShown, h.view.tintTarget; got != want {
 		t.Errorf("after the crossfade the wash = %v, want %v", got, want)
 	}
-	if h.view.tintTarget != pluginTintClamp(ui.RGB(40, 60, 210), false) {
+	if h.view.tintTarget != pluginTintClamp(ui.RGB(40, 60, 210)) {
 		t.Errorf("blue target = %v", h.view.tintTarget)
 	}
 }
@@ -245,7 +260,7 @@ func TestPluginTintHoldsWhileNextPictureLoads(t *testing.T) {
 		t.Fatal("the red picture did not load")
 	}
 	h.frames()
-	red := pluginTintClamp(ui.RGB(210, 60, 40), false)
+	red := pluginTintClamp(ui.RGB(210, 60, 40))
 	if h.view.tintShown != red {
 		t.Fatalf("red wash = %v, want %v", h.view.tintShown, red)
 	}
@@ -265,7 +280,7 @@ func TestPluginTintHoldsWhileNextPictureLoads(t *testing.T) {
 		t.Fatal("the blue picture did not load")
 	}
 	h.tt.Frame()
-	blue := pluginTintClamp(ui.RGB(40, 60, 210), false)
+	blue := pluginTintClamp(ui.RGB(40, 60, 210))
 	if h.view.tintTarget != blue {
 		t.Fatalf("once it arrives the target = %v, want %v", h.view.tintTarget, blue)
 	}

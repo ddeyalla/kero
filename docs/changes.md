@@ -758,9 +758,110 @@ way that matters to the host: their manifests are embedded in the binary, their
 host only through `internal/plugin/sdk`. That keeps the same contract in front
 of the app's own features and a plugin later installed from a folder.
 
-The Spotify widget (`spotify`, widget `player`) is a compact player and a
-large one. It reads and commands the desktop app through the AppleScript
-transport; its library calls (search, playlists, albums) go through the Web API
+The Spotify widget (`spotify`, widget `player`) plays in the app. Once the
+saved sign-in has the `streaming` scope (`web.Client.CanStream`), the plugin
+runs its engine (`…/spotify/engine/`): a loopback HTTP server on
+`127.0.0.1:0` under a random path serves a page with Spotify's Web Playback
+SDK, the page's access token, an event endpoint the page posts its state to,
+and a server-sent event stream of commands. The host runs that page in a web
+view with no window, through the plugin's `web` permission (`web.open`,
+`web.close`, loopback `http` only, at most two per plugin, all closed with
+the process; `plugin_web.go` and `internal/plugin/host`). The engine is the
+plugin's `transport.Player`. It starts lazily: `engine_lazy.go` starts it on
+the first play and closes it after 10 minutes with nothing playing
+(`engineIdleTimeout`) or when the last Spotify pane closes, which saves about
+130 MB while idle. `engine_sync.go` ends it at a sign-out or shutdown, and
+`newEngine` sits in `backend.go` beside `newBackend`, so the end-to-end test's
+overlay replaces both. Without a sign-in the pane draws a sign-in gate, never
+the desktop app's states, and the palette's commands do nothing. Errors read
+as plain text (Premium required, sign in again, or Spotify's own message) in a
+notice under a player that stays, and play/pause flips at once before the
+engine confirms. Shuffle and repeat hold their optimistic value until Spotify
+confirms it, and the library refreshes when it is older than 60 seconds.
+
+The engine runs the commands of the host one at a time, because parallel calls
+break the SDK's playback (`enqueue` and `drain` in `engine/page.html`). A
+waiting `seek` or `volume` gives way to a newer one only when it is the last
+command in line. A `play` of the same URI and offset within one second of the
+last is dropped as a double click. Play and toggle retry on a 403 or 404. The
+page wakes the audio after a play, a stall watchdog fixes a track whose
+position stands still, and the player reconnects with backoff of 2, 5 and 15
+seconds. Fetches to the engine's own server time out after 8 seconds. The
+host's `slider` commits on `Dragged()` (`plugin_view.go`), not `Pressed()`,
+which drops when the pointer leaves the thin track. Plugin web views open with
+`PageOptions{AllowAutoplay: true, RunWhenHidden: true}` (`plugin_web.go`).
+`AllowAutoplay` sets WebKit's `mediaTypesRequiringUserActionForPlayback` to
+none, so the audio starts without a click; `RunWhenHidden` keeps WebKit from
+throttling or suspending the hidden page. Only plugin web views set them; the
+Browser pane keeps WebKit's default. Neither is in upstream MyGo: `go.mod`
+replaces `github.com/egoist/mygo` with `github.com/ddeyalla/mygo` (the fork's
+`shibu` branch). When a Kero update bumps the `egoist/mygo` require, the fork
+is rebased onto that commit and the replace version is updated (see
+`AGENTS.md`).
+
+The layouts. `layoutOf` and `wideFrom` (440) in `view.go` pick the layout from
+the pane's size. The player is two rows when the pane is 440 points wide or
+more (56 point art, title and artist, shuffle, previous, play, next, repeat;
+then elapsed, seek, duration, mute and an 80 point volume) and three rows
+narrower. The mute button uses `speaker.slash.fill` (`volume-off`) when muted.
+The player shows only once music plays in this session and stays while
+paused; with nothing playing the pane shows just the library, and there is no
+Sign In flash on open. A pane leaves "Connecting" as soon as the engine is
+ready and gives up after 10 seconds. It then shows the track that plays on
+another device, or the last played track (scope `user-read-recently-played`).
+The library is a `grid` list of at most 48 tiles with a **Show More** tile,
+using 300 point covers; a pressed result shows as playing at once and goes
+back on a failure or after 5 seconds with no matching state. Search keeps the
+last 20 queries for 2 minutes, and the library preloads after sign-in as one
+request shared by all panes.
+
+Browse. In the large layout a playlist or album tile opens its track list
+(`drill.go`, `web/tracks.go`): back, the name, **Play** and numbered rows, with
+the playing row highlighted (`Item.Active`). A row press plays in context
+(`PlayFrom`; the desktop transport does the same through AppleScript). The
+drill-in is saved in the pane's target. A 403 shows "Spotify doesn't share
+this playlist's tracks", and **Sign In Again** when the token lacks the new
+scope `playlist-read-collaborative` (`web.ScopeCollaborative`), so an older
+sign-in must sign in once more. The **Up next** tab reads `/me/player/queue`.
+The medium and small layouts still play on a tile press.
+
+Sign Out. The manifest's `sign-out` command and its setting of the new kind
+`action` (`protocol.SettingAction`, whose key must be a declared command)
+draw a **Sign Out** button in Settings › Plugins › Spotify (`settings_view.go`)
+and a palette item. The button runs `Host.Act` (`internal/plugin/host`), which
+sends the command to the plugin. The plugin forgets the sign-in, keeps the
+Client ID and stops the engine.
+
+A smooth pane. The SDK (`internal/plugin/sdk`) skips sending a tree identical
+to the last one for the same pane. A slider or a text part may carry `Rate`
+and `At`, so the host moves the seek bar and the elapsed clock itself
+(`sdk.Clock`, `Slider.Playing`), with no one-second tick in the plugin. A drag
+renders only when it ends. The picture cache is keyed by URL, and the host
+downscales a decoded picture to at most 512 pixels in `pluginFetch`. SF
+Symbols are drawn through AppKit as templates and tinted at draw time
+(`plugin_symbol.go`, `plugin_symbol_darwin.go`), so no fallback shows first.
+The rest of the app still uses the Framework7 SVGs in `icons/`, a known gap
+against the SF Symbols rule in `AGENTS.md`. The medium and large layouts may
+return `ScrollingTree()` (`Tree.Scroll`, `internal/plugin/protocol/tree.go`).
+
+Ambient colour. A plugin with the `ambient` permission lends its pane tint.
+`plugin_pane.go` calls `lendAmbient` after a render (`ambient.go`), and the
+app mixes the lent colour, capped to 3:1 contrast, into the accent, the focus
+edge, the terminals' cursor and selection, and a soft wash of the card
+(`theme.go`, `ambientPal`). The setting `ambient-color`
+(`internal/settings/config.go`, on by default) is the toggle in Settings ›
+Appearance › **Colour from music**. The Spotify pane lends its tint only while
+a track plays, so the colour fades on pause. The tint itself comes from
+`plugin_tint.go`, darkened into a band where white text keeps 4.5 to 1
+(`pluginTintClamp`).
+
+Protocol additions are optional (`omitempty`): `Node.Active`, `Item.Active`,
+`Item.Leading`, `Rate` and `At` on sliders and text, the icons `volume-off`,
+`shuffle`, `repeat` and `volume`, the permissions `web` and `ambient`, and the
+SDK's `(*sdk.Node).Label` and `.Active`. A horizontal slider with a `Width`
+keeps it; one without grows.
+
+The desktop transport below remains in the code. Its library calls (search, playlists, albums) go through the Web API
 client with PKCE sign-in, a loopback redirect at
 `http://127.0.0.1:43017/callback` (`web.DefaultRedirectPort`; the widget keeps
 the client's default, the Set Up state names `RedirectURI()`, and the
@@ -790,9 +891,7 @@ works. The compact bar sends the snapshot's fraction at its read time with
 `rate` and `at`, so the host counts the time since the read once. The search
 field gets the saved query through the `searchField` part's `text`, so it is
 filled again after a restart. The large layout keeps the
-Search, Playlists and Albums tabs under the player in every playback state; a
-one-second local tick moves the seek bar and the elapsed clock between reads,
-without another AppleScript call. The title uses `marquee` and the album art
+Search, Playlists, Albums and Up next tabs under the player. The title uses `marquee` and the album art
 uses `tint`.
 
 The Usage widget (`usage`, widget `usage`) reads `internal/usage` and
@@ -812,7 +911,7 @@ CPU sampler afresh, so its first reading does not average over the hidden
 span.
 
 Code: [`internal/plugin/builtin/spotify/`](../internal/plugin/builtin/spotify/)
-(the plugin, its compact and large layouts and the end-to-end test),
+(the plugin, its layouts, engine, browse and the end-to-end test), [`…/spotify/engine/`](../internal/plugin/builtin/spotify/engine/) (the Web Playback SDK page and its server), [`plugin_web.go`](../plugin_web.go), [`plugin_symbol.go`](../plugin_symbol.go), [`ambient.go`](../ambient.go) and `controls.go`,
 [`…/spotify/transport/`](../internal/plugin/builtin/spotify/transport/) (AppleScript and
 the distributed notification) and [`…/spotify/web/`](../internal/plugin/builtin/spotify/web/)
 (PKCE sign-in and the Web API client),

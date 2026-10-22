@@ -120,6 +120,7 @@ var keys = []key{
 		accentIDs()...),
 	boolKey("window-translucent", "let the desktop show through the window", func(s *Settings) *bool { return &s.Vibrancy }),
 	boolKey("grain", "a faint grain over the wash, so flat gradients read as material", func(s *Settings) *bool { return &s.Grain }),
+	boolKey("ambient-color", "let the colour of what a plugin plays, as an album's, tint the accent, the cards and the terminals' cursor and selection", func(s *Settings) *bool { return &s.AmbientColor }),
 
 	stringKey("font-family", "the terminals' font: empty for JetBrains Mono Nerd Font, which Kero carries; monospace for the system's", func(s *Settings) *string { return &s.FontFamily }),
 	numberKey("font-size", "in points", func(s *Settings) float64 { return float64(s.FontSize) }, func(s *Settings, n float64) { s.FontSize = float32(n) }),

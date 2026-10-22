@@ -12,6 +12,63 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Added
 
+- The Spotify widget plays music itself, with no Spotify app open: after one
+  sign-in with a Premium account, Shibu Code is a Spotify device of its own,
+  through Spotify's Web Playback SDK in a hidden plugin web view. Sound starts
+  with no click. The engine wakes the audio after a play, a stall watchdog
+  fixes a track whose position stands still, the player reconnects with
+  backoff (2, 5 and 15 seconds), and play and toggle retry on a 403 or 404.
+  Errors read as plain text: Premium is required, sign in again, or Spotify's
+  own message. The engine starts on the first play, and closes after 10
+  minutes with nothing playing or when the last Spotify pane closes, which
+  saves about 130 MB while idle. The web view runs with MyGo's new
+  `PageOptions.RunWhenHidden`, so WebKit does not throttle or suspend the
+  hidden page. `go.mod` pins the `ddeyalla/mygo` fork, which adds
+  `AllowAutoplay` and `RunWhenHidden`. A sign-in from before this asks to
+  sign in again, and so does the new scope `playlist-read-collaborative` (and
+  `user-read-recently-played`).
+- The Spotify pane is a compact player that fits any size from 280 by 150
+  points. With 440 points of width or more it has two rows: 56 point art,
+  title and artist, shuffle, previous, play, next and repeat, then elapsed
+  time, the seek bar, duration, mute and an 80 point volume. Narrower, it has
+  three rows. The mute icon becomes `speaker.slash.fill` when muted. The
+  player shows only once music plays in this session, and stays while paused;
+  with nothing playing, the pane shows just the library, and there is no Sign
+  In flash on open. Shuffle and repeat keep their value until Spotify
+  confirms it, and the library refreshes when it is older than 60 seconds.
+- The Spotify pane smooths its work. The plugin SDK skips a tree identical to
+  the last one it sent for a pane. The seek bar and the elapsed clock move in
+  the host (`Rate` and `At` on sliders and text, `sdk.Clock`,
+  `Slider.Playing`), with no one-second tick. A drag renders only when it
+  ends. The picture cache is keyed by URL. SF Symbols are drawn as templates
+  and tinted at draw time, with no flash of a fallback. The grid shows at
+  most 48 tiles, with a **Show More** tile, using 300 point covers.
+- Browse in the Spotify pane: in the large layout, a playlist or album tile
+  opens its track list, with a back button, the name, **Play** and numbered
+  rows; the playing row is highlighted. Pressing a row plays it in its
+  context (`PlayFrom`, also on the desktop player through AppleScript). The
+  drill-in is saved in the pane's target. A 403 shows "Spotify doesn't share
+  this playlist's tracks", with **Sign In Again** when the collaborative scope
+  is missing. A new **Up next** tab reads `/me/player/queue`. The medium and
+  small layouts still play on a tile press.
+- **Sign Out** for Spotify, in Settings › Plugins › Spotify and in the command
+  palette as "Sign Out of Spotify". It keeps the Client ID and stops the
+  engine. For this, a plugin manifest setting may have the new kind `action`,
+  which names a declared command, and the host has `Host.Act`.
+- Colour from music: a plugin with the new `ambient` permission lends its
+  pane's tint to the whole app: the accent, the focus edge, the terminals'
+  cursor and selection, and a soft wash of the card. The colour is capped to
+  3:1 contrast. Turn it off in Settings › Appearance › **Colour from music**
+  (`ambient-color` in the config; on by default). The Spotify pane tints only
+  while a track plays, so the colour fades on pause.
+- Plugin protocol additions, all optional: `Node.Active`, `Item.Active` and
+  `Item.Leading`; `Rate` and `At` on sliders and text; the icons
+  `volume-off`, `shuffle`, `repeat` and `volume`; `(*sdk.Node).Label` and
+  `.Active`; the permissions `web` and `ambient`; a `headline` text role, a
+  round `iconButton` size and a `grid` list; and `Tree.Scroll`
+  (`ScrollingTree()`) for a pane that scrolls as one page. A horizontal
+  slider with a `Width` keeps that width, and one without grows.
+- Plugin icon buttons draw real SF Symbols.
 - Accent presets: six hand-tuned themes of the app's own colors — Blue (the
   one it has had), Plum, Rose, Sea, Moss and Graphite. Each is an accent
   color in the light and in the dark, the background wash that comes with
@@ -155,6 +212,13 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- Dragging the Spotify seek bar no longer breaks playback. The slider of the
+  plugin parts now commits once, when you let go, even if the pointer left
+  the thin track, and the Spotify engine runs its commands one at a time and
+  drops a double play of the same item.
+- The Spotify player is no longer silent after sign-in, and no longer stalls
+  while hidden. Plugin web views start audio without a click and run when
+  hidden. The Browser pane keeps WebKit's default.
 - The Browser pane's **Open in Default Browser** button and a Markdown
   link in the Files pane open the page again. The app handed the address
   to the system as a file's path, so the page never opened.

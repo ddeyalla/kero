@@ -646,6 +646,9 @@ func (a *App) appearancePage(c *ui.Context, pal *palette) {
 		settingRow(c, pal, locales.SetGrain(), locales.SetGrainDetail(), func() {
 			toggle(c.Key("grain"), &s.Grain, pal)
 		})
+		settingRow(c, pal, locales.SetAmbientColor(), locales.SetAmbientColorDetail(), func() {
+			toggle(c.Key("ambient-color"), &s.AmbientColor, pal)
+		})
 	})
 	ui.Column(c).Gap(8).Children(func() {
 		groupTitle(c, pal, locales.SetAccent())

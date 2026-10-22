@@ -3,6 +3,7 @@ package main
 import (
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -316,20 +317,36 @@ func textField(c *ui.Context, key string, value *string, placeholder string, wid
 // as AppKit's does, and as MyGo's own slider draws it. The knob's half
 // width pads the track, so that the value spans the knob's travel.
 func slider(c *ui.Context, key string, value *float64, lo, hi float64, width float32, pal *palette) ui.Element {
+	return sliderLive(c, key, value, lo, hi, width, pal, nil)
+}
+
+// sliderLive is slider for a value that moves on its own. live gives the
+// value to draw at the painter's time and how long until it moves again,
+// zero when it stands still: the slider then draws from the clock of each
+// paint and asks to be painted again, not built again, so a playing slider
+// costs no view builds. A nil live draws the value as it is.
+func sliderLive(c *ui.Context, key string, value *float64, lo, hi float64, width float32, pal *palette, live func(now time.Time) (float64, time.Duration)) ui.Element {
 	const knobW, knobH, trackH = 20, 16, 4
 	s := ui.SliderBase(c.Key(key), value, lo, hi).Width(width).Height(controlH).Padding(0, knobW/2).FocusRing(false)
 	track := pal.text.Alpha(0.14)
 	if pal.dark {
 		track = ui.RGBA(255, 255, 255, 0.18)
 	}
-	f := float32(0)
-	if hi > lo {
-		f = float32((*value - lo) / (hi - lo))
-	}
-	f = min(max(f, 0), 1)
 	held := s.Animate("held", b2f(s.Pressed()), press.Duration)
 	accent, dark, focus := pal.accent, pal.dark, s.FocusVisible()
 	s.Draw(func(p *ui.Painter, r ui.Rect) {
+		val := *value
+		if live != nil {
+			var again time.Duration
+			if val, again = live(p.Now()); again > 0 {
+				p.After(again)
+			}
+		}
+		f := float32(0)
+		if hi > lo {
+			f = float32((val - lo) / (hi - lo))
+		}
+		f = min(max(f, 0), 1)
 		x0, x1 := r.X+knobW/2, r.X+r.W-knobW/2
 		cy := r.Y + r.H/2
 		x := x0 + (x1-x0)*f

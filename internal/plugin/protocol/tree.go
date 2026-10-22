@@ -31,16 +31,18 @@ var KnownNodeTypes = []string{
 	NodeSearchField, NodeEmptyState, NodeSpacer, NodeDivider,
 }
 
-// The roles a text part may take.
+// The roles a text part may take. A headline is the large title of a
+// pane that has the room, such as the track a player shows.
 const (
-	RoleTitle   = "title"
-	RoleBody    = "body"
-	RoleCaption = "caption"
-	RoleMono    = "mono"
+	RoleHeadline = "headline"
+	RoleTitle    = "title"
+	RoleBody     = "body"
+	RoleCaption  = "caption"
+	RoleMono     = "mono"
 )
 
 // KnownRoles are the text roles the app draws.
-var KnownRoles = []string{RoleTitle, RoleBody, RoleCaption, RoleMono}
+var KnownRoles = []string{RoleHeadline, RoleTitle, RoleBody, RoleCaption, RoleMono}
 
 // The colors a part may take: the app's own, never a free one.
 const (
@@ -63,6 +65,15 @@ const (
 // KnownAligns are the alignments the app draws.
 var KnownAligns = []string{AlignStart, AlignCenter, AlignEnd, AlignSpaceBetween}
 
+// The variants a list may take. A grid draws its items as pictures with
+// their title under them, each as wide as the list's width, and wraps
+// them into rows: the plugin, which knows the pane's size, chooses the
+// width that fills the row.
+const VariantGrid = "grid"
+
+// KnownVariants are the list variants the app draws; "" is rows.
+var KnownVariants = []string{VariantGrid}
+
 // The event kinds a part sends, with the id of the part the user used.
 const (
 	KindPress  = "press"
@@ -79,7 +90,7 @@ var KnownIcons = []string{
 	"refresh", "plus", "chevron-right", "chevron-up", "chevron-down",
 	"folder", "external", "copy", "link", "gear", "files", "globe",
 	"terminal", "image", "back", "forward", "preview", "source",
-	"doc", "list", "board",
+	"doc", "list", "board", "shuffle", "repeat", "volume", "volume-off",
 }
 
 // The limits a tree is held to, so that a plugin cannot stall the app.
@@ -110,16 +121,21 @@ type Node struct {
 	Lines   int    `json:"lines,omitempty"`
 	Marquee bool   `json:"marquee,omitempty"` // BRU-169
 
-	URL    string `json:"url,omitempty"`
-	Data   string `json:"data,omitempty"`
-	Width  int    `json:"width,omitempty"`
-	Height int    `json:"height,omitempty"`
-	Radius int    `json:"radius,omitempty"`
-	Tint   bool   `json:"tint,omitempty"` // BRU-167
+	URL  string `json:"url,omitempty"`
+	Data string `json:"data,omitempty"`
+	// Width is a size in points. A horizontal slider with a width keeps it;
+	// one without grows to fill the room of its row.
+	Width  int  `json:"width,omitempty"`
+	Height int  `json:"height,omitempty"`
+	Radius int  `json:"radius,omitempty"`
+	Tint   bool `json:"tint,omitempty"` // BRU-167
 
-	Label       string `json:"label,omitempty"`
-	Icon        string `json:"icon,omitempty"`
-	Primary     bool   `json:"primary,omitempty"`
+	Label   string `json:"label,omitempty"`
+	Icon    string `json:"icon,omitempty"`
+	Primary bool   `json:"primary,omitempty"`
+	// Active marks an icon button as switched on, such as shuffle that is
+	// on: the app draws its glyph in the accent color.
+	Active      bool   `json:"active,omitempty"`
 	Enabled     *bool  `json:"enabled,omitempty"` // nil is enabled
 	Action      string `json:"action,omitempty"`  // an empty state's one button
 	Placeholder string `json:"placeholder,omitempty"`
@@ -128,8 +144,13 @@ type Node struct {
 	Min   float64 `json:"min,omitempty"`
 	Max   float64 `json:"max,omitempty"`
 	Step  float64 `json:"step,omitempty"`
-	Rate  float64 `json:"rate,omitempty"` // a playing bar's speed
-	At    int64   `json:"at,omitempty"`   // and when it started, in unix milliseconds
+	// Rate and At make a progress bar, a slider or a clock text run on its
+	// own: the value moves on by Rate (in value units a second) from At, in
+	// unix milliseconds, the instant Value held. A text with a rate and an
+	// instant shows its value, in seconds, as m:ss, up to Max when Max is
+	// set; its Text is the fallback of a host that does not know a clock.
+	Rate float64 `json:"rate,omitempty"` // a playing part's speed
+	At   int64   `json:"at,omitempty"`   // and when it started, in unix milliseconds
 
 	Grow    float64 `json:"grow,omitempty"`
 	Gap     int     `json:"gap,omitempty"`
@@ -138,6 +159,9 @@ type Node struct {
 
 	Title  string `json:"title,omitempty"`
 	Detail string `json:"detail,omitempty"`
+
+	// Variant is a list's look: "" for rows, or "grid".
+	Variant string `json:"variant,omitempty"`
 }
 
 // Item is one row of a list part.
@@ -148,11 +172,22 @@ type Item struct {
 	Trailing string `json:"trailing,omitempty"`
 	Image    string `json:"image,omitempty"`
 	Enabled  *bool  `json:"enabled,omitempty"`
+	// Leading is a short text before the picture or the title, such as a
+	// track's number, in a column of its own width.
+	Leading string `json:"leading,omitempty"`
+	// Active marks the row that is on, such as the track that plays: the
+	// app draws it in the accent color, with a speaker in place of the
+	// Leading text.
+	Active bool `json:"active,omitempty"`
 }
 
 // Tree is what a plugin draws in a pane.
 type Tree struct {
 	Root *Node `json:"root"`
+	// Scroll makes the whole pane one scroll: the root takes the height
+	// its parts need, and the lists in it show all their rows, instead of
+	// each list scrolling on its own under a fixed head.
+	Scroll bool `json:"scroll,omitempty"`
 }
 
 // ValidateTree checks a tree before the app draws it: known types,
@@ -223,6 +258,9 @@ func (n *Node) validateFields() error {
 		if n.Lines < 0 {
 			return fmt.Errorf("plugin tree: node %q has a negative line limit", n.ID)
 		}
+		if n.Rate < 0 || n.Value < 0 || n.Max < 0 {
+			return fmt.Errorf("plugin tree: text %q has a negative clock value, max or rate", n.ID)
+		}
 	case NodeImage:
 		if n.URL == "" && n.Data == "" {
 			return fmt.Errorf("plugin tree: image %q has no url or data", n.ID)
@@ -238,9 +276,15 @@ func (n *Node) validateFields() error {
 		if !slices.Contains(KnownIcons, n.Icon) {
 			return fmt.Errorf("plugin tree: iconButton %q has unknown icon %q", n.ID, n.Icon)
 		}
+		if n.Width < 0 || n.Width > 96 {
+			return fmt.Errorf("plugin tree: iconButton %q has a size outside 0 to 96", n.ID)
+		}
 	case NodeSlider:
 		if n.Min >= n.Max {
 			return fmt.Errorf("plugin tree: slider %q needs min below max", n.ID)
+		}
+		if n.Rate < 0 {
+			return fmt.Errorf("plugin tree: slider %q has a negative rate", n.ID)
 		}
 	case NodeProgress:
 		if n.Rate < 0 {
@@ -253,6 +297,12 @@ func (n *Node) validateFields() error {
 			return fmt.Errorf("plugin tree: progress %q has unknown color %q", n.ID, n.Color)
 		}
 	case NodeList:
+		if n.Variant != "" && !slices.Contains(KnownVariants, n.Variant) {
+			return fmt.Errorf("plugin tree: list %q has unknown variant %q", n.ID, n.Variant)
+		}
+		if n.Width < 0 || n.Width > 1000 {
+			return fmt.Errorf("plugin tree: list %q has a tile width outside 0 to 1000", n.ID)
+		}
 		itemIDs := map[string]bool{}
 		for _, item := range n.Items {
 			if !nodeRe.MatchString(item.ID) {
@@ -281,4 +331,28 @@ func (n *Node) validateFields() error {
 	case NodeDivider:
 	}
 	return nil
+}
+
+// FormatClock writes a time in seconds as m:ss, or h:mm:ss from an hour.
+// A negative or invalid time is zero; a fraction of a second is dropped.
+func FormatClock(seconds float64) string {
+	if !(seconds > 0) {
+		seconds = 0
+	}
+	total := int64(seconds)
+	h, m, s := total/3600, total/60%60, total%60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%d:%02d", total/60, s)
+}
+
+// AdvanceValue is a value moved on by rate, in value units a second, from
+// the instant at, in unix milliseconds, to now, kept between lo and hi.
+// Without a rate or an instant it is the value, clamped.
+func AdvanceValue(value, rate float64, at, now int64, lo, hi float64) float64 {
+	if rate > 0 && at > 0 {
+		value += rate * float64(now-at) / 1000
+	}
+	return min(max(value, lo), hi)
 }

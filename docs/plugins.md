@@ -43,8 +43,8 @@ A plugin ships a `kero-plugin.json` next to it:
 | `run` | The argv that starts the plugin process. A built-in plugin's run is the app's own executable with `plugin-run <id>`. |
 | `widgets` | Each widget has a `name` (unique), a `title` and a least size. |
 | `commands` | Ids and titles the app sends with `command`. Ids are unique. Each command is an item of the command palette, titled as the manifest says, and the `kero do plugin.<id>.<command>` action, which `kero actions` lists. |
-| `permissions` | `secrets` (read and write its own secrets), `notify` (post a notification) and `openURL` (open an http or https URL in the browser, or System Settings' Privacy & Security, `x-apple.systempreferences:com.apple.preference.security` with an optional `?` anchor; any other scheme is refused). A call without its permission is refused. |
-| `settings` | Optional fields shown in Settings › Plugins: `key`, `label`, `kind` (currently `text`), `secret`, `help` (the line under the label) and `link` (an http or https page, opened by the field's **Open Link** button). The page draws only what the manifests declare. |
+| `permissions` | `secrets` (read and write its own secrets), `notify` (post a notification) and `openURL` (open an http or https URL in the browser, or System Settings' Privacy & Security, `x-apple.systempreferences:com.apple.preference.security` with an optional `?` anchor; any other scheme is refused), `web` (run a page of this machine in a web view with no window; see `web.open`) and `ambient` (lend the pane's tint to the app's colors; see below). A call without its permission is refused. |
+| `settings` | Optional fields shown in Settings › Plugins: `key`, `label`, `kind` (`text`, or `action`: a button whose `key` is the id of one of the plugin's commands, which it runs; it holds no value, so it is neither `secret` nor linked), `secret`, `help` (the line under the label) and `link` (an http or https page, opened by the field's **Open Link** button). The page draws only what the manifests declare. |
 
 Built-in plugins are roles of the app's binary: `kero plugin-run <id>`. An
 installed plugin's code lives in `plugins/<id>/` under the Shibu data folder
@@ -101,6 +101,8 @@ The app sends `hello {protocol, host}` first, and the plugin answers
 | `secret.set {key, value}` | `{}`. |
 | `notify {title, body}` | `{}`, if the plugin has `notify`. |
 | `openURL {url}` | `{}`, if the plugin has `openURL`. |
+| `web.open {id, url}` | `{}`, if the plugin has `web`. The app loads the page in a web view with no window, which plays audio but draws nothing. The URL must be `http` on a loopback address with a port (`127.0.0.1`, `localhost` or `::1`), so the page is one the plugin serves itself. The `id` is lowercase letters, digits and `-`; a plugin has at most two, and opening an id again loads the new URL. |
+| `web.close {id}` | `{}`. The app also closes every web view of a plugin when its process ends. |
 
 The plugin side of this is `internal/plugin/sdk`, which does the handshake,
 runs the loop, and offers part builders such as
@@ -115,15 +117,45 @@ app's palette, fonts and motion.
 | Part | Fields | Event |
 | --- | --- | --- |
 | `row`, `column` | `gap`, `padding`, `align`, `grow`; children | — |
-| `text` | `text`, `role` (title, body, caption, mono), `color` (text, muted, accent), `lines`, `marquee` | — |
+| `text` | `text`, `role` (headline, title, body, caption, mono), `color` (text, muted, accent), `lines`, `marquee`, optional `rate` and `at` (a clock that counts on its own) | — |
 | `image` | `url` (a URL or a `data:` URI), `width`, `height`, `radius`, `tint` | — |
-| `button`, `iconButton` | `label` or `icon` (from the app's set), `primary`, `enabled` | `press` |
-| `slider` | `value`, `min`, `max`, `step` | `change` while dragging, `commit` on release |
+| `button`, `iconButton` | `label` or `icon` (from the app's set), `primary`, `enabled`; an `iconButton` with a `width` (up to 96) is a round button of that size, and a primary one is a filled disc | `press` |
+| `slider` | `value`, `min`, `max`, `step`, optional `rate` and `at` (the host moves it while playing); a horizontal slider with a `width` keeps it, one without grows | `change` while dragging, `commit` once on release, even if the pointer left the track |
 | `progress` | `value`, `color`, optional `rate` and `at` | — |
-| `list` | `rows` of `image`, `title`, `subtitle`, `trailing` | `select` |
+| `list` | `rows` of `image`, `title`, `subtitle`, `trailing`, `leading`, `active` (the row is highlighted); `variant: "grid"` draws the rows as square tiles `width` wide, which wrap with 12 points between them | `select` |
 | `searchField` | `placeholder`, optional `text` (the query to show, such as one saved before a restart; the app puts it in the field when the field first shows and when the plugin sends another one, and ignores an echo of what the field last sent) | `change` after a short pause, `submit` |
 | `emptyState` | `title`, `detail`, one action | the action's `press` |
 | `spacer`, `divider` | — | — |
+
+A tree may set `scroll` (`ScrollingTree()` in the SDK). The whole pane then
+scrolls as one page: the root takes its natural height, and a `list` draws at
+full height instead of scrolling by itself. Use it when a pane holds lists
+that would otherwise each scroll inside a fixed frame.
+
+An icon button draws a real SF Symbol on macOS as a template, tinted when it is
+drawn, so there is no flash of a fallback. Any node may also set `active` (the
+part is shown as on, such as shuffle). The SDK sends a tree only when it differs
+from the last one it sent for that pane. The mapping:
+
+| Icon | Symbol | Icon | Symbol |
+| --- | --- | --- | --- |
+| `play` | `play.fill` | `search` | `magnifyingglass` |
+| `pause` | `pause.fill` | `close` | `xmark` |
+| `next` | `forward.fill` | `refresh` | `arrow.clockwise` |
+| `previous` | `backward.fill` | `plus` | `plus` |
+| `shuffle` | `shuffle` | `gear` | `gearshape` |
+| `repeat` | `repeat` | `external` | `arrow.up.right.square` |
+| `volume` | `speaker.wave.2.fill` | `volume-off` | `speaker.slash.fill` |
+| `copy` | `doc.on.doc` | | |
+
+The table lists a part of the set; `plugin_symbol.go` has all of it.
+
+A plugin with the `ambient` permission lends its pane's tint (an image part's
+`tint`) to the whole app: the accent, the focus edge, the terminals' cursor and
+selection, and a soft wash of the card. The app caps the colour to 3:1
+contrast. The user turns it off in Settings › Appearance › **Colour from
+music** (`ambient-color`, on by default). A plugin lends a colour only while it
+wants the app tinted; the Spotify pane does so only while a track plays.
 
 The app keeps focus and scroll with a part's id across renders. An event
 returns the part's `id` (`node`). Images load off the UI goroutine and are
@@ -155,13 +187,15 @@ plugin pane.
 
 | Plugin | Widget | Permissions | What it shows |
 | --- | --- | --- | --- |
-| `spotify` | `player` | `secrets`, `openURL` | The desktop player in a compact or a large layout: play, pause, skip, seek, volume, shuffle and repeat; albums and playlists from the Spotify Web API after a sign-in; a scrolling title and album-art tint. Set the Client ID in Settings › Plugins. |
+| `spotify` | `player` | `secrets`, `openURL`, `web`, `ambient` | A Spotify player that plays in the app, with no Spotify app open (Premium). A compact player (two rows from 440 points wide) over the library as a grid of covers; a playlist or album opens its track list, and an Up next tab shows the queue. Its album colour tints the app while a track plays. Set the Client ID in Settings › Plugins; **Sign Out** is next to it. |
 | `usage` | `usage` | none | Each account's usage with a bar and a percent (or its balance), and the machine's CPU and RAM; the large layout adds the reset time, the plan and every window. It refreshes only while it is visible, at most every two minutes unless you press refresh. |
 
 `openURL` opens the sign-in page, the Spotify developer dashboard and the
 download page in the browser, and Privacy & Security › Automation in System
 Settings;
-`secrets` keeps the Spotify tokens in the plugin's `secrets.json`. Neither
+`secrets` keeps the Spotify tokens in the plugin's `secrets.json`; `web`
+runs the page of Spotify's Web Playback SDK that plays the music; `ambient`
+lends the album colour to the app. Neither
 plugin is installed from a folder: the app embeds their manifests and starts
 them as roles of its own binary.
 

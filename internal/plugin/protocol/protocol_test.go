@@ -174,6 +174,11 @@ func TestManifestValidate(t *testing.T) {
 	if err := good.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
+	withAction := good
+	withAction.Settings = append(append([]Setting(nil), good.Settings...), Setting{Key: "play-pause", Label: "Play", Kind: SettingAction})
+	if err := withAction.Validate(); err != nil {
+		t.Fatalf("an action of a declared command: %v", err)
+	}
 	if good.WidgetByName("player") == nil {
 		t.Fatal("WidgetByName(player) = nil")
 	}
@@ -197,6 +202,15 @@ func TestManifestValidate(t *testing.T) {
 		{"unknown permission", func(m *Manifest) { m.Permissions = Permissions{"network"} }},
 		{"unknown setting kind", func(m *Manifest) { m.Settings[0].Kind = "number" }},
 		{"repeated setting", func(m *Manifest) { m.Settings = append(m.Settings, m.Settings[0]) }},
+		{"action without a command", func(m *Manifest) {
+			m.Settings = append(m.Settings, Setting{Key: "nope", Label: "Nope", Kind: SettingAction})
+		}},
+		{"secret action", func(m *Manifest) {
+			m.Settings = append(m.Settings, Setting{Key: "play-pause", Label: "Play", Kind: SettingAction, Secret: true})
+		}},
+		{"linked action", func(m *Manifest) {
+			m.Settings = append(m.Settings, Setting{Key: "play-pause", Label: "Play", Kind: SettingAction, Link: "https://example.com"})
+		}},
 	}
 	for _, c := range bad {
 		t.Run(c.name, func(t *testing.T) {

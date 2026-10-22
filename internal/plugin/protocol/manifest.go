@@ -15,13 +15,21 @@ const (
 	PermSecrets = "secrets" // the plugin's own secrets, kept by the app
 	PermNotify  = "notify"  // a notification the user sees
 	PermOpenURL = "openURL" // open a link in the browser
+	PermWeb     = "web"     // run a page of this machine, with no window
+	PermAmbient = "ambient" // lend the pane's tint to the app's colors
 )
 
 // KnownPermissions are the permissions a manifest may ask for.
-var KnownPermissions = []string{PermSecrets, PermNotify, PermOpenURL}
+var KnownPermissions = []string{PermSecrets, PermNotify, PermOpenURL, PermWeb, PermAmbient}
 
-// The kinds of setting a manifest may declare. v1 has one.
-const SettingText = "text"
+// The kinds of setting a manifest may declare.
+const (
+	// SettingText is a text field.
+	SettingText = "text"
+	// SettingAction is a button. Its key is the id of one of the plugin's
+	// commands, which the button runs.
+	SettingAction = "action"
+)
 
 var (
 	idRe      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,40}$`)
@@ -78,7 +86,8 @@ type Command struct {
 
 // Setting is one field of the plugin's settings, drawn in Settings ›
 // Plugins. A secret value goes to the plugin's secrets instead, and the
-// host never sends it back.
+// host never sends it back. An action has no value: it is a button that
+// runs the command its key names.
 type Setting struct {
 	Key    string `json:"key"`
 	Label  string `json:"label"`
@@ -161,8 +170,17 @@ func (m *Manifest) Validate() error {
 		if strings.TrimSpace(s.Label) == "" {
 			return fmt.Errorf("plugin manifest %s: setting %q needs a label", m.ID, s.Key)
 		}
-		if s.Kind != SettingText {
-			return fmt.Errorf("plugin manifest %s: setting %q has kind %q, not %q", m.ID, s.Key, s.Kind, SettingText)
+		switch s.Kind {
+		case SettingText:
+		case SettingAction:
+			if s.Secret || s.Link != "" {
+				return fmt.Errorf("plugin manifest %s: action %q holds no value, so it is neither secret nor linked", m.ID, s.Key)
+			}
+			if !commands[s.Key] {
+				return fmt.Errorf("plugin manifest %s: action %q must be the id of one of the plugin's commands", m.ID, s.Key)
+			}
+		default:
+			return fmt.Errorf("plugin manifest %s: setting %q has kind %q, not %q or %q", m.ID, s.Key, s.Kind, SettingText, SettingAction)
 		}
 	}
 	return nil

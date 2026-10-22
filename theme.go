@@ -53,6 +53,10 @@ type palette struct {
 	onDone    ui.Color
 	danger    ui.Color
 	accent    ui.Color
+	// selection and cursor are the terminals' own where the ambient color
+	// sets them (ambient.go); transparent leaves the theme's.
+	selection ui.Color
+	cursor    ui.Color
 
 	overlay   ui.Color // behind dialogs
 	popover   ui.Color
@@ -194,13 +198,30 @@ func (a *App) accentPal(dark bool) *palette {
 
 // paletteFor returns the palette of the frame, as the accent has it.
 func (a *App) paletteFor(c *ui.Context) *palette {
-	return a.accentPal(c.Theme().Dark)
+	return a.ambientPal(c, a.accentPal(c.Theme().Dark))
 }
 
 // Terminal themes on the card's color, with palettes tuned to read on it:
 // Apple's system colors, a little deeper in the light; the selection in
 // the accent's tint.
 func termTheme(pal *palette, sel ui.Color) *terminal.Theme {
+	t := baseTermTheme(pal, sel)
+	// The ambient color (ambient.go) sets the cursor and the selection;
+	// the text under the cursor keeps its contrast with it.
+	if pal.selection.A > 0 {
+		t.Selection = pal.selection
+	}
+	if pal.cursor.A > 0 {
+		t.Cursor = pal.cursor
+		t.CursorText = ui.Hex("#161618")
+		if lumaContrast(pal.cursor, ui.Hex("#ffffff")) > lumaContrast(pal.cursor, ui.Hex("#161618")) {
+			t.CursorText = ui.Hex("#ffffff")
+		}
+	}
+	return t
+}
+
+func baseTermTheme(pal *palette, sel ui.Color) *terminal.Theme {
 	if pal.dark {
 		return &terminal.Theme{
 			Foreground:    ui.Hex("#e6e6ea"),

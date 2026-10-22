@@ -60,6 +60,14 @@ func TestFakePluginHelper(t *testing.T) {
 			case "state":
 				// The state the pane came back with, as the plugin got it.
 				_ = c.Render(e.Pane, textTree("state:"+string(e.State)))
+			case "web":
+				// One loopback page, then a site and a third page: the
+				// host runs the first and refuses the others.
+				text := "web:" + errText(c.WebOpen("engine", "http://127.0.0.1:9/e"))
+				text += "|" + errText(c.WebOpen("site", "https://example.com/"))
+				text += "|" + errText(c.WebOpen("two", "http://localhost:9/"))
+				text += "|" + errText(c.WebOpen("three", "http://localhost:9/"))
+				_ = c.Render(e.Pane, textTree(text))
 			case "deny":
 				text := "the call was allowed"
 				if err := c.Notify("Hello", "from the fake plugin"); err != nil {
@@ -69,6 +77,11 @@ func TestFakePluginHelper(t *testing.T) {
 			default:
 				_ = c.Render(e.Pane, textTree("hello"))
 				_ = c.SaveState(e.Pane, map[string]int{"count": 1})
+			}
+		},
+		Command: func(c *sdk.Conn, id string) {
+			if mode == "command" {
+				_ = c.Render("p1", textTree("command:"+id))
 			}
 		},
 		Settings: func(c *sdk.Conn, values map[string]string) {
@@ -231,6 +244,8 @@ type fakeCallbacks struct {
 	states  chan stateCall
 	crashes chan crashCall
 	notify  chan [3]string
+	webOpen chan [3]string
+	webEnd  chan [2]string
 }
 
 type renderCall struct {
@@ -258,17 +273,21 @@ func newFakeCallbacks() *fakeCallbacks {
 		states:  make(chan stateCall, 8),
 		crashes: make(chan crashCall, 4),
 		notify:  make(chan [3]string, 4),
+		webOpen: make(chan [3]string, 4),
+		webEnd:  make(chan [2]string, 4),
 	}
 }
 
 func (f *fakeCallbacks) callbacks() Callbacks {
 	return Callbacks{
-		Ready:   func(plugin string) { f.ready <- plugin },
-		Render:  func(plugin, pane string, tree *protocol.Tree) { f.renders <- renderCall{plugin, pane, tree} },
-		State:   func(plugin, pane string, state json.RawMessage) { f.states <- stateCall{plugin, pane, state} },
-		Notify:  func(plugin, title, body string) { f.notify <- [3]string{plugin, title, body} },
-		Crash:   func(plugin, message, logPath string) { f.crashes <- crashCall{plugin, message, logPath} },
-		OpenURL: func(plugin, url string) {},
+		Ready:    func(plugin string) { f.ready <- plugin },
+		Render:   func(plugin, pane string, tree *protocol.Tree) { f.renders <- renderCall{plugin, pane, tree} },
+		State:    func(plugin, pane string, state json.RawMessage) { f.states <- stateCall{plugin, pane, state} },
+		Notify:   func(plugin, title, body string) { f.notify <- [3]string{plugin, title, body} },
+		Crash:    func(plugin, message, logPath string) { f.crashes <- crashCall{plugin, message, logPath} },
+		OpenURL:  func(plugin, url string) {},
+		WebOpen:  func(plugin, id, url string) { f.webOpen <- [3]string{plugin, id, url} },
+		WebClose: func(plugin, id string) { f.webEnd <- [2]string{plugin, id} },
 	}
 }
 
@@ -793,5 +812,116 @@ func TestOpenURLAllowsOnlyTheWebAndPrivacySettings(t *testing.T) {
 		if openableURL(link) {
 			t.Errorf("openableURL(%q) = true, want it refused", link)
 		}
+	}
+}
+
+func errText(err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	return "ok"
+}
+
+func TestWebViewsRunOnLoopbackOnlyAndEndWithTheProcess(t *testing.T) {
+	m := fakeManifest()
+	m.Permissions = protocol.Permissions{protocol.PermWeb}
+	h, f := newFakeHost(t, m, "web")
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, f)
+	got := textOf(waitRender(t, f).tree)
+	parts := strings.Split(got, "|")
+	if len(parts) != 4 || parts[0] != "web:ok" || !strings.Contains(parts[1], "loopback") || parts[2] != "ok" || !strings.Contains(parts[3], "at most") {
+		t.Fatalf("the plugin heard %q, want ok, a loopback refusal, ok and a limit", got)
+	}
+	opened := map[string]string{}
+	for range 2 {
+		select {
+		case call := <-f.webOpen:
+			opened[call[1]] = call[2]
+		case <-time.After(5 * time.Second):
+			t.Fatal("the app was not told of the web views")
+		}
+	}
+	if opened["engine"] != "http://127.0.0.1:9/e" || opened["two"] != "http://localhost:9/" || len(f.webOpen) != 0 {
+		t.Fatalf("the app ran %v, want only the two loopback pages", opened)
+	}
+	// The last pane closes: the process stops, and its web views end.
+	h.Close("p1")
+	ended := map[string]bool{}
+	for range 2 {
+		select {
+		case call := <-f.webEnd:
+			if call[0] != "fake" {
+				t.Fatalf("a web view of %q ended", call[0])
+			}
+			ended[call[1]] = true
+		case <-time.After(5 * time.Second):
+			t.Fatal("the web views stayed after the process stopped")
+		}
+	}
+	if !ended["engine"] || !ended["two"] {
+		t.Fatalf("the web views that ended are %v", ended)
+	}
+}
+
+func TestAWebViewNeedsThePermission(t *testing.T) {
+	// The manifest asks for no permission, so web.open is refused.
+	h, f := newFakeHost(t, fakeManifest(), "web")
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, f)
+	if got := textOf(waitRender(t, f).tree); !strings.Contains(got, "did not ask for the permission") {
+		t.Fatalf("the plugin heard %q, want the permission refusal", got)
+	}
+	if len(f.webOpen) != 0 {
+		t.Fatal("the app ran a web view for a plugin without the permission")
+	}
+}
+
+func TestLoopbackURL(t *testing.T) {
+	for _, u := range []string{"http://127.0.0.1:43017/e/key/", "http://localhost:8080", "http://[::1]:9/x"} {
+		if !loopbackURL(u) {
+			t.Errorf("loopbackURL(%q) = false, want true", u)
+		}
+	}
+	for _, u := range []string{"", "https://127.0.0.1:9/", "http://127.0.0.1/", "http://example.com:80/", "http://127.0.0.1.evil.com:9/", "http://u@127.0.0.1:9/", "file:///x", "http://0.0.0.0:9/"} {
+		if loopbackURL(u) {
+			t.Errorf("loopbackURL(%q) = true, want false", u)
+		}
+	}
+}
+
+// Act runs a command of a plugin with no pane: a plugin that does not run
+// starts for it, hears the command, and stops again once nothing opened.
+func TestActRunsACommandWithNoPane(t *testing.T) {
+	manifest := fakeManifest()
+	manifest.Commands = []protocol.Command{{ID: "sign-out", Title: "Sign Out"}}
+	manifest.Settings = []protocol.Setting{{Key: "sign-out", Label: "Sign Out", Kind: protocol.SettingAction}}
+	h, f := newFakeHost(t, manifest, "command")
+
+	if err := h.Act("fake", "nope"); err == nil {
+		t.Fatal("a command the manifest does not declare ran")
+	}
+	if err := h.Act("other", "sign-out"); err == nil {
+		t.Fatal("a plugin the app does not know ran a command")
+	}
+	if h.Running("fake") {
+		t.Fatal("a refused command started the plugin")
+	}
+	if err := h.Act("fake", "sign-out"); err != nil {
+		t.Fatal(err)
+	}
+	if got := textOf(waitRender(t, f).tree); got != "command:sign-out" {
+		t.Fatalf("the plugin heard %q", got)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for h.Running("fake") && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if h.Running("fake") {
+		t.Fatal("the plugin that started for a command never stopped")
 	}
 }

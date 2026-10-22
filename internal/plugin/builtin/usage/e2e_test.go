@@ -22,6 +22,7 @@ const fakeSourceFile = `package usage
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"kero/internal/resources"
@@ -34,8 +35,14 @@ func (fakeSource) Providers() []accountusage.Report { return fakeReports() }
 
 func (fakeSource) Installed() []string { return nil }
 
+// refreshes counts the reads of Refresh, so that each one differs from the
+// last: a refresh whose tree equals the one before is not sent again.
+var refreshes atomic.Int64
+
 func (fakeSource) Refresh(context.Context, []accountusage.Report) []accountusage.Report {
-	return fakeReports()
+	reports := fakeReports()
+	reports[0].Windows[0].Used += float64(refreshes.Add(1))
+	return reports
 }
 
 func (fakeSource) Sample() (resources.Sample, error) {
@@ -169,7 +176,10 @@ func TestUsageThroughTheRealHost(t *testing.T) {
 
 	drain(renders)
 	h.Event("pane-1", "usage-refresh", protocol.KindPress, nil)
-	waitForRender(t, renders, "pane-1", "42% used")
+	// Each read of the fake source is one point higher: showing the pane
+	// was the first (43), so the button's is the second (44). A refresh
+	// whose tree equals the last is not sent again, so this one must differ.
+	waitForRender(t, renders, "pane-1", "44% used")
 	time.Sleep(300 * time.Millisecond)
 	assertNoRender(t, renders, "pane-2")
 

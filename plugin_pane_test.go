@@ -248,7 +248,10 @@ func fakePluginManifest() protocol.Manifest {
 		Run:      []string{"fake"},
 		Widgets:  []protocol.Widget{{Name: "main", Title: "Main"}},
 		Commands: []protocol.Command{{ID: "refresh", Title: "Refresh Fake"}},
-		Settings: []protocol.Setting{{Key: "project", Label: "Project", Kind: protocol.SettingText, Help: "Which project it shows", Link: "https://example.com/projects"}},
+		Settings: []protocol.Setting{
+			{Key: "project", Label: "Project", Kind: protocol.SettingText, Help: "Which project it shows", Link: "https://example.com/projects"},
+			{Key: "refresh", Label: "Refresh Now", Kind: protocol.SettingAction, Help: "Draw the project again"},
+		},
 	}
 }
 
@@ -453,4 +456,27 @@ func TestPluginSettingsFieldsStartWithTheSavedValue(t *testing.T) {
 	if a.ss.pluginDraft != nil || a.plugins.pageLoaded {
 		t.Fatal("closing Settings kept the drafts")
 	}
+}
+
+// An action setting is a button in Settings › Plugins, and pressing it runs
+// the plugin command its key names.
+func TestPluginActionSettingRunsItsCommand(t *testing.T) {
+	a, posts := fakePluginApp(t, false)
+	makePluginPane(t, a, "")
+	tt := ui.NewTester(a.view, 1100, 720)
+	pump(t, tt, posts, "the pane to open", func() bool { return strings.HasPrefix(heard(tt), "state:") })
+
+	a.openSettings("plugins")
+	pump(t, tt, posts, "the saved values", func() bool { return a.plugins.pageLoaded })
+	tt.Frame()
+	if !tt.HasText("Refresh Now") || !tt.HasText("Draw the project again") {
+		t.Fatalf("the action has no button or help; texts %q", tt.Texts())
+	}
+	if a.ss.pluginDraft["fake.refresh"] != nil {
+		t.Fatal("the action got a text field")
+	}
+	if err := tt.Click("Refresh Now"); err != nil {
+		t.Fatal(err)
+	}
+	pump(t, tt, posts, "the command to reach the plugin", func() bool { return strings.Contains(heard(tt), "command:refresh") })
 }

@@ -184,10 +184,10 @@ func TestSpotifyThroughTheRealApp(t *testing.T) {
 
 	h.Visible("pane-1", true)
 	tree := waitForSpotifyRender(t, renders, crashes, func(tree *protocol.Tree) bool {
-		return strings.Contains(texts(tree.Root), "Test Song") && find(tree.Root, "search") != nil
+		return strings.Contains(texts(tree.Root), "Test Song") && find(tree.Root, "tab-search") != nil
 	})
 	for _, id := range []string{
-		"tab-search", "tab-playlists", "tab-albums", "search", "seek",
+		"tab-search", "tab-playlists", "tab-albums", "seek",
 		"volume", "shuffle", "repeat", "play",
 	} {
 		if find(tree.Root, id) == nil {

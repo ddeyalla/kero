@@ -61,6 +61,8 @@ const (
 	MethodSecretSet = "secret.set"
 	MethodNotify    = "notify"
 	MethodOpenURL   = "openURL"
+	MethodWebOpen   = "web.open"
+	MethodWebClose  = "web.close"
 )
 
 // The error codes of JSON-RPC 2.0.
@@ -245,6 +247,8 @@ var MethodPermission = map[string]string{
 	MethodSecretSet: PermSecrets,
 	MethodNotify:    PermNotify,
 	MethodOpenURL:   PermOpenURL,
+	MethodWebOpen:   PermWeb,
+	MethodWebClose:  PermWeb,
 }
 
 // Allows tells whether a plugin that asked for these permissions may

@@ -40,6 +40,10 @@ type pluginState struct {
 	saveTarget func(pane, target string)
 
 	panes map[string]*pluginPaneState
+	// webs are the web views plugins run with no window, by plugin and id;
+	// newWeb makes one (nil: a WebKit view in the window).
+	webs   map[string]*pluginWeb
+	newWeb func(url string) (*pluginWeb, error)
 	// pending are the commands of each plugin that wait for a pane of it
 	// to open: the palette or `kero do` ran them while it had none.
 	pending map[string][]string
@@ -156,6 +160,7 @@ func (a *App) pluginHost() *host.Host {
 	if a.plugins.host != nil {
 		return a.plugins.host
 	}
+	webOpen, webEnd := a.pluginWebCallbacks()
 	a.plugins.host = host.New(host.Config{
 		Dir:     proto.Dir(),
 		Plugins: a.knownPlugins(),
@@ -182,6 +187,8 @@ func (a *App) pluginHost() *host.Host {
 			Crash: func(plugin, message, logPath string) {
 				a.pluginPost(func() { a.pluginCrashed(plugin, message, logPath) })
 			},
+			WebOpen:  webOpen,
+			WebClose: webEnd,
 		},
 	})
 	return a.plugins.host
@@ -221,13 +228,20 @@ func (a *App) pluginCrashed(plugin, message, logPath string) {
 	}
 	a.plugins.crashed[plugin] = message
 	a.plugins.logs[plugin] = logPath
-	for _, st := range a.plugins.panes {
+	changed := false
+	for id, st := range a.plugins.panes {
 		if st.plugin == plugin {
 			st.err = message
 			st.opened = false
 			st.visible = false
 			st.tree = nil
+			if a.ambient.drop(id) {
+				changed = true
+			}
 		}
+	}
+	if changed {
+		a.ambientChanged()
 	}
 	a.invalidateMain()
 }
@@ -295,6 +309,11 @@ func (a *App) pluginStateSaved(plugin, pane string, state json.RawMessage) {
 func (a *App) pluginPane(c *ui.Context, pal *palette, s *proto.Session, p *proto.Pane, body ui.Element) {
 	st := a.pluginPaneState(p)
 	st.shown = true
+	// Once the pane is drawn it lends its tint to the app's colors (see
+	// ambient.go), if its plugin may; a pane that stopped, or has no tree,
+	// lends nothing.
+	var lent *pluginView
+	defer func() { a.lendAmbient(p.ID, st.plugin, p.ID == a.focusOf(s), lent) }()
 	if st.err == "" && st.plugin == "" {
 		paneNothing(c, pal, projectIcon, locales.PluginUnknownTitle(), locales.PluginUnknownDetail(p.ID))
 		return
@@ -356,6 +375,7 @@ func (a *App) pluginPane(c *ui.Context, pal *palette, s *proto.Session, p *proto
 	st.view.draw(c, pal, st.tree, func(ev pluginEvent) {
 		a.pluginHost().Event(p.ID, ev.Node, ev.Kind, ev.Value)
 	})
+	lent = st.view
 }
 
 // pluginPaneSize is the size the app gives a plugin pane: its card's, at
@@ -441,11 +461,29 @@ func (a *App) sweepPluginPanes(alive map[string]bool) {
 				h.Close(id)
 			}
 			delete(a.plugins.panes, id)
+			if a.ambient.drop(id) {
+				a.ambientChanged()
+			}
 			continue
+		}
+		// A pane that stopped or has nothing to show lends nothing. One
+		// that is hidden but still plays keeps its lend: the app stays
+		// tinted while the music plays.
+		if (st.tree == nil || st.err != "") && a.ambient.drop(id) {
+			a.ambientChanged()
 		}
 		if st.visible && !st.shown && h != nil {
 			h.Visible(id, false)
 			st.visible = false
+		}
+	}
+	// The focus a gone or hidden pane had does not hold a lend over the
+	// others.
+	if f := a.ambient.focused; f != "" {
+		if st := a.plugins.panes[f]; !alive[f] || st == nil || !st.shown {
+			if a.ambient.focus("") {
+				a.ambientChanged()
+			}
 		}
 	}
 }
@@ -815,6 +853,21 @@ func (a *App) pluginSettingRow(c *ui.Context, pal *palette, p registry.Plugin, s
 	if label == "" {
 		label = s.Key
 	}
+	if s.Kind == protocol.SettingAction {
+		// An action is a button: it runs the plugin command its key names.
+		// The row says what the button does, and the button is named by the
+		// label.
+		what := s.Help
+		if what == "" {
+			what = label
+		}
+		settingRow(c, pal, what, "", func() {
+			if button(c, "plugin-action-"+key, label, "", false, pal) {
+				a.runPluginAction(p.Manifest.ID, s.Key)
+			}
+		})
+		return
+	}
 	settingRow(c, pal, label, s.Help, func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			if s.Secret {
@@ -849,6 +902,21 @@ func pluginSecretField(c *ui.Context, key string, value *string, placeholder str
 	})
 	field(c, frame, in.Focused(), pal)
 	return in
+}
+
+// runPluginAction runs the command of an action setting. The plugin gets
+// it with no pane, and starts for it when it does not run.
+func (a *App) runPluginAction(plugin, command string) {
+	h := a.pluginHost()
+	go func() {
+		err := h.Act(plugin, command)
+		a.pluginPost(func() {
+			if err != nil {
+				a.plugins.notice = err.Error()
+				a.invalidateMain()
+			}
+		})
+	}()
 }
 
 func (a *App) savePluginSetting(plugin, key, value string) {

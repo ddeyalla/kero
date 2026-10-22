@@ -27,6 +27,7 @@ type Node struct {
 
 	label, icon string
 	primary     bool
+	active      bool
 	enabled     *bool
 	action      string
 	placeholder string
@@ -41,6 +42,7 @@ type Node struct {
 
 	title, detail string
 	items         []protocol.Item
+	variant       string
 }
 
 // Build returns the protocol node, with the children built.
@@ -63,6 +65,7 @@ func (n *Node) Build() *protocol.Node {
 		Label:       n.label,
 		Icon:        n.icon,
 		Primary:     n.primary,
+		Active:      n.active,
 		Enabled:     n.enabled,
 		Action:      n.action,
 		Placeholder: n.placeholder,
@@ -78,6 +81,7 @@ func (n *Node) Build() *protocol.Node {
 		Align:       n.align,
 		Title:       n.title,
 		Detail:      n.detail,
+		Variant:     n.variant,
 	}
 	for _, child := range n.children {
 		out.Children = append(out.Children, child.Build())
@@ -87,6 +91,12 @@ func (n *Node) Build() *protocol.Node {
 
 // Tree makes the node a tree the host can draw.
 func (n *Node) Tree() protocol.Tree { return protocol.Tree{Root: n.Build()} }
+
+// ScrollingTree is the tree of the part as a pane that scrolls as one: its
+// lists show all their rows, and the pane scrolls past them.
+func (n *Node) ScrollingTree() protocol.Tree {
+	return protocol.Tree{Root: n.Build(), Scroll: true}
+}
 
 func newNode(typ, id string) *Node { return &Node{typ: typ, id: id} }
 
@@ -110,6 +120,19 @@ func Text(id, text string) *Node {
 	n.text = text
 	return n
 }
+
+// Clock draws an elapsed time, in seconds, as m:ss, capped at max
+// seconds when max is above zero. With Playing it counts on its own in
+// the host. The fallback text is what a host without clocks shows.
+func Clock(id string, seconds, max float64) *Node {
+	n := newNode(protocol.NodeText, id)
+	n.value, n.max = seconds, max
+	n.text = FormatClock(seconds)
+	return n
+}
+
+// FormatClock writes seconds as m:ss, or h:mm:ss from an hour.
+func FormatClock(seconds float64) string { return protocol.FormatClock(seconds) }
 
 // Image draws a picture from a URL, or from data for an inline image.
 func Image(id, src string) *Node {
@@ -201,11 +224,16 @@ func (n *Node) Lines(lines int) *Node { n.lines = lines; return n }
 // Marquee scrolls a title that does not fit. BRU-169.
 func (n *Node) Marquee() *Node { n.marquee = true; return n }
 
-// Size sets an image's size in points.
+// Size sets an image's size in points, or an icon button's, which is
+// square and takes the width.
 func (n *Node) Size(width, height int) *Node {
 	n.width, n.height = width, height
 	return n
 }
+
+// Label names an icon button for its tooltip and for assistive
+// technology. Without it the app names the button by its icon.
+func (n *Node) Label(label string) *Node { n.label = label; return n }
 
 // Radius rounds a picture's corners.
 func (n *Node) Radius(radius int) *Node { n.radius = radius; return n }
@@ -214,8 +242,13 @@ func (n *Node) Radius(radius int) *Node { n.radius = radius; return n }
 // color. BRU-167.
 func (n *Node) Tint() *Node { n.tint = true; return n }
 
-// Primary makes a button the pane's main action.
+// Primary makes a button the pane's main action. An icon button that is
+// primary is a filled disc, as a player's play button.
 func (n *Node) Primary() *Node { n.primary = true; return n }
+
+// Active draws an icon button as switched on, in the accent color, such as
+// shuffle while it is on.
+func (n *Node) Active(on bool) *Node { n.active = on; return n }
 
 // Enabled sets whether a part takes input.
 func (n *Node) Enabled(enabled bool) *Node { n.enabled = &enabled; return n }
@@ -248,10 +281,21 @@ func (n *Node) Range(value, min, max float64) *Node {
 	return n
 }
 
-// Playing makes a progress bar move by rate from at, in unix
-// milliseconds, which the host advances on its own.
+// Playing makes a progress bar, a slider or a clock move by rate (value
+// units a second) from at, in unix milliseconds, the instant the value
+// held. The host advances it on its own, so the plugin sends it once per
+// change of the playback, not on every tick. A slider the user drags
+// does not move under the finger.
 func (n *Node) Playing(rate float64, at int64) *Node {
 	n.rate, n.at = rate, at
+	return n
+}
+
+// Grid draws a list as tiles of tileWidth points: each item's picture,
+// square, with its title and subtitle under it, wrapped into rows. The
+// plugin chooses the width that fills the pane's row.
+func (n *Node) Grid(tileWidth int) *Node {
+	n.variant, n.width = protocol.VariantGrid, tileWidth
 	return n
 }
 

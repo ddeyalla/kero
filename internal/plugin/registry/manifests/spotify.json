@@ -8,8 +8,8 @@
     {
       "name": "player",
       "title": "Spotify",
-      "minWidth": 420,
-      "minHeight": 360,
+      "minWidth": 280,
+      "minHeight": 150,
       "compact": {
         "minWidth": 280,
         "minHeight": 150
@@ -19,9 +19,10 @@
   "commands": [
     { "id": "play-pause", "title": "Play or Pause" },
     { "id": "next", "title": "Next Track" },
-    { "id": "previous", "title": "Previous Track" }
+    { "id": "previous", "title": "Previous Track" },
+    { "id": "sign-out", "title": "Sign Out of Spotify" }
   ],
-  "permissions": ["secrets", "openURL"],
+  "permissions": ["secrets", "openURL", "web", "ambient"],
   "settings": [
     {
       "key": "clientId",
@@ -30,6 +31,12 @@
       "secret": false,
       "help": "Your Spotify app's Client ID. Add http://127.0.0.1:43017/callback as the app's redirect URI.",
       "link": "https://developer.spotify.com/dashboard"
+    },
+    {
+      "key": "sign-out",
+      "label": "Sign Out",
+      "kind": "action",
+      "help": "Forget the Spotify sign-in. The Client ID stays, so signing in again is one press."
     }
   ]
 }

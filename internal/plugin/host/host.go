@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -82,6 +83,13 @@ type Callbacks struct {
 	// OpenURL is a link the plugin asked to open. The URL is http or
 	// https, or the one System Settings link openableURL allows.
 	OpenURL func(plugin, url string)
+	// WebOpen is a page of this machine the plugin asked to run in a web
+	// view with no window, which stays until WebClose. The URL is http on
+	// a loopback address with a port. An id that is open is loaded again.
+	WebOpen func(plugin, id, url string)
+	// WebClose is the end of that web view: the plugin closed it, or its
+	// process stopped.
+	WebClose func(plugin, id string)
 	// Crash is a plugin that died, with the reason and the path of its
 	// log. The app shows it, and offers a restart; it does not restart
 	// on its own.
@@ -311,6 +319,43 @@ func (h *Host) Command(pane, id string) error {
 		return fmt.Errorf("plugin host: plugin %q is not running", plugin)
 	}
 	pr.send(commandCmd{pane: pane, id: id})
+	return nil
+}
+
+// Act runs one of a plugin's commands with no pane, as the button of an
+// action setting does. A plugin that does not run starts for it, and stops
+// again a few seconds later if no pane opened meanwhile. The plugin hears
+// the command after its settings.
+func (h *Host) Act(plugin, id string) error {
+	h.mu.Lock()
+	p, ok := h.plugins[plugin]
+	if !ok {
+		h.mu.Unlock()
+		return fmt.Errorf("no plugin %q", plugin)
+	}
+	if h.stopped {
+		h.mu.Unlock()
+		return errors.New("the app is closing")
+	}
+	known := false
+	for _, c := range p.Manifest.Commands {
+		known = known || c.ID == id
+	}
+	if !known {
+		h.mu.Unlock()
+		return fmt.Errorf("plugin %q has no command %q", plugin, id)
+	}
+	pr := h.procs[plugin]
+	if pr == nil {
+		pr = h.startLocked(p)
+		if len(h.panes[plugin]) == 0 {
+			h.cancelIdleLocked(plugin)
+			gen := h.idle[plugin]
+			h.timers[plugin] = time.AfterFunc(h.stopDelay, func() { h.stopIfIdle(plugin, gen) })
+		}
+	}
+	h.mu.Unlock()
+	pr.send(commandCmd{id: id})
 	return nil
 }
 
@@ -565,6 +610,8 @@ type proc struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
 	enc   *protocol.Encoder
+	// webs are the ids of the web views the process runs.
+	webs map[string]bool
 }
 
 // setLog records the log the process writes its stderr to.
@@ -691,6 +738,7 @@ func (p *proc) stop() {
 		if logw != nil {
 			_ = logw.Close()
 		}
+		p.closeWebs()
 	})
 }
 
@@ -1087,8 +1135,106 @@ func (p *proc) answer(req *protocol.Request) {
 		}
 		p.h.onOpenURL(p.plugin.Manifest.ID, params.URL)
 		p.ok(req)
+	case protocol.MethodWebOpen:
+		var params protocol.WebOpenParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			p.fail(req.ID, protocol.CodeInvalidParams, "web.open: "+err.Error())
+			return
+		}
+		if err := p.webOpen(params); err != nil {
+			p.fail(req.ID, protocol.CodeInvalidParams, "web.open: "+err.Error())
+			return
+		}
+		p.ok(req)
+	case protocol.MethodWebClose:
+		var params protocol.WebCloseParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			p.fail(req.ID, protocol.CodeInvalidParams, "web.close: "+err.Error())
+			return
+		}
+		p.webClose(params.ID)
+		p.ok(req)
 	default:
 		p.fail(req.ID, protocol.CodeNoMethod, fmt.Sprintf("unknown method %q", req.Method))
+	}
+}
+
+// maxWebs is how many web views one plugin process may run at once.
+const maxWebs = 2
+
+var webIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+
+// loopbackURL tells an address a web view may load: http on this machine's
+// loopback, with a port, so that a plugin's page is its own server's and
+// never a site.
+func loopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" || u.Port() == "" || u.User != nil {
+		return false
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
+}
+
+// webOpen asks the app to run a plugin's page in a web view of its own.
+func (p *proc) webOpen(params protocol.WebOpenParams) error {
+	if !webIDRe.MatchString(params.ID) {
+		return errors.New("the id is lowercase letters, digits and dashes, 32 at most")
+	}
+	if !loopbackURL(params.URL) {
+		return errors.New("only http on a loopback address with a port runs")
+	}
+	p.mu.Lock()
+	if p.webs == nil {
+		p.webs = map[string]bool{}
+	}
+	if !p.webs[params.ID] && len(p.webs) >= maxWebs {
+		p.mu.Unlock()
+		return fmt.Errorf("a plugin runs at most %d web views", maxWebs)
+	}
+	if p.stopped() {
+		p.mu.Unlock()
+		return errors.New("the plugin is stopping")
+	}
+	p.webs[params.ID] = true
+	// The callback runs under the lock, so that a stop that ends the web
+	// views hears of this one first: the app never gets its close before
+	// its open. The callback only posts to the UI goroutine.
+	if p.h.cbs.WebOpen != nil {
+		p.h.cbs.WebOpen(p.plugin.Manifest.ID, params.ID, params.URL)
+	}
+	p.mu.Unlock()
+	return nil
+}
+
+// webClose ends one of the plugin's web views, if it runs.
+func (p *proc) webClose(id string) {
+	p.mu.Lock()
+	had := p.webs[id]
+	delete(p.webs, id)
+	p.mu.Unlock()
+	if had && p.h.cbs.WebClose != nil {
+		p.h.cbs.WebClose(p.plugin.Manifest.ID, id)
+	}
+}
+
+// closeWebs ends every web view of a process that stops.
+func (p *proc) closeWebs() {
+	p.mu.Lock()
+	ids := make([]string, 0, len(p.webs))
+	for id := range p.webs {
+		ids = append(ids, id)
+	}
+	p.webs = nil
+	p.mu.Unlock()
+	sort.Strings(ids)
+	if p.h.cbs.WebClose != nil {
+		for _, id := range ids {
+			p.h.cbs.WebClose(p.plugin.Manifest.ID, id)
+		}
 	}
 }
 

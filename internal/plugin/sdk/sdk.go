@@ -7,6 +7,7 @@
 package sdk
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -95,6 +96,11 @@ type Conn struct {
 	pending  map[string]chan *protocol.Response
 	incoming chan *protocol.Request // from the read loop to the queue
 	requests chan *protocol.Request // from the queue to the handlers
+
+	// renders is what was last sent for each pane, so that a render of the
+	// same tree sends nothing. An entry goes with its pane's close.
+	rendersMu sync.Mutex
+	renders   map[string]*paneRender
 
 	done      chan struct{}
 	closeOnce sync.Once
@@ -221,6 +227,9 @@ func (c *Conn) handle(req *protocol.Request) {
 			return
 		}
 		c.reply(req.ID, struct{}{})
+		// The host draws an opened pane from nothing: what was sent
+		// before for this id is not on screen.
+		c.forgetRender(p.Pane)
 		if c.handlers.Open != nil {
 			c.handlers.Open(c, OpenEvent{Pane: p.Pane, Widget: p.Widget, State: p.State, Size: p.Size})
 		}
@@ -231,6 +240,7 @@ func (c *Conn) handle(req *protocol.Request) {
 			return
 		}
 		c.reply(req.ID, struct{}{})
+		c.forgetRender(p.Pane)
 		if c.handlers.Close != nil {
 			c.handlers.Close(c, p.Pane)
 		}
@@ -365,9 +375,86 @@ func decodeResult(resp *protocol.Response, out any) error {
 	return nil
 }
 
-// Render replaces what one pane draws.
+// paneRender is the hash of the tree last sent for one pane. Its lock is
+// held from the check of a render to the store of its hash, so that a
+// forget cannot fall between them and be undone by a late store.
+type paneRender struct {
+	mu  sync.Mutex
+	sum [sha256.Size]byte
+	ok  bool
+}
+
+// maxRenderPanes bounds the panes whose last tree is kept. A pane past it
+// is always sent.
+const maxRenderPanes = 256
+
+// Render replaces what one pane draws. A tree that encodes to what the
+// last successful render of the pane sent is not sent again: the host
+// already draws it, and a large tree would cost it a decode and a layout
+// for nothing. A render that fails is not remembered, so it is tried
+// again by the next one.
 func (c *Conn) Render(pane string, tree protocol.Tree) error {
-	return c.call(protocol.MethodRender, protocol.RenderParams{Pane: pane, Tree: tree}, nil)
+	raw, err := json.Marshal(tree)
+	if err != nil {
+		return err
+	}
+	// The call carries the bytes that were hashed.
+	params := struct {
+		Pane string          `json:"pane"`
+		Tree json.RawMessage `json:"tree"`
+	}{pane, raw}
+	pr := c.paneRender(pane)
+	if pr == nil {
+		return c.call(protocol.MethodRender, params, nil)
+	}
+	sum := sha256.Sum256(raw)
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	if pr.ok && pr.sum == sum {
+		return nil
+	}
+	pr.ok = false
+	if err := c.call(protocol.MethodRender, params, nil); err != nil {
+		return err
+	}
+	pr.sum, pr.ok = sum, true
+	return nil
+}
+
+// paneRender returns the pane's record, or nil past the bound.
+func (c *Conn) paneRender(pane string) *paneRender {
+	c.rendersMu.Lock()
+	defer c.rendersMu.Unlock()
+	pr := c.renders[pane]
+	if pr == nil {
+		if len(c.renders) >= maxRenderPanes {
+			return nil
+		}
+		if c.renders == nil {
+			c.renders = map[string]*paneRender{}
+		}
+		pr = &paneRender{}
+		c.renders[pane] = pr
+	}
+	return pr
+}
+
+// ForgetRender makes the next render of a pane go to the host even if its
+// tree is the one sent last, for a plugin that knows the host lost it.
+func (c *Conn) ForgetRender(pane string) { c.forgetRender(pane) }
+
+// forgetRender drops the pane's record. It waits for a render of the pane
+// that is in flight, which then cannot store its hash over the forget.
+func (c *Conn) forgetRender(pane string) {
+	c.rendersMu.Lock()
+	pr := c.renders[pane]
+	delete(c.renders, pane)
+	c.rendersMu.Unlock()
+	if pr != nil {
+		pr.mu.Lock()
+		pr.ok = false
+		pr.mu.Unlock()
+	}
 }
 
 // SaveState keeps a pane's state in its target, so that the pane comes
@@ -403,6 +490,19 @@ func (c *Conn) Notify(title, body string) error {
 // OpenURL opens a link in the browser.
 func (c *Conn) OpenURL(url string) error {
 	return c.call(protocol.MethodOpenURL, protocol.OpenURLParams{URL: url}, nil)
+}
+
+// WebOpen runs a page of this machine in a web view with no window, for a
+// plugin that needs a browser engine, such as one that plays audio. The
+// URL is http on a loopback address with a port: the plugin serves the
+// page itself. It needs the web permission.
+func (c *Conn) WebOpen(id, url string) error {
+	return c.call(protocol.MethodWebOpen, protocol.WebOpenParams{ID: id, URL: url}, nil)
+}
+
+// WebClose ends a web view that WebOpen started.
+func (c *Conn) WebClose(id string) error {
+	return c.call(protocol.MethodWebClose, protocol.WebCloseParams{ID: id}, nil)
 }
 
 func marshalState(state any) (json.RawMessage, error) {

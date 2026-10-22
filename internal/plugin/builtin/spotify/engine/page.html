@@ -1,0 +1,480 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Spotify engine</title></head>
+<body><script>
+'use strict';
+// The page of the playback engine. It runs in a web view with no window,
+// plays through Spotify's Web Playback SDK, and talks to the plugin that
+// served it: commands come over server-sent events, state goes back with
+// POST. It draws nothing.
+const base = location.pathname;
+const name = new URLSearchParams(location.search).get('name') || 'Shibu Code';
+let player = null;
+let deviceId = null;
+// What the last state says of this device: whether it holds the playback.
+// A press of play/pause reads these, and does not ask the SDK each time.
+let isActive = false;
+let transferring = false;
+let transferTimer = null;
+let readyCount = 0;
+// Whether the player is connected to Spotify (between ready and not_ready),
+// and whether the command stream is open. The plugin refuses commands while
+// either is not so, and is told when both are back.
+let playerReady = false;
+// Set by an account or authentication error: connecting again would fail
+// the same way, so the backoff stops until a ready or a new page.
+let halted = false;
+
+const post = body => fetch(base + 'events', {
+  method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+}).catch(() => {});
+// log puts a line in the plugin's log, the only view of a page with no window.
+const log = message => post({type: 'log', message});
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// The events that say whether the page can take commands (ready, not-ready
+// and stream-up) carry the id of this page and a number that grows with each
+// one, since the posts can arrive in another order than they were sent. The
+// plugin ignores one that is older than the last it applied.
+const pageId = Math.random().toString(36).slice(2);
+let seq = 0;
+const postState = (type, extra) => post(Object.assign({type, page: pageId, seq: ++seq}, extra));
+// untilReady settles when the player is connected, at once if it is.
+const readyWaiters = [];
+const untilReady = () => playerReady ? Promise.resolve() : new Promise(resolve => readyWaiters.push(resolve));
+const fail = (kind, e) => post({type: 'error', kind, message: String((e && e.message) || e)});
+
+// within gives a call at most ms to settle. The SDK's calls can hang, and
+// one that hangs must not hold up the commands behind it.
+const within = (promise, what, ms = 8000) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(what + ' timed out')), ms)),
+]);
+
+async function token() {
+  const r = await fetch(base + 'token', {cache: 'no-store', signal: AbortSignal.timeout(8000)});
+  if (!r.ok) throw new Error('token ' + r.status);
+  return (await r.json()).token;
+}
+
+// slowApi is how long an api call may take before it is logged.
+const slowApi = 2000;
+
+async function api(method, path, body) {
+  const started = performance.now();
+  // The log line names the method and the path without its query, never a
+  // token or a header: the log is a plain file.
+  const line = outcome => log('api ' + method + ' ' + path.split('?')[0] + ' ' + outcome + ' after ' +
+    Math.round(performance.now() - started) + 'ms');
+  try {
+    const r = await fetch('https://api.spotify.com/v1' + path, {
+      method,
+      headers: {Authorization: 'Bearer ' + await token(), 'Content-Type': 'application/json'},
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      const err = new Error('Spotify answered ' + r.status + ' ' + text.slice(0, 160));
+      err.status = r.status;
+      // A 403 for a free account is final; one for a device that is only
+      // just registered ("Restriction violated") passes with a little time.
+      err.premium = /PREMIUM_REQUIRED/.test(text);
+      throw err;
+    }
+    if (performance.now() - started > slowApi) line('was slow, answered ' + r.status);
+  } catch (err) {
+    line('failed (' + ((err && err.status) || (err && err.name) || 'error') + ')');
+    throw err;
+  }
+}
+
+// Spotify forgets a player that sits idle for a while, and the SDK does not
+// always tell: calls then answer 404 for the device. reconnect connects the
+// player again and waits for the ready that brings its new device ID. There
+// is one connect at a time, whoever asks: a command that met a 404 and the
+// timer of the backoff share it, so the player never connects twice.
+let onReady = null;
+let connecting = null;
+function reconnect() {
+  if (connecting) return connecting;
+  stopRetry();
+  const ready = new Promise(resolve => { onReady = resolve; });
+  let mine = null;
+  mine = connecting = (async () => {
+    // Let the assignment above happen before anything can end the connect.
+    await null;
+    try {
+      player.disconnect();
+      if (!(await within(player.connect(), 'connect'))) throw new Error('the player did not reconnect');
+      await within(ready, 'reconnect');
+    } finally {
+      if (connecting === mine) connecting = null;
+      onReady = null;
+      // A connect that failed leaves the player dead unless the backoff
+      // takes over.
+      if (!playerReady) scheduleRetry();
+    }
+  })();
+  return mine;
+}
+
+// A player that lost Spotify (not_ready) connects again on its own schedule:
+// after 2, 5 and then every 15 seconds, until a ready comes. A timer is set
+// only while the player is not connected.
+const backoff = [2000, 5000, 15000];
+let retryTimer = null;
+let retryStep = 0;
+function stopRetry() {
+  clearTimeout(retryTimer);
+  retryTimer = null;
+}
+function scheduleRetry() {
+  if (retryTimer || connecting || playerReady || halted || !player) return;
+  const ms = backoff[Math.min(retryStep++, backoff.length - 1)];
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (playerReady || halted) return;
+    log('not ready: connecting again');
+    reconnect().catch(e => fail('connect', e));
+  }, ms);
+}
+
+// wake lets the web view play audio without a click: the SDK plays through
+// an audio context that only activateElement resumes, and it makes the
+// element that the context needs after connect, so a call right after
+// connect finds nothing to do. Calling it after a play does the job.
+function wake() {
+  try { Promise.resolve(player.activateElement()).catch(() => {}); } catch (e) {}
+}
+
+// A track that plays but whose position stands still has an audio context
+// that sleeps. The state arrives only on a change, so a timer after a
+// playing state asks the player where it is. The timer is set only while a
+// track plays, and fires once. If the position has not moved, the page
+// wakes the audio first and looks again; only a position that still stands,
+// in a state the SDK refreshed, gets a seek to where it stood, through the
+// queue like any command. Each track is treated once.
+let stallTimer = null;
+let stallUri = '';
+let stallDone = false;
+const uriOf = s => ((s && s.track_window && s.track_window.current_track) || {}).uri || '';
+const currentState = () => within(player.getCurrentState(), 'getCurrentState');
+function watchStall(s) {
+  clearTimeout(stallTimer);
+  stallTimer = null;
+  if (!s || s.paused) return;
+  const uri = uriOf(s);
+  if (uri !== stallUri) { stallUri = uri; stallDone = false; }
+  if (stallDone) return;
+  stallTimer = setTimeout(() => checkStall(uri, s).catch(e => log('stall: check failed: ' + ((e && e.message) || e))), 1500);
+}
+async function checkStall(uri, from) {
+  stallTimer = null;
+  const moved = (a, b) => b.position - a.position > 300;
+  const now = await currentState();
+  if (!now || now.paused || uriOf(now) !== uri || moved(from, now) || stallDone) return;
+  stallDone = true;
+  log('stall: position stands at ' + Math.round(now.position) + 'ms, waking audio');
+  wake();
+  await sleep(1000);
+  const after = await currentState();
+  if (!after || after.paused || uriOf(after) !== uri) return;
+  if (moved(from, after)) { log('stall: woke audio at ' + Math.round(from.position) + 'ms, playing again'); return; }
+  // Without a newer timestamp the SDK gave back the state it held, which
+  // proves nothing about the audio.
+  if (!(after.timestamp > now.timestamp)) { log('stall: woke audio at ' + Math.round(from.position) + 'ms, state not refreshed, no seek'); return; }
+  enqueue({cmd: 'seek', ms: Math.round(Math.max(after.position, from.position))});
+  drain();
+  await sleep(1500);
+  const last = await currentState();
+  log('stall: woke audio and seeked at ' + Math.round(after.position) + 'ms, ' +
+    (last && !last.paused && moved(after, last) ? 'playing again' : 'still stalled'));
+}
+
+// cover is the URL of the smallest image that is 300 px wide or more, the
+// one the pane's tiles use too, so that a cover has one URL everywhere. With
+// no such image it is the widest one.
+function cover(images) {
+  let best = null;
+  const better = (i, b) => {
+    const w = i.width || 0, bw = b.width || 0;
+    if ((w >= 300) !== (bw >= 300)) return w >= 300;
+    return w >= 300 ? w < bw : w > bw;
+  };
+  for (const i of images) if (i && i.url && (!best || better(i, best))) best = i;
+  return best ? best.url : '';
+}
+
+function endTransfer() {
+  transferring = false;
+  clearTimeout(transferTimer);
+}
+
+// wokenUri is the track whose first playing state woke the audio.
+let wokenUri = '';
+function onState(s) {
+  isActive = !!s;
+  if (s) endTransfer();
+  watchStall(s);
+  // The audio context may be asleep for a track that starts on its own, as
+  // the next one in a list does.
+  if (s && !s.paused && uriOf(s) !== wokenUri) { wokenUri = uriOf(s); wake(); }
+  if (!s) { post({type: 'state', active: false}); return; }
+  const t = s.track_window.current_track || {};
+  const images = (t.album && t.album.images) || [];
+  post({
+    type: 'state', active: true, paused: s.paused, position: s.position, duration: s.duration,
+    track: t.name || '', artist: (t.artists || []).map(a => a.name).join(', '),
+    album: (t.album && t.album.name) || '', image: cover(images),
+    uri: t.uri || '', shuffle: !!s.shuffle, repeat: s.repeat_mode,
+  });
+}
+
+// probe tells whether the web view may play audio: an audio context the
+// autoplay policy holds back starts suspended, so the probe asks it to
+// resume, gives it two seconds, and reports the state it ends in (a state
+// is only true after the resume settles). A media element is what the
+// player plays through, so it plays a tenth of a second of silence too, and
+// tells whether the play was let through.
+async function probe() {
+  let context;
+  try {
+    const ctx = new AudioContext();
+    const before = ctx.state;
+    await Promise.race([ctx.resume().catch(() => {}), sleep(2000)]);
+    context = before + '->' + ctx.state;
+    ctx.close().catch(() => {});
+  } catch (e) {
+    context = (e && e.name) || 'error';
+  }
+  return 'context=' + context + ' media=' + await probeMedia();
+}
+
+function probeMedia() {
+  const rate = 8000, samples = 800, wav = new DataView(new ArrayBuffer(44 + samples * 2));
+  const text = (at, s) => [...s].forEach((ch, i) => wav.setUint8(at + i, ch.charCodeAt(0)));
+  text(0, 'RIFF'); wav.setUint32(4, 36 + samples * 2, true); text(8, 'WAVEfmt ');
+  wav.setUint32(16, 16, true); wav.setUint16(20, 1, true); wav.setUint16(22, 1, true);
+  wav.setUint32(24, rate, true); wav.setUint32(28, rate * 2, true);
+  wav.setUint16(32, 2, true); wav.setUint16(34, 16, true);
+  text(36, 'data'); wav.setUint32(40, samples * 2, true);
+  const audio = new Audio(URL.createObjectURL(new Blob([wav], {type: 'audio/wav'})));
+  const play = audio.play().then(() => 'resolved', e => (e && e.name) || 'error');
+  return Promise.race([play, new Promise(r => setTimeout(() => r('pending'), 2000))]);
+}
+
+async function run(c) {
+  switch (c.cmd) {
+  case 'toggle':
+    // A player that plays on this device flips; one that does not yet is
+    // made the device that plays, and resumes what it held. A press while
+    // that transfer is pending is ignored: the first state ends it.
+    if (isActive) {
+      try {
+        await within(player.togglePlay(), 'togglePlay');
+        wake();
+      } catch (err) {
+        // The device may not hold the playback after all: the next press
+        // takes the transfer path.
+        isActive = false;
+        throw err;
+      }
+      break;
+    }
+    if (transferring) break;
+    transferring = true;
+    transferTimer = setTimeout(endTransfer, 5000);
+    try {
+      await api('PUT', '/me/player', {device_ids: [deviceId], play: true});
+      wake();
+    } catch (err) {
+      endTransfer();
+      throw err;
+    }
+    break;
+  case 'next': await within(player.nextTrack(), 'next'); break;
+  case 'previous': await within(player.previousTrack(), 'previous'); break;
+  case 'seek': await within(player.seek(c.ms), 'seek'); break;
+  case 'volume':
+    await within(player.setVolume(c.value / 100), 'volume');
+    post({type: 'volume', value: c.value});
+    break;
+  case 'shuffle': await api('PUT', '/me/player/shuffle?state=' + !!c.on + '&device_id=' + deviceId); break;
+  case 'repeat': await api('PUT', '/me/player/repeat?state=' + (c.on ? 'context' : 'off') + '&device_id=' + deviceId); break;
+  case 'play':
+    await api('PUT', '/me/player/play?device_id=' + deviceId,
+      c.uri.startsWith('spotify:track:') ? {uris: [c.uri]}
+        : c.offset ? {context_uri: c.uri, offset: {uri: c.offset}} : {context_uri: c.uri});
+    wake();
+    break;
+  }
+}
+
+window.onSpotifyWebPlaybackSDKReady = async () => {
+  player = new Spotify.Player({
+    name,
+    getOAuthToken: cb => token().then(cb).catch(e => fail('token', e)),
+    volume: 0.5,
+  });
+  player.addListener('ready', async d => {
+    deviceId = d.device_id;
+    readyCount++;
+    playerReady = true;
+    halted = false;
+    retryStep = 0;
+    stopRetry();
+    if (onReady) { onReady(); onReady = null; }
+    readyWaiters.splice(0).forEach(resolve => resolve());
+    // The ready goes out at once. The audio probe takes seconds when it is
+    // held back, so it runs on the first ready only, and its result follows
+    // as a line of the log.
+    postState('ready', {count: readyCount, visibility: document.visibilityState});
+    if (readyCount === 1) probe().then(audio => log('audio probe: ' + audio));
+    try {
+      post({type: 'volume', value: Math.round((await within(player.getVolume(), 'getVolume')) * 100)});
+    } catch (e) { fail('volume', e); }
+  });
+  player.addListener('not_ready', () => {
+    isActive = false;
+    playerReady = false;
+    postState('not-ready');
+    scheduleRetry();
+  });
+  player.addListener('player_state_changed', onState);
+  // The browser refused to start the audio without a click. Waking the
+  // audio context is what may let it play.
+  player.addListener('autoplay_failed', () => {
+    log('autoplay_failed: the browser held the audio back, waking it');
+    wake();
+  });
+  for (const kind of ['initialization_error', 'authentication_error', 'account_error', 'playback_error'])
+    player.addListener(kind, e => {
+      if (kind === 'authentication_error' || kind === 'account_error') halted = true;
+      fail(kind, e);
+    });
+  try {
+    if (!(await within(player.connect(), 'connect'))) fail('connect', 'the player did not connect');
+  } catch (e) { fail('connect', e); }
+  // A first call, in case the SDK has made its element already; the calls
+  // after each play are the ones that count.
+  wake();
+};
+
+// The lifecycle of the page, with a time, since a web view with no window
+// may be hidden, frozen or resumed by the system without any other sign.
+const lifecycle = what => log('page ' + what + ' at ' + new Date().toISOString() + ' (' + document.visibilityState + ')');
+document.addEventListener('visibilitychange', () => lifecycle('visibility changed'));
+for (const type of ['pagehide', 'pageshow']) window.addEventListener(type, e => lifecycle(type + (e.persisted ? ' (cached)' : '')));
+for (const type of ['freeze', 'resume']) document.addEventListener(type, () => lifecycle(type));
+
+const script = document.createElement('script');
+script.src = 'https://sdk.scdn.co/spotify-player.js';
+script.onerror = () => fail('sdk', 'the Spotify player script did not load');
+document.head.appendChild(script);
+
+const commands = new EventSource(base + 'commands');
+// A stream that drops reconnects by itself. While it is down the plugin
+// cannot send, and what it queued waits; the plugin is told when it is
+// back, since a player that stayed connected sends no new ready.
+commands.onopen = () => {
+  if (playerReady) postState('stream-up');
+};
+commands.onerror = () => {
+  log('the command stream dropped');
+};
+
+// Commands run one at a time. A seek or a volume that waits last in line gives way
+// to a newer one, and a play of the same URI right after another is a
+// double click. Parallel calls to the SDK break its playback.
+const pending = [];
+let running = false;
+let lastPlay = {uri: '', at: 0};
+// A play that waited longer than this is too old to run: the click is past.
+const staleAfter = 5000;
+
+function enqueue(c) {
+  if (c.cmd === 'seek' || c.cmd === 'volume') {
+    // Only the last command in line gives way, so that the order holds.
+    const last = pending.length - 1;
+    if (last >= 0 && pending[last].cmd === c.cmd) { pending[last] = c; return; }
+  }
+  if (c.cmd === 'play') {
+    const now = Date.now();
+    const key = c.uri + (c.offset ? '#' + c.offset : '');
+    if (key === lastPlay.uri && now - lastPlay.at < 1000) return;
+    lastPlay = {uri: key, at: now};
+  }
+  c.at = Date.now();
+  pending.push(c);
+}
+
+// The delays of the retries of a play: Spotify answers 403 for a device that
+// registered a moment ago and 404 for one it forgot. A play gives up after
+// playDeadline in all, retries and reconnects included.
+const playRetries = [400, 1000, 2000];
+const playDeadline = 6000;
+
+// execute runs one command. A play or a transfer that Spotify refuses with
+// 403 or 404 tries again, after a reconnect first for 404 and a short wait.
+// Another command that meets a 404 reconnects and tries once more. What
+// fails for good fails with Spotify's own error, not with the reconnect's.
+async function execute(c) {
+  const plays = c.cmd === 'play' || c.cmd === 'toggle';
+  const tries = plays ? playRetries.length : 1;
+  const deadline = Date.now() + playDeadline;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await run(c);
+      return;
+    } catch (err) {
+      const again = err.status === 404 || (plays && err.status === 403 && !err.premium);
+      if (!again || attempt >= tries || (plays && Date.now() >= deadline)) throw err;
+      if (err.status === 404) {
+        try {
+          await within(reconnect(), 'reconnect', plays ? Math.max(1000, deadline - Date.now()) : 8000);
+        } catch (re) {
+          log('the reconnect failed: ' + ((re && re.message) || re));
+          throw err;
+        }
+      }
+      if (plays) await sleep(Math.min(playRetries[attempt], Math.max(0, deadline - Date.now())));
+    }
+  }
+}
+
+async function drain() {
+  if (running) return;
+  running = true;
+  try {
+    while (pending.length) {
+      // A command waits for a player that is gone: after it comes back the
+      // device ID is a new one, and a command must not run with the old.
+      if (!playerReady) await untilReady();
+      const c = pending.shift();
+      if (c.cmd === 'play' && Date.now() - c.at > staleAfter) { log('play dropped, it waited too long'); continue; }
+      try {
+        await execute(c);
+      } catch (err) {
+        fail('command', err);
+        // A press that failed for good must not be swallowed by the double
+        // click check, and no reconnect may stay waited for.
+        if (c.cmd === 'play') lastPlay = {uri: '', at: 0};
+      }
+    }
+  } finally {
+    running = false;
+  }
+}
+
+commands.onmessage = e => {
+  if (!player || !deviceId || !playerReady) {
+    // The plugin sent it believing the player was ready. Say so, and drop it
+    // quietly: the plugin refuses commands from then on.
+    postState('not-ready');
+    scheduleRetry();
+    return;
+  }
+  enqueue(JSON.parse(e.data));
+  drain();
+};
+</script></body></html>

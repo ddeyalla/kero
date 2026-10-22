@@ -29,6 +29,10 @@ var (
 	ErrPremiumLapsed = errors.New("spotify: Premium is required")
 	ErrNetworkDown   = errors.New("spotify: the network is down")
 	ErrSignInFailed  = errors.New("spotify: sign-in failed")
+	// ErrForbidden is Spotify answering 403 for a call that the token is
+	// good for: the account or the app may not use that endpoint, such as
+	// the tracks of a playlist the user neither owns nor collaborates on.
+	ErrForbidden = errors.New("spotify: forbidden (HTTP 403)")
 	// ErrRateLimited is Spotify asking the client to wait. The error a
 	// call returns is a *RateLimitError, which tells until when.
 	ErrRateLimited = errors.New("spotify: Spotify asked to wait (rate limit)")

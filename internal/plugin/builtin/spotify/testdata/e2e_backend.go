@@ -56,8 +56,29 @@ var newBackend = func(*sdk.Conn) (*transport.Transport, transport.Source, *web.C
 		BaseURL:     api,
 		AccountsURL: api,
 		OpenURL:     web.OpenURLFunc(func(string) error { return nil }),
-		Secrets:     web.MapSecrets{web.TokensKey: "{\"access_token\":\"test\",\"token_type\":\"Bearer\",\"expires_at\":\"2099-01-01T00:00:00Z\"}"},
+		Secrets:     web.MapSecrets{web.TokensKey: "{\"access_token\":\"test\",\"token_type\":\"Bearer\",\"scope\":\"streaming\",\"expires_at\":\"2099-01-01T00:00:00Z\"}"},
 	})
 	client.SetClientID("e2e-client")
-	return transport.New(e2eRunner{}), e2eSource{}, client
+	return e2ePlayer, e2eSource{}, client
 }
+
+// e2ePlayer is the fake desktop player, which the fake engine plays
+// through too.
+var e2ePlayer = transport.New(e2eRunner{})
+
+// e2eEngine is the engine of the built app: the fake player behind the
+// engine's seam, with no web view.
+type e2eEngine struct{ *transport.Transport }
+
+func (e2eEngine) Start() error { return nil }
+func (e2eEngine) Close() error { return nil }
+
+// newEngine makes the fake engine, since the saved sign-in has the
+// streaming scope.
+var newEngine = func(*sdk.Conn, *web.Client, func(transport.Snapshot), func(error)) playerEngine {
+	return e2eEngine{e2ePlayer}
+}
+
+// The fake engine has no web view to wait for, so it opens with the pane:
+// the test reads the track it plays without a press on play.
+func init() { engineEager = true }

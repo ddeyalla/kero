@@ -35,6 +35,7 @@ func settingsIndex() []searchEntry {
 		{"appearance", locales.SetLanguage(), "language locale translation chinese english 语言 中文"},
 		{"appearance", locales.SetTranslucent(), "window-translucent vibrancy blur material transparency"},
 		{"appearance", locales.SetGrain(), "grain texture noise material backdrop film"},
+		{"appearance", locales.SetAmbientColor(), "ambient-color colour color music album spotify playing tint accent wash"},
 		{"appearance", locales.SetAccent(), "accent color preset blue plum rose sea moss graphite theme tint"},
 		{"appearance", locales.SetBackground(), "background wash petal mist meadow dusk plum rose sea plain gradient color"},
 

@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,7 +19,6 @@ import (
 	"kero/internal/plugin/protocol"
 	"kero/internal/plugin/registry"
 	"kero/internal/plugin/sdk"
-	"kero/locales"
 )
 
 // libraryClient is a Web API client that answers from a test server, with a
@@ -56,21 +56,17 @@ func eventuallyScript(t *testing.T, runner *recordingRunner, want string) {
 	})
 }
 
-// The large player always shows the library under the playback area, even
-// when nothing plays: the idle copy itself says to pick an album or a
-// playlist there, so the tabs, the search field and the rows must be
-// reachable.
+// The large layout always shows the library, even when nothing plays. A
+// player with nothing loaded draws no player at all, so the library has the
+// whole pane; a player that failed says so above the library.
 func TestLargeLayoutKeepsTheLibraryWhenNothingPlays(t *testing.T) {
 	cases := []struct {
 		name  string
 		mode  playbackMode
 		state string
 	}{
-		{"starting", modeStarting, "state-starting"},
-		{"idle", modeIdle, "state-idle"},
-		{"not running", modeNotRunning, "open-spotify"},
-		{"not installed", modeNotInstalled, "get-spotify"},
-		{"automation refused", modeAutomation, "privacy"},
+		{"starting", modeStarting, ""},
+		{"idle", modeIdle, ""},
 		{"unavailable", modeUnavailable, "state-unavailable"},
 	}
 	for _, test := range cases {
@@ -78,8 +74,15 @@ func TestLargeLayoutKeepsTheLibraryWhenNothingPlays(t *testing.T) {
 			p, s, _ := testPlugin(protocol.Size{Width: 700, Height: 600}, test.mode, libReady)
 			s.entries = []entry{{id: "album-a1", title: "Album One", uri: "spotify:album:a1"}}
 			root := draw(t, p, s)
-			if find(root, test.state) == nil {
+			if test.state != "" && find(root, test.state) == nil {
 				t.Fatalf("no %q playback state in %q", test.state, texts(root))
+			}
+			if test.state == "" {
+				for _, id := range []string{"state-idle", "state-starting", "play", "art", "head"} {
+					if find(root, id) != nil {
+						t.Errorf("a pane with nothing loaded draws %q", id)
+					}
+				}
 			}
 			for _, id := range []string{"tab-search", "tab-playlists", "tab-albums", "search", "results"} {
 				if find(root, id) == nil {
@@ -179,24 +182,23 @@ func TestTransportControlsSendTheirCommands(t *testing.T) {
 	eventuallyScript(t, runner, "playpause")
 
 	before := len(runner.calls())
+	// A drag step is neither a command nor a tree: the host holds the knob.
+	renders := countRenders(t)
 	p.event(nil, protocol.EventParams{Pane: "p1", Node: "volume", Kind: protocol.KindChange, Value: 42.0})
-	p.mu.Lock()
-	preview := s.volume
-	p.mu.Unlock()
-	if preview == nil || *preview != 42 {
-		t.Fatalf("volume preview = %v, want 42", preview)
-	}
 	if got := len(runner.calls()); got != before {
 		t.Fatalf("a volume drag ran %d scripts", got-before)
+	}
+	if got := renders(); got != 0 {
+		t.Fatalf("a volume drag rendered %d trees", got)
 	}
 
 	p.event(nil, protocol.EventParams{Pane: "p1", Node: "volume", Kind: protocol.KindCommit, Value: 42.0})
 	eventuallyScript(t, runner, "set sound volume to 42")
 	p.mu.Lock()
-	preview = s.volume
+	volume := s.snap.Volume
 	p.mu.Unlock()
-	if preview != nil {
-		t.Fatalf("the volume preview did not clear on release: %v", preview)
+	if volume != 42 {
+		t.Fatalf("the volume = %d after the release, want 42", volume)
 	}
 
 	p.event(nil, protocol.EventParams{Pane: "p1", Node: "shuffle", Kind: protocol.KindPress})
@@ -299,11 +301,9 @@ func TestSignInAndReadyLibraryStates(t *testing.T) {
 // closes.
 func TestClosingAPaneStopsItsPolling(t *testing.T) {
 	p, s, runner := testPlugin(protocol.Size{Width: 700, Height: 600}, modePlaying, libReady)
-	second := *s
-	second.pane = "p2"
-	p.panes["p2"] = &second
+	p.panes["p2"] = twinPane(s, "p2")
 
-	monitor := transport.NewMonitor(p.player, silentSource{})
+	monitor := transport.NewMonitor(p.desktop, silentSource{})
 	monitor.Poll = 10 * time.Millisecond
 	// A source that starts counts as listening, so the fallback interval
 	// is the safety one: shorten both.
@@ -359,6 +359,12 @@ func (c *treeCapture) add(tree protocol.Tree) {
 	c.roots = append(c.roots, tree.Root)
 }
 
+func (c *treeCapture) at(i int) *protocol.Node {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.roots[i]
+}
+
 func (c *treeCapture) last() *protocol.Node {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -381,9 +387,10 @@ func elapsedText(t *testing.T, root *protocol.Node) string {
 	return node.Text
 }
 
-// A tick moves the clock on from the snapshot's rate and at, and reads
-// nothing from the backend.
-func TestTickerAdvancesTheClockWithoutReads(t *testing.T) {
+// The tree carries the position at the instant of the read and a rate, and
+// the host runs the clocks on: no timer redraws the pane, and a state that
+// says nothing new is not drawn again.
+func TestPlayingTreeHoldsStillBetweenStates(t *testing.T) {
 	capture := &treeCapture{}
 	previous := drawTree
 	drawTree = func(_ *sdk.Conn, _ string, tree protocol.Tree) { capture.add(tree) }
@@ -391,27 +398,67 @@ func TestTickerAdvancesTheClockWithoutReads(t *testing.T) {
 
 	p, s, runner := testPlugin(protocol.Size{Width: 700, Height: 600}, modePlaying, libReady)
 	p.conn = &sdk.Conn{}
-	p.visible(nil, "p1", true)
+	at := time.Now().Add(-5 * time.Second)
 	p.mu.Lock()
+	s.snap.URI = "spotify:track:t1"
 	s.snap.Position = 50 * time.Second
-	s.snap.ReadAt = time.Now().Add(-5 * time.Second)
+	s.snap.ReadAt = at
 	p.mu.Unlock()
 
-	p.tick()
-	if got := elapsedText(t, capture.last()); got != "0:55" {
-		t.Fatalf("elapsed = %q, want 0:55", got)
+	p.render("p1")
+	root := capture.last()
+	seek, elapsed := find(root, "seek"), find(root, "elapsed")
+	if seek == nil || seek.Value != 50 || seek.Max != 200 || seek.Rate != 1 || seek.At != at.UnixMilli() {
+		t.Fatalf("seek = %+v, want 50 of 200 running from the read", seek)
+	}
+	if elapsed == nil || elapsed.Value != 50 || elapsed.Max != 200 || elapsed.Rate != 1 || elapsed.At != at.UnixMilli() || elapsed.Text != "0:50" {
+		t.Fatalf("elapsed = %+v, want 0:50 running from the read", elapsed)
 	}
 	reads := len(runner.calls())
 
-	p.mu.Lock()
-	s.snap.ReadAt = time.Now().Add(-8 * time.Second)
-	p.mu.Unlock()
-	p.tick()
-	if got := elapsedText(t, capture.last()); got != "0:58" {
-		t.Fatalf("elapsed = %q, want 0:58", got)
+	// The same state again, a second later, with a slightly different read:
+	// the pane keeps its own position and instant, so the tree is the same.
+	again := s.snap
+	again.ReadAt = at.Add(time.Second)
+	again.Position = 51*time.Second + 100*time.Millisecond
+	p.playback(again)
+	p.playback(again)
+	first, last := capture.at(0), capture.last()
+	if !reflect.DeepEqual(first, last) {
+		t.Fatalf("a repeated state changed the tree:\n%+v\n%+v", find(first, "seek"), find(last, "seek"))
 	}
 	if got := len(runner.calls()); got != reads {
-		t.Fatalf("the ticker ran %d backend reads", got-reads)
+		t.Fatalf("the pane ran %d backend reads", got-reads)
+	}
+}
+
+// A paused track has no rate and no instant, and a seek gives the clock a
+// new instant to run on from.
+func TestPausedAndSeekedTrees(t *testing.T) {
+	capture := &treeCapture{}
+	previous := drawTree
+	drawTree = func(_ *sdk.Conn, _ string, tree protocol.Tree) { capture.add(tree) }
+	t.Cleanup(func() { drawTree = previous })
+
+	p, s, _ := testPlugin(protocol.Size{Width: 700, Height: 600}, modePlaying, libReady)
+	p.conn = &sdk.Conn{}
+	p.mu.Lock()
+	s.snap.State = transport.StatePaused
+	p.mu.Unlock()
+	p.render("p1")
+	seek, elapsed := find(capture.last(), "seek"), find(capture.last(), "elapsed")
+	if seek.Rate != 0 || seek.At != 0 || elapsed.Rate != 0 || elapsed.At != 0 {
+		t.Fatalf("paused seek %+v and elapsed %+v still run", seek, elapsed)
+	}
+
+	p.mu.Lock()
+	s.snap.State = transport.StatePlaying
+	p.mu.Unlock()
+	before := time.Now().UnixMilli()
+	p.event(nil, protocol.EventParams{Pane: "p1", Node: "seek", Kind: protocol.KindCommit, Value: 120.0})
+	seek, elapsed = find(capture.last(), "seek"), find(capture.last(), "elapsed")
+	if seek.Value != 120 || elapsed.Value != 120 || elapsed.Text != "2:00" || seek.At < before || elapsed.At != seek.At {
+		t.Fatalf("after a seek: seek %+v, elapsed %+v, want 120 from a new instant", seek, elapsed)
 	}
 }
 
@@ -419,16 +466,14 @@ func TestTickerAdvancesTheClockWithoutReads(t *testing.T) {
 // one from the map.
 func TestEveryPaneHearsAFailedCommand(t *testing.T) {
 	p, s, runner := testPlugin(protocol.Size{Width: 700, Height: 600}, modePlaying, libReady)
-	second := *s
-	second.pane = "p2"
-	p.panes["p2"] = &second
+	p.panes["p2"] = twinPane(s, "p2")
 	runner.err = errors.New("osascript failed")
 
 	p.command(nil, "next")
 	eventually(t, "the failure notice on both panes", func() bool {
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		return s.notice == localeCommandFailed() && second.notice == localeCommandFailed()
+		return s.notice == localeCommandFailed() && p.panes["p2"].notice == localeCommandFailed()
 	})
 }
 
@@ -680,6 +725,8 @@ func TestATabLoadsAgainAfterAFailure(t *testing.T) {
 // works. The sign-in's own notice stays while the sign-in runs.
 func TestANoticeShowsEverywhereAndClearsAfterASuccess(t *testing.T) {
 	p, s, runner := testPlugin(protocol.Size{Width: 700, Height: 600}, modePlaying, libReady)
+	// The desktop app's player has to be read after a command.
+	p.engine = nil
 	runner.fail(errors.New("osascript failed"))
 	p.event(nil, protocol.EventParams{Pane: "p1", Node: "next", Kind: protocol.KindPress})
 	eventually(t, "the failure notice", func() bool {
@@ -762,27 +809,5 @@ func TestSetUpNamesTheRedirectURI(t *testing.T) {
 	}
 	if !strings.Contains(help, uri) {
 		t.Fatalf("the Client ID help %q does not name the redirect URI %s", help, uri)
-	}
-}
-
-// A Mac without Spotify draws its own state, with a way to get the app,
-// from the error a read gives.
-func TestNotInstalledHasItsOwnState(t *testing.T) {
-	p, s, runner := testPlugin(protocol.Size{Width: 280, Height: 150}, modePlaying, libReady)
-	runner.fail(&transport.CommandError{
-		Stderr: "execution error: Can’t get application \"Spotify\". (-1728)",
-		Err:    errors.New("exit status 1"),
-	})
-	p.event(nil, protocol.EventParams{Pane: "p1", Node: "play", Kind: protocol.KindPress})
-	eventually(t, "the not-installed state", func() bool {
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		return s.playback == modeNotInstalled
-	})
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	state := find(draw(t, p, s), "get-spotify")
-	if state == nil || state.Action == "" || state.Title == locales.SpotifyNotRunningTitle() {
-		t.Fatalf("state = %+v, want its own title and an action", state)
 	}
 }

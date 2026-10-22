@@ -242,6 +242,10 @@ func TestCommandsUseTheirScripts(t *testing.T) {
 			func(ctx context.Context, p *Transport) error { return p.Repeat(ctx, false) }},
 		{"play a URI", `tell application "Spotify" to play track "spotify:album:1"`,
 			func(ctx context.Context, p *Transport) error { return p.Play(ctx, "spotify:album:1") }},
+		{"play a track in a context", `tell application "Spotify" to play track "spotify:track:2" in context "spotify:album:1"`,
+			func(ctx context.Context, p *Transport) error {
+				return p.PlayFrom(ctx, "spotify:album:1", "spotify:track:2")
+			}},
 	}
 
 	for _, test := range tests {
@@ -284,6 +288,14 @@ func TestCommandsRejectValuesOutOfRange(t *testing.T) {
 		{"a URI with a quote", ErrURI,
 			func(ctx context.Context, p *Transport) error {
 				return p.Play(ctx, `spotify:album:1\" & (do shell script \"true\")`)
+			}},
+		{"a context with a quote", ErrURI,
+			func(ctx context.Context, p *Transport) error {
+				return p.PlayFrom(ctx, `spotify:album:1" & (do shell script "true")`, "spotify:track:2")
+			}},
+		{"a track with a newline", ErrURI,
+			func(ctx context.Context, p *Transport) error {
+				return p.PlayFrom(ctx, "spotify:album:1", "spotify:track:2\ntell application")
 			}},
 		{"a URI with a newline", ErrURI,
 			func(ctx context.Context, p *Transport) error { return p.Play(ctx, "spotify:album:1\ntell application") }},

@@ -26,12 +26,13 @@ type Settings struct {
 	QuitConfirm     bool   `json:"quitConfirm"`     // tell, the first time, that quitting keeps sessions
 
 	// Appearance
-	Appearance string `json:"appearance"` // "system", "light" or "dark"
-	Language   string `json:"language"`   // "system", or one of Languages
-	Accent     string `json:"accent"`     // an accent preset, see Accents: its color, wash and terminal selection
-	Background string `json:"background"` // a wash, see Backgrounds
-	Vibrancy   bool   `json:"vibrancy"`   // the window's material under the wash
-	Grain      bool   `json:"grain"`      // a faint grain over the wash
+	Appearance   string `json:"appearance"`   // "system", "light" or "dark"
+	Language     string `json:"language"`     // "system", or one of Languages
+	Accent       string `json:"accent"`       // an accent preset, see Accents: its color, wash and terminal selection
+	Background   string `json:"background"`   // a wash, see Backgrounds
+	Vibrancy     bool   `json:"vibrancy"`     // the window's material under the wash
+	Grain        bool   `json:"grain"`        // a faint grain over the wash
+	AmbientColor bool   `json:"ambientColor"` // a playing plugin's colour tints the accent and the cards
 
 	// Terminal
 	FontFamily   string  `json:"fontFamily"` // "" the font kero carries; "monospace" the system's
@@ -92,6 +93,7 @@ func Default() Settings {
 		Background:      "rex",
 		Vibrancy:        true,
 		Grain:           true,
+		AmbientColor:    true,
 		FontSize:        13,
 		LineHeight:      1.22,
 		FontWeight:      400,

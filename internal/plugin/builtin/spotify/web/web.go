@@ -78,12 +78,36 @@ const TokensKey = "tokens"
 // ID of the user's Spotify developer app.
 const SettingClientID = "clientId"
 
+// ScopeStreaming is the scope that lets the page of the playback engine
+// play audio.
+const ScopeStreaming = "streaming"
+
+// ScopeRecentlyPlayed is the scope that lets the plugin read the last
+// track the user played. Tokens from before it lack it, and the plugin
+// does without; it never asks the user to sign in again for it.
+const ScopeRecentlyPlayed = "user-read-recently-played"
+
+// ScopeCollaborative is the scope that lets the plugin read the tracks of
+// the collaborative playlists of the user. Tokens from before it lack it:
+// PlaylistTracks then fails with a 403 for such a playlist, and the pane
+// can ask the user to sign in again.
+const ScopeCollaborative = "playlist-read-collaborative"
+
 // DefaultScopes are the scopes the plugin asks for when Config.Scopes is
-// empty: private playlists, saved albums and the playback state.
+// empty: private playlists, saved albums and the playback state, and what
+// the playback engine needs to play audio in the app: streaming, the
+// account's email and plan, and control of playback, and the last track
+// played.
 var DefaultScopes = []string{
 	"playlist-read-private",
+	ScopeCollaborative,
 	"user-library-read",
 	"user-read-playback-state",
+	ScopeStreaming,
+	"user-read-email",
+	"user-read-private",
+	"user-modify-playback-state",
+	ScopeRecentlyPlayed,
 }
 
 // Config is what a Client needs.
@@ -161,6 +185,18 @@ type Client struct {
 	lastPlaylistsSet bool
 	lastAlbums       []Album
 	lastAlbumsSet    bool
+	// searches are the answers of the last searches, the newest last, so
+	// that typing a query again shows its results at once. See
+	// CachedSearch.
+	searches []cachedSearch
+	// trackLists are the track lists of the last playlists and albums
+	// that were opened, the newest last. See trackListCacheSize.
+	trackLists []trackList
+
+	// flightMu guards flights: the library loads in flight, by name, so
+	// that the panes of one plugin share one request.
+	flightMu sync.Mutex
+	flights  map[string]*flight
 
 	// limitMu guards limitedUntil: the time before which the client
 	// does not call Spotify, after a rate limit.
@@ -299,6 +335,25 @@ func (c *Client) SignedIn() bool {
 	return t != nil && (t.AccessToken != "" || t.RefreshToken != "")
 }
 
+// CanStream tells whether the client's tokens carry the streaming scope.
+// Tokens from before the engine do not: the user signs in once more.
+func (c *Client) CanStream() bool {
+	t, err := c.tokens()
+	if err != nil || t == nil {
+		return false
+	}
+	return slices.Contains(strings.Fields(t.Scope), ScopeStreaming)
+}
+
+// HasScope tells whether the client's tokens carry a scope.
+func (c *Client) HasScope(scope string) bool {
+	t, err := c.tokens()
+	if err != nil || t == nil {
+		return false
+	}
+	return slices.Contains(strings.Fields(t.Scope), scope)
+}
+
 // Current is the state the plugin shows before a call: no Client ID, a
 // refused token, not signed in, or ready.
 func (c *Client) Current() string {
@@ -353,4 +408,6 @@ func (c *Client) resetCache() {
 	c.lastPlaylistsSet = false
 	c.lastAlbums = nil
 	c.lastAlbumsSet = false
+	c.searches = nil
+	c.trackLists = nil
 }

@@ -2260,6 +2260,26 @@ func (msgs Messages) SetGrainDetail() string {
 	return Catalog.Format(msgs.locale, "setGrainDetail", nil)
 }
 
+// SetAmbientColor says "Colour from music"
+// in the language the app shows.
+func SetAmbientColor() string { return In(i18n.Locale()).SetAmbientColor() }
+
+// SetAmbientColor says "Colour from music"
+// in the language of msgs.
+func (msgs Messages) SetAmbientColor() string {
+	return Catalog.Format(msgs.locale, "setAmbientColor", nil)
+}
+
+// SetAmbientColorDetail says "Let the colour of the album that plays tint the accent, the panes and the terminals' cursor and selection."
+// in the language the app shows.
+func SetAmbientColorDetail() string { return In(i18n.Locale()).SetAmbientColorDetail() }
+
+// SetAmbientColorDetail says "Let the colour of the album that plays tint the accent, the panes and the terminals' cursor and selection."
+// in the language of msgs.
+func (msgs Messages) SetAmbientColorDetail() string {
+	return Catalog.Format(msgs.locale, "setAmbientColorDetail", nil)
+}
+
 // SetAccent says "Accent"
 // in the language the app shows.
 func SetAccent() string { return In(i18n.Locale()).SetAccent() }
@@ -5122,16 +5142,6 @@ func (msgs Messages) PluginCommandFailed() string {
 	return Catalog.Format(msgs.locale, "pluginCommandFailed", nil)
 }
 
-// SpotifyStarting says "Connecting to Spotify…"
-// in the language the app shows.
-func SpotifyStarting() string { return In(i18n.Locale()).SpotifyStarting() }
-
-// SpotifyStarting says "Connecting to Spotify…"
-// in the language of msgs.
-func (msgs Messages) SpotifyStarting() string {
-	return Catalog.Format(msgs.locale, "spotifyStarting", nil)
-}
-
 // SpotifyNotRunningTitle says "Spotify isn't running"
 // in the language the app shows.
 func SpotifyNotRunningTitle() string { return In(i18n.Locale()).SpotifyNotRunningTitle() }
@@ -5242,24 +5252,86 @@ func (msgs Messages) SpotifyUnavailableDetail() string {
 	return Catalog.Format(msgs.locale, "spotifyUnavailableDetail", nil)
 }
 
-// SpotifyNothingPlaying says "Nothing playing"
+// SpotifyPlayHereTitle says "Play Spotify here"
 // in the language the app shows.
-func SpotifyNothingPlaying() string { return In(i18n.Locale()).SpotifyNothingPlaying() }
+func SpotifyPlayHereTitle() string { return In(i18n.Locale()).SpotifyPlayHereTitle() }
 
-// SpotifyNothingPlaying says "Nothing playing"
+// SpotifyPlayHereTitle says "Play Spotify here"
 // in the language of msgs.
-func (msgs Messages) SpotifyNothingPlaying() string {
-	return Catalog.Format(msgs.locale, "spotifyNothingPlaying", nil)
+func (msgs Messages) SpotifyPlayHereTitle() string {
+	return Catalog.Format(msgs.locale, "spotifyPlayHereTitle", nil)
 }
 
-// SpotifyNothingPlayingDetail says "Play something in Spotify, or pick an album or playlist here."
+// SpotifyPlayHereDetail says "Sign in with your Spotify Premium account. Music plays in Shibu Code, with no Spotify app open."
 // in the language the app shows.
-func SpotifyNothingPlayingDetail() string { return In(i18n.Locale()).SpotifyNothingPlayingDetail() }
+func SpotifyPlayHereDetail() string { return In(i18n.Locale()).SpotifyPlayHereDetail() }
 
-// SpotifyNothingPlayingDetail says "Play something in Spotify, or pick an album or playlist here."
+// SpotifyPlayHereDetail says "Sign in with your Spotify Premium account. Music plays in Shibu Code, with no Spotify app open."
 // in the language of msgs.
-func (msgs Messages) SpotifyNothingPlayingDetail() string {
-	return Catalog.Format(msgs.locale, "spotifyNothingPlayingDetail", nil)
+func (msgs Messages) SpotifyPlayHereDetail() string {
+	return Catalog.Format(msgs.locale, "spotifyPlayHereDetail", nil)
+}
+
+// SpotifyStreamAgainTitle says "Sign in again to play here"
+// in the language the app shows.
+func SpotifyStreamAgainTitle() string { return In(i18n.Locale()).SpotifyStreamAgainTitle() }
+
+// SpotifyStreamAgainTitle says "Sign in again to play here"
+// in the language of msgs.
+func (msgs Messages) SpotifyStreamAgainTitle() string {
+	return Catalog.Format(msgs.locale, "spotifyStreamAgainTitle", nil)
+}
+
+// SpotifyStreamAgainDetail says "Your sign-in is from before Shibu Code could play music itself. Sign in once more to play here."
+// in the language the app shows.
+func SpotifyStreamAgainDetail() string { return In(i18n.Locale()).SpotifyStreamAgainDetail() }
+
+// SpotifyStreamAgainDetail says "Your sign-in is from before Shibu Code could play music itself. Sign in once more to play here."
+// in the language of msgs.
+func (msgs Messages) SpotifyStreamAgainDetail() string {
+	return Catalog.Format(msgs.locale, "spotifyStreamAgainDetail", nil)
+}
+
+// SpotifyPlaybackFailed says "Spotify couldn't play that."
+// in the language the app shows.
+func SpotifyPlaybackFailed() string { return In(i18n.Locale()).SpotifyPlaybackFailed() }
+
+// SpotifyPlaybackFailed says "Spotify couldn't play that."
+// in the language of msgs.
+func (msgs Messages) SpotifyPlaybackFailed() string {
+	return Catalog.Format(msgs.locale, "spotifyPlaybackFailed", nil)
+}
+
+// SpotifyPremiumRequiredNotice says "Spotify Premium is needed to play here."
+// in the language the app shows.
+func SpotifyPremiumRequiredNotice() string { return In(i18n.Locale()).SpotifyPremiumRequiredNotice() }
+
+// SpotifyPremiumRequiredNotice says "Spotify Premium is needed to play here."
+// in the language of msgs.
+func (msgs Messages) SpotifyPremiumRequiredNotice() string {
+	return Catalog.Format(msgs.locale, "spotifyPremiumRequiredNotice", nil)
+}
+
+// SpotifySignInAgainNotice says "Sign in to Spotify again to play here."
+// in the language the app shows.
+func SpotifySignInAgainNotice() string { return In(i18n.Locale()).SpotifySignInAgainNotice() }
+
+// SpotifySignInAgainNotice says "Sign in to Spotify again to play here."
+// in the language of msgs.
+func (msgs Messages) SpotifySignInAgainNotice() string {
+	return Catalog.Format(msgs.locale, "spotifySignInAgainNotice", nil)
+}
+
+// SpotifyPlaybackFailedDetail says "Spotify couldn't play that: {message}"
+// in the language the app shows.
+func SpotifyPlaybackFailedDetail(message string) string {
+	return In(i18n.Locale()).SpotifyPlaybackFailedDetail(message)
+}
+
+// SpotifyPlaybackFailedDetail says "Spotify couldn't play that: {message}"
+// in the language of msgs.
+func (msgs Messages) SpotifyPlaybackFailedDetail(message string) string {
+	return Catalog.Format(msgs.locale, "spotifyPlaybackFailedDetail", map[string]any{"message": message})
 }
 
 // SpotifyNoClientID says "Add your Spotify Client ID"
@@ -5672,6 +5744,116 @@ func SpotifyPlaylist() string { return In(i18n.Locale()).SpotifyPlaylist() }
 // in the language of msgs.
 func (msgs Messages) SpotifyPlaylist() string {
 	return Catalog.Format(msgs.locale, "spotifyPlaylist", nil)
+}
+
+// SpotifyPlay says "Play"
+// in the language the app shows.
+func SpotifyPlay() string { return In(i18n.Locale()).SpotifyPlay() }
+
+// SpotifyPlay says "Play"
+// in the language of msgs.
+func (msgs Messages) SpotifyPlay() string {
+	return Catalog.Format(msgs.locale, "spotifyPlay", nil)
+}
+
+// SpotifyTabQueue says "Up next"
+// in the language the app shows.
+func SpotifyTabQueue() string { return In(i18n.Locale()).SpotifyTabQueue() }
+
+// SpotifyTabQueue says "Up next"
+// in the language of msgs.
+func (msgs Messages) SpotifyTabQueue() string {
+	return Catalog.Format(msgs.locale, "spotifyTabQueue", nil)
+}
+
+// SpotifyShowMore says "Show More"
+// in the language the app shows.
+func SpotifyShowMore() string { return In(i18n.Locale()).SpotifyShowMore() }
+
+// SpotifyShowMore says "Show More"
+// in the language of msgs.
+func (msgs Messages) SpotifyShowMore() string {
+	return Catalog.Format(msgs.locale, "spotifyShowMore", nil)
+}
+
+// SpotifyTracksForbidden says "Spotify doesn't share this playlist's tracks"
+// in the language the app shows.
+func SpotifyTracksForbidden() string { return In(i18n.Locale()).SpotifyTracksForbidden() }
+
+// SpotifyTracksForbidden says "Spotify doesn't share this playlist's tracks"
+// in the language of msgs.
+func (msgs Messages) SpotifyTracksForbidden() string {
+	return Catalog.Format(msgs.locale, "spotifyTracksForbidden", nil)
+}
+
+// SpotifyTracksScope says "Sign in again to let Shibu Code read collaborative playlists."
+// in the language the app shows.
+func SpotifyTracksScope() string { return In(i18n.Locale()).SpotifyTracksScope() }
+
+// SpotifyTracksScope says "Sign in again to let Shibu Code read collaborative playlists."
+// in the language of msgs.
+func (msgs Messages) SpotifyTracksScope() string {
+	return Catalog.Format(msgs.locale, "spotifyTracksScope", nil)
+}
+
+// SpotifyTracksFailed says "Could not load the tracks."
+// in the language the app shows.
+func SpotifyTracksFailed() string { return In(i18n.Locale()).SpotifyTracksFailed() }
+
+// SpotifyTracksFailed says "Could not load the tracks."
+// in the language of msgs.
+func (msgs Messages) SpotifyTracksFailed() string {
+	return Catalog.Format(msgs.locale, "spotifyTracksFailed", nil)
+}
+
+// SpotifyNoTracks says "No tracks"
+// in the language the app shows.
+func SpotifyNoTracks() string { return In(i18n.Locale()).SpotifyNoTracks() }
+
+// SpotifyNoTracks says "No tracks"
+// in the language of msgs.
+func (msgs Messages) SpotifyNoTracks() string {
+	return Catalog.Format(msgs.locale, "spotifyNoTracks", nil)
+}
+
+// SpotifyNoTracksDetail says "There is nothing to play here."
+// in the language the app shows.
+func SpotifyNoTracksDetail() string { return In(i18n.Locale()).SpotifyNoTracksDetail() }
+
+// SpotifyNoTracksDetail says "There is nothing to play here."
+// in the language of msgs.
+func (msgs Messages) SpotifyNoTracksDetail() string {
+	return Catalog.Format(msgs.locale, "spotifyNoTracksDetail", nil)
+}
+
+// SpotifyQueueEmpty says "Nothing is queued"
+// in the language the app shows.
+func SpotifyQueueEmpty() string { return In(i18n.Locale()).SpotifyQueueEmpty() }
+
+// SpotifyQueueEmpty says "Nothing is queued"
+// in the language of msgs.
+func (msgs Messages) SpotifyQueueEmpty() string {
+	return Catalog.Format(msgs.locale, "spotifyQueueEmpty", nil)
+}
+
+// SpotifyQueueEmptyDetail says "Tracks that come next show here."
+// in the language the app shows.
+func SpotifyQueueEmptyDetail() string { return In(i18n.Locale()).SpotifyQueueEmptyDetail() }
+
+// SpotifyQueueEmptyDetail says "Tracks that come next show here."
+// in the language of msgs.
+func (msgs Messages) SpotifyQueueEmptyDetail() string {
+	return Catalog.Format(msgs.locale, "spotifyQueueEmptyDetail", nil)
+}
+
+// SpotifyUntitledTrack says "Unknown track"
+// in the language the app shows.
+func SpotifyUntitledTrack() string { return In(i18n.Locale()).SpotifyUntitledTrack() }
+
+// SpotifyUntitledTrack says "Unknown track"
+// in the language of msgs.
+func (msgs Messages) SpotifyUntitledTrack() string {
+	return Catalog.Format(msgs.locale, "spotifyUntitledTrack", nil)
 }
 
 // ActionSpotifyPlayPause says "Play or Pause Spotify"

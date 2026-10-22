@@ -38,6 +38,8 @@ func newPluginHarness(t *testing.T, tree *protocol.Tree, send func(pluginEvent))
 	t.Helper()
 	v := newPluginView()
 	v.fetch = stubPluginFetch()
+	// No test draws a real symbol, unless it asks to.
+	v.render = func(string, float64, float64, int) (*image.RGBA, bool) { return nil, false }
 	h := &pluginHarness{view: v, tree: tree, pal: lightPalette}
 	h.tt = ui.NewTester(func(c *ui.Context) {
 		drawPluginTree(c, h.view, &h.pal, h.tree, send)
@@ -488,6 +490,44 @@ func TestPluginFetchDataURI(t *testing.T) {
 	_ = sampled
 }
 
+// TestPluginFetchDownscalesLargePictures decodes a 640 pixel cover to at
+// most 512 pixels, in proportion, and leaves a small picture as it is.
+func TestPluginFetchDownscalesLargePictures(t *testing.T) {
+	uri := func(w, h int) string {
+		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		for i := 0; i < len(img.Pix); i += 4 {
+			img.Pix[i], img.Pix[i+3] = 0xc0, 0xff
+		}
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, img); err != nil {
+			t.Fatal(err)
+		}
+		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
+	}
+	for _, tc := range []struct{ w, h, wantW, wantH int }{
+		{640, 640, 512, 512},
+		{640, 320, 512, 256},
+		{300, 600, 256, 512},
+		{512, 400, 512, 400},
+		{200, 200, 200, 200},
+	} {
+		bm, img, err := pluginFetch(pluginSource{data: uri(tc.w, tc.h)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if w, h := bm.Size(); w != tc.wantW || h != tc.wantH {
+			t.Errorf("a %dx%d picture is %dx%d, want %dx%d", tc.w, tc.h, w, h, tc.wantW, tc.wantH)
+		}
+		if b := img.Bounds(); b.Dx() != tc.wantW || b.Dy() != tc.wantH {
+			t.Errorf("a %dx%d picture samples at %v, want %dx%d", tc.w, tc.h, b, tc.wantW, tc.wantH)
+		}
+		// The colors survive the filter.
+		if r, _, _, a := img.At(img.Bounds().Dx()/2, img.Bounds().Dy()/2).RGBA(); r>>8 < 0xb8 || a>>8 != 0xff {
+			t.Errorf("a %dx%d picture lost its color: r=%#x a=%#x", tc.w, tc.h, r>>8, a>>8)
+		}
+	}
+}
+
 // TestPluginViewsStayApart keeps two panes with a plugin each apart: a
 // scroll and a focus in one are not the other's.
 func TestPluginViewsStayApart(t *testing.T) {
@@ -627,7 +667,7 @@ func TestPluginListRowsWithPictures(t *testing.T) {
 		got = append(got, ev)
 	})
 	for _, item := range items {
-		if !waitPluginPicture(t, h.view, pluginSource{url: item.Image}) {
+		if !waitPluginPicture(t, h.view, pluginSource{url: item.Image, side: pluginTileSide(28)}) {
 			t.Fatalf("the picture of %s did not arrive", item.ID)
 		}
 	}
@@ -759,8 +799,8 @@ func TestPluginPartsDrawFromJSON(t *testing.T) {
 		}
 		for _, src := range []pluginSource{
 			{url: "https://example.invalid/art.png", tint: true},
-			{url: "https://example.invalid/r1.png"},
-			{url: "https://example.invalid/r2.png"},
+			{url: "https://example.invalid/r1.png", side: pluginTileSide(28)},
+			{url: "https://example.invalid/r2.png", side: pluginTileSide(28)},
 		} {
 			if !waitPluginPicture(t, h.view, src) {
 				t.Fatalf("dark %v: the picture %s did not arrive", dark, src.url)
@@ -921,6 +961,48 @@ func TestPluginSliderKeyboardCommits(t *testing.T) {
 	}
 }
 
+// TestPluginSliderDragOffTheTrackCommitsOnce commits once, on release, a
+// drag whose pointer strays off the thin track: each step of it is not a
+// value the user settled on. A seek bar that committed every step flooded
+// the player with seeks.
+func TestPluginSliderDragOffTheTrackCommitsOnce(t *testing.T) {
+	var got []pluginEvent
+	h := newPluginHarness(t, pluginTree(sdk.Column("root", sdk.Slider("seek", 0.2, 0, 1))), func(ev pluginEvent) {
+		got = append(got, ev)
+	})
+	r, ok := h.tt.Find("Slider")
+	if !ok {
+		t.Fatal("no slider")
+	}
+	y := r.Y + r.H/2
+	h.tt.Press(r.X+r.W*0.2, y)
+	h.tt.Frame()
+	for i, f := range []float32{0.3, 0.4, 0.5, 0.6, 0.7} {
+		// Below the track, as a hand drifts while it drags.
+		h.tt.Move(r.X+r.W*f, y+r.H*float32(2+i))
+		h.tt.Frame()
+	}
+	commits := 0
+	for _, ev := range got {
+		if ev.Node == "seek" && ev.Kind == protocol.KindCommit {
+			commits++
+		}
+	}
+	if commits != 0 {
+		t.Fatalf("the drag committed %d times before the release: %v", commits, got)
+	}
+	h.tt.Release(r.X+r.W*0.7, y+r.H*6)
+	h.tt.Frame()
+	for _, ev := range got {
+		if ev.Node == "seek" && ev.Kind == protocol.KindCommit {
+			commits++
+		}
+	}
+	if commits != 1 {
+		t.Fatalf("the release sent %d commits, want one: %v", commits, got)
+	}
+}
+
 // TestPluginFetchRefusesHugePicture turns away a small file that declares
 // a picture too large to decode, before it decodes it.
 func TestPluginFetchRefusesHugePicture(t *testing.T) {
@@ -940,5 +1022,495 @@ func TestPluginFetchRefusesHugePicture(t *testing.T) {
 	uri := "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
 	if bm, img, err := pluginFetch(pluginSource{data: uri}); err == nil || bm != nil || img != nil {
 		t.Fatalf("a picture of 100000x100000 was decoded: %v", err)
+	}
+}
+
+// bandOf is the pixels of a frame inside r.
+func bandOf(img *image.RGBA, r ui.Rect) []byte {
+	var out []byte
+	for y := int(r.Y); y < int(r.Y+r.H) && y < img.Bounds().Dy(); y++ {
+		i := img.PixOffset(int(r.X), y)
+		out = append(out, img.Pix[i:i+int(r.W)*4]...)
+	}
+	return out
+}
+
+// pluginScrollingTree is a pane that scrolls as one: a head, and a list of
+// n rows under it.
+func pluginScrollingTree(n int) *protocol.Tree {
+	var items []protocol.Item
+	for i := 1; i <= n; i++ {
+		items = append(items, protocol.Item{ID: fmt.Sprintf("r%02d", i), Title: fmt.Sprintf("Row %02d", i)})
+	}
+	tree := sdk.Column("root",
+		sdk.Text("head", "The head").Role("title"),
+		sdk.List("files", items...).Grow(1),
+	).Gap(8).Grow(1).ScrollingTree()
+	return &tree
+}
+
+// TestPluginScrollsAsOne scrolls a pane taller than its content, which
+// stays where it is, and a short pane, which scrolls its head out of view
+// with its list, and keeps the list from scrolling on its own.
+func TestPluginScrollsAsOne(t *testing.T) {
+	draw := func(tree *protocol.Tree, w, h int) (*ui.Tester, *pluginView) {
+		v := newPluginView()
+		v.fetch = stubPluginFetch()
+		pal := lightPalette
+		tt := ui.NewTester(func(c *ui.Context) { drawPluginTree(c, v, &pal, tree, nil) }, w, h)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		return tt, v
+	}
+
+	// Room to spare: nothing scrolls.
+	tt, v := draw(pluginScrollingTree(2), 400, 600)
+	tt.Scroll(200, 300, 0, -300)
+	tt.Frame()
+	if st := v.scroll["root"]; st != nil && st.Y != 0 {
+		t.Fatalf("a pane taller than its content scrolled to %v", st.Y)
+	}
+	if r, ok := tt.Find("The head"); !ok || r.Y < 0 {
+		t.Fatalf("the head left the pane: %v %v", r, ok)
+	}
+
+	// A short pane: the head scrolls out, the list does not scroll alone.
+	tt, v = draw(pluginScrollingTree(40), 400, 200)
+	head, ok := tt.Find("The head")
+	if !ok {
+		t.Fatal("no head")
+	}
+	before := bandOf(tt.Image(), head)
+	tt.Scroll(200, 100, 0, -300)
+	tt.Frame()
+	if v.scroll["root"] == nil || v.scroll["root"].Y == 0 {
+		tt.Scroll(200, 100, 0, 300)
+		tt.Frame()
+	}
+	st := v.scroll["root"]
+	if st == nil || st.Y == 0 {
+		t.Fatalf("the pane did not scroll: %+v", st)
+	}
+	// The tester's boxes do not move with a scroll, so the pixels tell: the
+	// strip the head drew in is not what it was.
+	if after := bandOf(tt.Image(), head); bytes.Equal(after, before) {
+		t.Fatalf("the head's place did not change after the pane scrolled %v", st.Y)
+	}
+	if st.Y < float32(head.H) {
+		t.Fatalf("the pane scrolled %v, less than the head's %v", st.Y, head.H)
+	}
+	if st := v.scroll["files"]; st != nil {
+		t.Fatalf("the list scrolls on its own: %+v", st)
+	}
+	// All 40 rows are inside the one scroll: it runs on past their height.
+	tt.Scroll(200, 100, 0, -100000)
+	tt.Frame()
+	tt.Scroll(200, 100, 0, 100000)
+	tt.Frame()
+	if v.scroll["root"].Y < 40*rowH-200 {
+		t.Fatalf("the pane scrolls to %v, less than its 40 rows are tall", v.scroll["root"].Y)
+	}
+}
+
+// TestPluginSymbolIcons draws a symbol in place of an icon's SVG, tinted
+// with the part's color, once its fake renderer has drawn it, and keeps the
+// SVG when the symbol is not there.
+func TestPluginSymbolIcons(t *testing.T) {
+	var mu sync.Mutex
+	asked := map[string]int{}
+	v := newPluginView()
+	v.fetch = stubPluginFetch()
+	v.render = func(name string, size, weight float64, scale int) (*image.RGBA, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		asked[name]++
+		img := image.NewRGBA(image.Rect(0, 0, 8*scale, 8*scale))
+		for i := 3; i < len(img.Pix); i += 4 {
+			img.Pix[i] = 0xff
+		}
+		return img, true
+	}
+	h := &pluginHarness{view: v, pal: lightPalette,
+		tree: pluginTree(sdk.Column("root", sdk.IconButton("play", "play").Primary().Size(44, 44)))}
+	h.tt = ui.NewTester(func(c *ui.Context) { drawPluginTree(c, h.view, &h.pal, h.tree, nil) }, 900, 700)
+	h.show(h.tree)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		h.show(h.tree)
+		mu.Lock()
+		n := asked["play.fill"]
+		mu.Unlock()
+		v := h.view
+		v.mu.Lock()
+		done := 0
+		for _, s := range v.symbols {
+			if s.bitmap != nil {
+				done++
+			}
+		}
+		v.mu.Unlock()
+		if n > 0 && done > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	n := asked["play.fill"]
+	mu.Unlock()
+	if n != 1 {
+		t.Fatalf("play.fill was drawn %d times, want once, cached after", n)
+	}
+	h.view.mu.Lock()
+	defer h.view.mu.Unlock()
+	for _, s := range h.view.symbols {
+		if s.bitmap == nil {
+			t.Fatal("the symbol has no bitmap")
+		}
+		if w, hh := s.bitmap.Size(); w != 16 || hh != 16 {
+			t.Fatalf("the symbol is %dx%d pixels, want 16x16 for 8 points at 2x", w, hh)
+		}
+	}
+
+	// A symbol the system lacks is tried once, and the SVG stays.
+	h2 := newPluginHarness(t, pluginTree(sdk.Column("root", sdk.IconButton("next", "next"))), nil)
+	h2.view.render = func(string, float64, float64, int) (*image.RGBA, bool) { return nil, false }
+	h2.show(h2.tree)
+	time.Sleep(50 * time.Millisecond)
+	h2.show(h2.tree)
+	if _, found := h2.tt.Find("next"); !found {
+		t.Fatal("the button is gone without its symbol")
+	}
+}
+
+// TestTintSymbol colors the shape of a symbol's alpha, premultiplied.
+func TestTintSymbol(t *testing.T) {
+	mask := image.NewRGBA(image.Rect(0, 0, 2, 1))
+	mask.Pix[3] = 0xff
+	mask.Pix[7] = 0x80
+	out := tintSymbol(mask, ui.RGB(200, 100, 50))
+	if got := out.Pix[:4]; got[0] != 200 || got[1] != 100 || got[2] != 50 || got[3] != 0xff {
+		t.Fatalf("opaque pixel %v", got)
+	}
+	if got := out.Pix[4:8]; got[0] != 100 || got[3] != 0x80 {
+		t.Fatalf("half pixel %v, want premultiplied", got)
+	}
+}
+
+// TestPluginSliderAndClockRunOnTheirOwn advances a slider's value and a
+// clock text from their rate and instant, within their ranges.
+func TestPluginSliderAndClockRunOnTheirOwn(t *testing.T) {
+	at := time.UnixMilli(10_000)
+	slider := &protocol.Node{Type: protocol.NodeSlider, Value: 30_000, Min: 0, Max: 200_000, Rate: 1000, At: at.UnixMilli()}
+	if got := pluginSliderValue(slider, at.Add(2500*time.Millisecond)); got != 32_500 {
+		t.Fatalf("the slider is at %v after 2.5s, want 32500", got)
+	}
+	if got := pluginSliderValue(slider, at.Add(time.Hour)); got != 200_000 {
+		t.Fatalf("the slider is at %v after an hour, want its max", got)
+	}
+	slider.Rate = 0
+	if got := pluginSliderValue(slider, at.Add(time.Hour)); got != 30_000 {
+		t.Fatalf("a slider with no rate is at %v, want its value", got)
+	}
+
+	clock := &protocol.Node{Type: protocol.NodeText, Text: "1:05", Value: 65, Max: 70, Rate: 1, At: at.UnixMilli()}
+	text, ok, next := pluginClockText(clock, at.Add(2250*time.Millisecond))
+	if text != "1:07" || !ok || next < 750*time.Millisecond || next > 760*time.Millisecond {
+		t.Fatalf("the clock reads %q ok=%v next=%v, want 1:07 and the next second in 750ms", text, ok, next)
+	}
+	text, ok, next = pluginClockText(clock, at.Add(time.Minute))
+	if text != "1:10" || !ok || next != 0 {
+		t.Fatalf("the clock reads %q ok=%v next=%v, want 1:10 capped and stopped", text, ok, next)
+	}
+	clock.Rate = 0
+	if text, ok, _ := pluginClockText(clock, at); ok || text != "1:05" {
+		t.Fatalf("a paused clock reads %q ok=%v, want its own text", text, ok)
+	}
+}
+
+// TestPluginSliderRunsOnAndYieldsToTheUser moves a playing slider by the
+// clock without a render, and keeps the user's value when they set one,
+// until the plugin answers or the hold ends.
+func TestPluginSliderRunsOnAndYieldsToTheUser(t *testing.T) {
+	tree := func(value float64, at int64) *protocol.Tree {
+		return pluginTree(sdk.Column("root",
+			sdk.Slider("seek", value, 0, 100).Playing(1, at),
+			sdk.Clock("elapsed", value, 100).Playing(1, at),
+		))
+	}
+	h := newPluginHarness(t, tree(0, 0), nil)
+	at := h.tt.Now().UnixMilli()
+	h.tree = tree(10, at)
+	h.tt.Frame()
+	if got := h.view.sliders["seek"].value; got != 10 {
+		t.Fatalf("the slider shows %v when sent, want 10", got)
+	}
+	h.tt.Advance(5 * time.Second)
+	if got := h.view.sliders["seek"].value; math.Abs(got-15) > 0.3 {
+		t.Fatalf("the slider shows %v after 5s with no render, want about 15", got)
+	}
+	if !h.tt.HasText("0:15") && !h.tt.HasText("0:14") {
+		t.Fatalf("the clock does not count on: %q", h.tt.Texts())
+	}
+	// The user lets go of a value of their own: it stands, not the old run.
+	st := h.view.sliders["seek"]
+	st.value, st.holdUntil = 80, h.tt.Now().Add(pluginSliderHold)
+	h.tt.Advance(time.Second)
+	if st.value != 80 {
+		t.Fatalf("the slider jumped to %v inside the hold, want 80", st.value)
+	}
+	// The plugin answers with a new instant: its value wins.
+	h.tree = tree(80, h.tt.Now().UnixMilli())
+	h.tt.Frame()
+	if st.value != 80 || !st.holdUntil.IsZero() {
+		t.Fatalf("after the answer the slider is %v hold %v, want 80 and no hold", st.value, st.holdUntil)
+	}
+	// No answer: after the hold, the run takes over from the plugin's value.
+	st.value, st.holdUntil = 5, h.tt.Now().Add(pluginSliderHold)
+	h.tt.Advance(pluginSliderHold + time.Second)
+	if st.value < 80 {
+		t.Fatalf("the slider stays at %v after the hold, want it to run on from 80", st.value)
+	}
+}
+
+// TestPluginSymbolKeyHasNoColor draws a symbol once for any color, and
+// keeps the last bitmap of an icon while another size is drawn.
+func TestPluginSymbolKeyHasNoColor(t *testing.T) {
+	var mu sync.Mutex
+	asked := 0
+	v := newPluginView()
+	release := make(chan struct{})
+	v.render = func(name string, size, weight float64, scale int) (*image.RGBA, bool) {
+		mu.Lock()
+		asked++
+		mu.Unlock()
+		if size == 32 {
+			<-release
+		}
+		return image.NewRGBA(image.Rect(0, 0, 8*scale, 8*scale)), true
+	}
+	var bm, bm2 *ui.Bitmap
+	tt := ui.NewTester(func(c *ui.Context) {
+		v.frame++
+		if bm == nil {
+			bm, _ = v.symbol(c, "play", 16, symbolMedium)
+		}
+	}, 100, 100)
+	tt.Frame()
+	waitFor := func(cond func() bool) {
+		t.Helper()
+		for i := 0; i < 200 && !cond(); i++ {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	ready := func() bool { v.mu.Lock(); defer v.mu.Unlock(); return v.lastSymbol["play.fill"].bitmap != nil }
+	waitFor(ready)
+	if !ready() {
+		t.Fatal("the symbol did not arrive")
+	}
+	var got1, got2, other *ui.Bitmap
+	var stretch float64
+	tt2 := ui.NewTester(func(c *ui.Context) {
+		v.frame++
+		got1, _ = v.symbol(c, "play", 16, symbolMedium)
+		got2, _ = v.symbol(c, "play", 16, symbolMedium)
+		other, stretch = v.symbol(c, "play", 32, symbolMedium)
+	}, 100, 100)
+	tt2.Frame()
+	_ = bm2
+	if got1 == nil || got1 != got2 {
+		t.Fatal("the same symbol is not served from the cache")
+	}
+	if stretch != 2 {
+		t.Fatalf("the stand-in is stretched %v, want 2 for 16 points shown at 32", stretch)
+	}
+	if other == nil || other != got1 {
+		t.Fatal("a size still being drawn does not stand in with the last bitmap")
+	}
+	waitFor(func() bool { mu.Lock(); defer mu.Unlock(); return asked >= 2 })
+	close(release)
+	mu.Lock()
+	defer mu.Unlock()
+	if asked != 2 {
+		t.Fatalf("the renderer ran %d times, want 2 (one for each size, none for a color)", asked)
+	}
+	if key := (symbolKey{"play.fill", 16, symbolMedium, symbolScale}); v.symbols[key] == nil {
+		t.Fatal("the symbol key has no entry; it must not depend on a color")
+	}
+}
+
+// TestPluginProgressBarNeedsNoViewBuilds runs a playing bar for seconds and
+// counts the builds of the view: its motion is repaints, not builds.
+func TestPluginProgressBarNeedsNoViewBuilds(t *testing.T) {
+	tree := pluginTree(sdk.Column("root", sdk.Progress("dl", 0.2).Playing(0.01, 0)))
+	builds := 0
+	v := newPluginView()
+	v.fetch = stubPluginFetch()
+	v.render = func(string, float64, float64, int) (*image.RGBA, bool) { return nil, false }
+	pal := lightPalette
+	tt := ui.NewTester(func(c *ui.Context) {
+		builds++
+		if tree.Root.Children[0].At == 0 {
+			tree.Root.Children[0].At = c.Now().UnixMilli()
+		}
+		drawPluginTree(c, v, &pal, tree, nil)
+	}, 400, 300)
+	tt.Frame()
+	tt.Frame()
+	before := builds
+	tt.Advance(5 * time.Second)
+	if got := v.progress["dl"]; got < 0.24 {
+		t.Fatalf("the bar shows %v after 5s at 0.01 a second, want it to have moved to about 0.25", got)
+	}
+	if builds-before > 3 {
+		t.Fatalf("the view was built %d times in 5s, want repaints only", builds-before)
+	}
+}
+
+// TestPluginPictureSizeIsNotInTheKey draws one URL at two sizes and a
+// resized tile: one fetch, never another.
+func TestPluginPictureSizeIsNotInTheKey(t *testing.T) {
+	var mu sync.Mutex
+	fetched := map[string]int{}
+	inner := stubPluginFetch()
+	v := newPluginView()
+	v.fetch = func(src pluginSource) (*ui.Bitmap, image.Image, error) {
+		mu.Lock()
+		fetched[src.url]++
+		mu.Unlock()
+		return inner(src)
+	}
+	v.render = func(string, float64, float64, int) (*image.RGBA, bool) { return nil, false }
+	pal := lightPalette
+	tree := func(tile int) *protocol.Tree {
+		return pluginTree(sdk.Column("root", sdk.List("lib",
+			protocol.Item{ID: "a", Title: "A", Image: "https://example.invalid/a.png"}).Grid(tile)))
+	}
+	cur := tree(160)
+	tt := ui.NewTester(func(c *ui.Context) { drawPluginTree(c, v, &pal, cur, nil) }, 900, 700)
+	tt.Frame()
+	for _, tile := range []int{160, 161, 163, 199, 120, 240} {
+		cur = tree(tile)
+		tt.Advance(50 * time.Millisecond)
+		tt.Frame()
+		time.Sleep(5 * time.Millisecond)
+	}
+	// The same URL as a list row, at another size.
+	cur = pluginTree(sdk.Column("root", sdk.List("lib",
+		protocol.Item{ID: "a", Title: "A", Image: "https://example.invalid/a.png"})))
+	tt.Frame()
+	time.Sleep(20 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if n := fetched["https://example.invalid/a.png"]; n != 1 {
+		t.Fatalf("the picture was fetched %d times across sizes, want once", n)
+	}
+	for px, want := range map[int]int{1: 128, 128: 128, 129: 256, 322: 512, 900: 512} {
+		if got := pluginSideBucket(px, pluginMaxImageSide); got != want {
+			t.Errorf("bucket(%d) = %d, want %d", px, got, want)
+		}
+	}
+	if got := pluginSideBucket(900, pluginMaxArtSide); got != 1024 {
+		t.Errorf("art bucket(900) = %d, want 1024", got)
+	}
+}
+
+// TestPluginPictureBudgetCountsLoading prunes pictures nothing asks for,
+// loaded or not, down to the budget.
+func TestPluginPictureBudgetCountsLoading(t *testing.T) {
+	v := newPluginView()
+	for i := range 3 * pluginPictureBudget {
+		v.pictures[fmt.Sprint(i)] = &pluginPicture{loading: i%2 == 0, used: uint64(i)}
+	}
+	v.frame = uint64(3*pluginPictureBudget) + 1
+	v.prunePictures()
+	if n := len(v.pictures); n > pluginPictureBudget {
+		t.Fatalf("%d pictures kept, want at most %d", n, pluginPictureBudget)
+	}
+}
+
+// TestPluginSliderNeedsNoViewBuilds runs a playing slider for seconds and
+// counts the builds of the view: its motion is repaints, not builds.
+func TestPluginSliderNeedsNoViewBuilds(t *testing.T) {
+	tree := pluginTree(sdk.Column("root", sdk.Slider("seek", 10, 0, 100).Playing(1, 0)))
+	builds := 0
+	v := newPluginView()
+	v.fetch = stubPluginFetch()
+	v.render = func(string, float64, float64, int) (*image.RGBA, bool) { return nil, false }
+	pal := lightPalette
+	tt := ui.NewTester(func(c *ui.Context) {
+		builds++
+		if n := tree.Root.Children[0]; n.At == 0 {
+			n.At = c.Now().UnixMilli()
+		}
+		drawPluginTree(c, v, &pal, tree, nil)
+	}, 400, 300)
+	tt.Frame()
+	tt.Frame()
+	before := builds
+	tt.Advance(5 * time.Second)
+	if got := v.sliders["seek"].value; math.Abs(got-15) > 0.5 {
+		t.Fatalf("the slider is at %v after 5s from 10 at 1 a second, want about 15", got)
+	}
+	if builds-before > 3 {
+		t.Fatalf("the view was built %d times in 5s, want repaints only", builds-before)
+	}
+}
+
+// A list row with a leading text shows it before the title, and the row
+// that is on still takes a press.
+func TestPluginListRowsWithLeadingAndActive(t *testing.T) {
+	items := []protocol.Item{
+		{ID: "t-0", Title: "First song", Subtitle: "Ada", Trailing: "3:04", Leading: "1"},
+		{ID: "t-1", Title: "Second song", Subtitle: "Ada", Trailing: "2:10", Leading: "2", Active: true},
+	}
+	var got []pluginEvent
+	h := newPluginHarness(t, pluginTree(sdk.Column("root", sdk.List("tracks", items...)).Grow(1)), func(ev pluginEvent) {
+		got = append(got, ev)
+	})
+	for _, text := range []string{"First song", "Second song", "3:04", "1", "2"} {
+		if !h.tt.HasText(text) {
+			t.Fatalf("the list does not show %q; it shows %q", text, h.tt.Texts())
+		}
+	}
+	if err := h.tt.Click("Second song"); err != nil {
+		t.Fatal(err)
+	}
+	if !hasPluginEvent(got, "tracks", protocol.KindSelect, "t-1") {
+		t.Fatalf("no select for the active row: %v", got)
+	}
+}
+
+// A slider with a width of its own, such as a volume, keeps it, where one
+// without grows to fill its row.
+func TestPluginSliderKeepsItsOwnWidth(t *testing.T) {
+	width := func(slider *sdk.Node) float32 {
+		h := newPluginHarness(t, pluginTree(sdk.Row("root", slider).Gap(10)), func(pluginEvent) {})
+		r, ok := h.tt.Find("Slider")
+		if !ok {
+			t.Fatal("no slider")
+		}
+		return r.W
+	}
+	if w := width(sdk.Slider("volume", 70, 0, 100).Size(80, 0)); w != 80 {
+		t.Fatalf("a slider of 80 is %v wide", w)
+	}
+	if w := width(sdk.Slider("seek", 10, 0, 100)); w <= 120 {
+		t.Fatalf("a slider with no width is %v wide, want it to grow", w)
+	}
+}
+
+// An icon button that is active draws, and takes a press like any other.
+func TestPluginActiveIconButtonPresses(t *testing.T) {
+	var got []pluginEvent
+	h := newPluginHarness(t, pluginTree(sdk.Row("root",
+		sdk.IconButton("shuffle", "shuffle").Size(28, 28).Active(true),
+		sdk.IconButton("repeat", "repeat").Size(28, 28),
+	)), func(ev pluginEvent) { got = append(got, ev) })
+	if err := h.tt.Click("shuffle"); err != nil {
+		t.Fatal(err)
+	}
+	if !hasPluginEvent(got, "shuffle", protocol.KindPress, nil) {
+		t.Fatalf("no press for the active button: %v", got)
 	}
 }

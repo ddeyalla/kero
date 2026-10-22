@@ -144,6 +144,8 @@ type App struct {
 	browsers map[string]*browserState
 	// plugins is the plugin panes' host and state.
 	plugins pluginState
+	// ambient is the color plugins lend to the app's palette (ambient.go).
+	ambient ambientState
 	// cardSize is how big each pane drew last.
 	cardSize map[string]ui.Rect
 
@@ -737,6 +739,9 @@ func (a *App) termThemes() (light, dark *terminal.Theme) {
 		return def
 	}
 	l, d := a.accentPal(false), a.accentPal(true)
+	if amb := a.ambientColor(); amb.A > 0 {
+		l, d = l.withAmbient(amb, 1), d.withAmbient(amb, 1)
+	}
 	s := accentSpecs[a.accentID()]
 	return pick(a.set.LightTheme, termTheme(l, s.lightSel)), pick(a.set.DarkTheme, termTheme(d, s.darkSel))
 }
@@ -832,7 +837,7 @@ func (a *App) apply(s settings.Settings, save bool) {
 	}
 	font := old.FontFamily != s.FontFamily || old.FontSize != s.FontSize || old.FontWeight != s.FontWeight ||
 		old.LineHeight != s.LineHeight || old.Ligatures != s.Ligatures || old.Thicken != s.Thicken
-	themes := old.LightTheme != s.LightTheme || old.DarkTheme != s.DarkTheme || old.Accent != s.Accent
+	themes := old.LightTheme != s.LightTheme || old.DarkTheme != s.DarkTheme || old.Accent != s.Accent || old.AmbientColor != s.AmbientColor
 	anew := old.Cursor != s.Cursor || old.CursorBlink != s.CursorBlink || old.OptionAsAlt != s.OptionAsAlt ||
 		old.Clipboard != s.Clipboard || old.RightClick != s.RightClick
 	light, dark := a.termThemes()

@@ -16,6 +16,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	xdraw "golang.org/x/image/draw"
 
 	"kero/internal/plugin/protocol"
 	"kero/locales"
@@ -43,6 +45,12 @@ type pluginSource struct {
 	url  string
 	data string
 	tint bool
+	// side is the longest side, in pixels, that the picture is kept at:
+	// the size it is first drawn at on a 2x screen, in a bucket. Zero keeps
+	// up to pluginMaxImageSide. It is not part of the cache key: the same
+	// picture drawn at another size is the same entry, drawn scaled, and
+	// never fetched again.
+	side int
 }
 
 // pluginPicture is one picture of the tree, as the pane shows it: nil
@@ -77,11 +85,32 @@ const pluginProgressTick = 100 * time.Millisecond
 // pluginSlider is a slider's value while the pane shows it: the value the
 // user set, which the plugin's own comes back to.
 type pluginSlider struct {
-	value   float64
-	seen    float64 // the value the plugin last sent
-	known   bool    // seen is set
-	pressed bool    // the pointer holds the knob
+	value     float64
+	seen      float64   // the value the plugin last sent
+	seenAt    int64     // and the instant it gave with it
+	known     bool      // seen is set
+	pressed   bool      // the pointer holds the knob
+	holdUntil time.Time // the user's value stands, not the run on, until then
 }
+
+// pluginClockTick is how often a slider or a clock text that runs on its
+// own asks for a frame. The part moves a pixel or a second at a time, so
+// it needs fewer frames than a progress bar.
+const pluginClockTick = 250 * time.Millisecond
+
+// pluginSliderTick is how often a running slider asks for a repaint: not
+// faster than a progress bar, and not faster than it moves a pixel on a
+// pane of up to 400.
+func pluginSliderTick(n *protocol.Node) time.Duration {
+	perPixel := time.Duration((n.Max - n.Min) / n.Rate / 400 * float64(time.Second))
+	return max(pluginProgressTick, perPixel)
+}
+
+// pluginSliderHold is how long a value the user set stands after they let
+// go, for the plugin to answer it with a value of its own. A slider that
+// runs on its own would otherwise jump back to the time it had before the
+// seek until the answer came; if none comes, it runs on again.
+const pluginSliderHold = 3 * time.Second
 
 // pluginSearch is a search field's text, and the change it owes the
 // plugin, which waits for the typing to pause.
@@ -105,7 +134,11 @@ type pluginView struct {
 	marquees map[string]*pluginMarquee
 	progress map[string]float64 // the value each bar shows this frame
 	pictures map[string]*pluginPicture
-	frame    uint64 // the draw this state was last used in
+	symbols  map[symbolKey]*pluginSymbol
+	// lastSymbol is the newest bitmap drawn for each symbol name, which
+	// stands in while another size or weight of it is drawn.
+	lastSymbol map[string]symbolStandIn
+	frame      uint64 // the draw this state was last used in
 
 	// The tint the pane washes itself with: the tinted picture's color,
 	// which the pane holds while the next picture loads, and the wash's
@@ -120,6 +153,13 @@ type pluginView struct {
 	fetch func(pluginSource) (*ui.Bitmap, image.Image, error)
 	// invalidate asks for a frame, once a picture arrives.
 	invalidate func()
+	// render draws an SF Symbol's shape, off the UI goroutine; tests
+	// replace it. It is nil where the system has none.
+	render func(name string, size, weight float64, scale int) (*image.RGBA, bool)
+
+	// flow tells that the pane scrolls as one this frame, and its lists
+	// show all their rows, as the scroll around them moves them.
+	flow bool
 
 	ids map[string]bool // the parts drawn this frame
 	// The controls that can take the focus, by part id: this frame's, and
@@ -141,13 +181,16 @@ func drawPluginTree(c *ui.Context, v *pluginView, pal *palette, tree *protocol.T
 // newPluginView returns the state of a plugin pane, empty.
 func newPluginView() *pluginView {
 	return &pluginView{
-		scroll:   map[string]*ui.ScrollState{},
-		sliders:  map[string]*pluginSlider{},
-		searches: map[string]*pluginSearch{},
-		marquees: map[string]*pluginMarquee{},
-		progress: map[string]float64{},
-		pictures: map[string]*pluginPicture{},
-		fetch:    pluginFetch,
+		scroll:     map[string]*ui.ScrollState{},
+		sliders:    map[string]*pluginSlider{},
+		searches:   map[string]*pluginSearch{},
+		marquees:   map[string]*pluginMarquee{},
+		progress:   map[string]float64{},
+		pictures:   map[string]*pluginPicture{},
+		symbols:    map[symbolKey]*pluginSymbol{},
+		lastSymbol: map[string]symbolStandIn{},
+		fetch:      pluginFetch,
+		render:     renderSymbol,
 	}
 }
 
@@ -164,13 +207,34 @@ func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send
 	v.frame++
 	// The root's own key holds the pane's place: a tree of the same root
 	// id keeps its controls, and their state, from one render to the next.
-	ui.Column(c.Key("plugin-" + tree.Root.ID)).Fill().MinWidth(0).MinHeight(0).Children(func() {
-		tint, ok, pending := v.treeTint(tree.Root)
-		v.drawTint(c, pal, tint, ok, pending)
-		v.part(c, pal, tree.Root, true, send)
+	pane := ui.Column(c.Key("plugin-" + tree.Root.ID)).Fill().MinWidth(0).MinHeight(0)
+	tint, ok, pending := v.treeTint(tree.Root)
+	v.drawTint(pane, tint, ok, pending)
+	pane.Children(func() {
+		// The parts on a tint draw light, whatever the appearance.
+		parts := pal
+		if v.tinted {
+			parts = pluginOnColor(pal)
+		}
+		v.flow = tree.Scroll
+		if !tree.Scroll {
+			v.part(c, parts, tree.Root, true, send)
+			return
+		}
+		// One scroll holds the whole tree, which keeps where it was
+		// scrolled to by the root's id.
+		st := v.scroll[tree.Root.ID]
+		if st == nil {
+			st = &ui.ScrollState{}
+			v.scroll[tree.Root.ID] = st
+		}
+		ui.Scroll(c.Key("page")).TrackScroll(st).Fill().MinWidth(0).MinHeight(0).Label(tree.Root.ID).Children(func() {
+			v.part(c, parts, tree.Root, true, send)
+		})
 	})
 	v.forget()
 	v.prunePictures()
+	v.pruneSymbols()
 }
 
 // forget drops the state of the parts that the tree no longer has, while
@@ -240,6 +304,17 @@ func (v *pluginView) part(c *ui.Context, pal *palette, n *protocol.Node, horizon
 			}
 		})
 	case protocol.NodeText:
+		if text, ok, next := pluginClockText(n, c.Now()); ok {
+			// A clock: the pane counts it itself between the plugin's
+			// renders, and asks for the frame in which it reads the next
+			// second.
+			clock := *n
+			clock.Text = text
+			n = &clock
+			if next > 0 {
+				c.After(next)
+			}
+		}
 		v.text(c, pal, n, horizontal)
 	case protocol.NodeImage:
 		v.image(c, pal, n)
@@ -287,6 +362,8 @@ func pluginAlign(e ui.Element, a string) {
 // not the system's.
 func pluginText(role string) (size float32, weight int, family string) {
 	switch role {
+	case protocol.RoleHeadline:
+		return 22, 700, ""
 	case protocol.RoleTitle:
 		return 17, 600, ""
 	case protocol.RoleCaption:
@@ -362,20 +439,60 @@ func (v *pluginView) button(c *ui.Context, pal *palette, n *protocol.Node, horiz
 	}
 	if n.Type == protocol.NodeIconButton {
 		icon, ok := pluginIcon(n.Icon)
-		b := ui.ButtonBase(c.Key(n.ID)).Size(28, 26).Radius(6).Center().Shrink(0).Label(label).Tooltip(label)
-		b.AlignSelf(ui.Start)
+		// The plain one is a small toolbar button; a sized one is a
+		// player's control, as large as the plugin asks, and a primary
+		// one a filled disc, as a play button.
+		w, h, radius, glyph := float32(28), float32(26), float32(6), float32(16)
+		if n.Width > 0 {
+			w = float32(n.Width)
+			h, radius, glyph = w, w/2, max(16, w*0.44)
+		}
+		b := ui.ButtonBase(c.Key(n.ID)).Size(w, h).Radius(radius).Center().Shrink(0).Label(label).Tooltip(label)
+		if !horizontal || n.Width == 0 {
+			b.AlignSelf(ui.Start)
+		}
 		v.bindFocus(b, n.ID)
-		bg := ui.Transparent
+		bg, fg := ui.Transparent, pal.textMuted
+		if n.Width > 0 {
+			fg = pal.text
+		}
+		if n.Active && !n.Primary {
+			// A switched-on toggle, such as shuffle: its glyph takes the
+			// accent.
+			fg = pal.accent
+		}
 		switch {
+		case n.Primary:
+			bg = pal.text
+			fg = ui.RGB(18, 18, 18)
+			if pluginLuma(bg) < 0.5 {
+				fg = ui.RGB(255, 255, 255)
+			}
+			if b.Pressed() {
+				bg = bg.Mix(fg, 0.15)
+			}
 		case b.Pressed():
 			bg = pal.rowHover.Mix(pal.text, 0.06)
 		case b.Hovered():
 			bg = pal.rowHover
 		}
-		b.Background(b.AnimateColor("bg", bg, hover)).TextColor(pal.textMuted)
+		b.Background(b.AnimateColor("bg", bg, hover)).TextColor(fg)
+		if n.Primary {
+			// A primary disc grows a touch under the pointer, as
+			// Spotify's play button does.
+			grow := b.Animate("grow", b2f(b.Hovered() && !b.Pressed()), hover.Duration)
+			b.Scale(1+0.05*grow, 1+0.05*grow)
+		}
 		b.Children(func() {
-			if ok {
-				ui.Icon(c, icon).Size(16, 16)
+			weight := symbolMedium
+			if n.Primary {
+				weight = symbolSemibold
+			}
+			if sym, scale := v.symbol(c, n.Icon, float64(glyph), weight); sym != nil {
+				// The system's own symbol, at its own proportions.
+				drawSymbol(c, "symbol", sym, scale, fg)
+			} else if ok {
+				ui.Icon(c, icon).Size(glyph, glyph)
 			} else {
 				// An icon this build does not know: its name, rather than
 				// a hole in the bar.
@@ -394,6 +511,10 @@ func (v *pluginView) button(c *ui.Context, pal *palette, n *protocol.Node, horiz
 	bg, fg := pal.control, pal.text
 	if n.Primary {
 		bg, fg = pal.accent, ui.Hex("#ffffff")
+		if pluginLuma(bg) > 0.6 {
+			// A light accent, as white on a tint, takes dark words.
+			fg = ui.RGB(18, 18, 18)
+		}
 	}
 	switch {
 	case !enabled:
@@ -430,30 +551,67 @@ func (v *pluginView) slider(c *ui.Context, pal *palette, n *protocol.Node, horiz
 	}
 	// The plugin's own value wins, unless the user is holding the knob:
 	// a value the user set does not snap back under their finger.
-	if !st.known || !st.pressed && st.seen != n.Value {
-		st.value, st.seen, st.known = n.Value, n.Value, true
+	now := c.Now()
+	live := n.Rate > 0 && n.At > 0
+	if !st.known || !st.pressed && (st.seen != n.Value || st.seenAt != n.At) {
+		st.value, st.seen, st.seenAt, st.known = pluginSliderValue(n, now), n.Value, n.At, true
+		st.holdUntil = time.Time{}
+	} else if live && !st.pressed && !now.Before(st.holdUntil) {
+		// The plugin gave a rate, not a frame: the knob runs on by
+		// itself, and asks for its own frames.
+		st.value = pluginSliderValue(n, now)
 	}
 	width := float32(n.Width)
 	if width <= 0 {
 		width = 150
 	}
-	s := slider(c, n.ID, &st.value, n.Min, n.Max, width, pal).Label(pluginPartLabel(n, locales.PluginPartSlider()))
+	// A running slider draws from the painter's clock and asks for repaints
+	// itself, so it needs no builds. It stands still under the pointer and
+	// during the hold, and runs on from the plugin's value after.
+	var runOn func(time.Time) (float64, time.Duration)
+	if live {
+		runOn = func(now time.Time) (float64, time.Duration) {
+			switch {
+			case st.pressed:
+				return st.value, 0
+			case now.Before(st.holdUntil):
+				return st.value, st.holdUntil.Sub(now)
+			}
+			st.value = pluginSliderValue(n, now)
+			if st.value >= n.Max {
+				return st.value, 0
+			}
+			return st.value, pluginSliderTick(n)
+		}
+	}
+	s := sliderLive(c, n.ID, &st.value, n.Min, n.Max, width, pal, runOn).Label(pluginPartLabel(n, locales.PluginPartSlider()))
 	if n.Step > 0 {
 		s.Step(n.Step)
 	}
 	v.bindFocus(s, n.ID)
-	if horizontal {
+	if horizontal && n.Width > 0 {
+		// A slider with a width of its own, such as a volume, keeps it.
+		s.Width(width).MinWidth(width).Shrink(0)
+	} else if horizontal {
 		s.Grow(1).MinWidth(120)
 	} else {
 		s.AlignSelf(ui.Stretch).MinWidth(120)
+		// In a column a slider with no width of its own spans it.
+		if n.Width <= 0 {
+			s.FillWidth()
+		}
 	}
 	if n.Enabled != nil && !*n.Enabled {
 		s.Disabled(true).Opacity(0.45)
 	}
-	pressed := s.Pressed()
+	// Pressed drops once the pointer strays off the thin track mid-drag,
+	// which would commit each step of the drag; Dragged holds for as long
+	// as the pointer holds the knob.
+	_, _, pressed := s.Dragged()
 	switch {
 	case n.Enabled != nil && !*n.Enabled:
 	case s.Changed():
+		st.holdUntil = now.Add(pluginSliderHold)
 		v.emit(send, n.ID, protocol.KindChange, st.value)
 		if !pressed && !st.pressed {
 			// A key moved it, not the pointer: each press of an arrow is
@@ -483,24 +641,43 @@ func pluginPartLabel(n *protocol.Node, kind string) string {
 // plugin sent, moved on by its rate from the instant it sent it, so that
 // the bar runs on its own between renders.
 func pluginProgressValue(n *protocol.Node, now time.Time) float64 {
-	v := n.Value
-	if n.Rate > 0 && n.At > 0 {
-		v += n.Rate * float64(now.UnixMilli()-n.At) / 1000
+	return protocol.AdvanceValue(n.Value, n.Rate, n.At, now.UnixMilli(), 0, 1)
+}
+
+// pluginSliderValue is the value a slider runs on to: the one the plugin
+// sent, moved on by its rate, within the slider's range.
+func pluginSliderValue(n *protocol.Node, now time.Time) float64 {
+	return protocol.AdvanceValue(n.Value, n.Rate, n.At, now.UnixMilli(), n.Min, n.Max)
+}
+
+// pluginClockText is what a clock text shows: its value in seconds, moved
+// on by its rate and capped at its max, as m:ss. ok is false for a text
+// that is not a running clock, and next is how long until it reads another
+// second, zero once it stopped at its max.
+func pluginClockText(n *protocol.Node, now time.Time) (text string, ok bool, next time.Duration) {
+	if n.Rate <= 0 || n.At <= 0 {
+		return n.Text, false, 0
 	}
-	return min(max(v, 0), 1)
+	hi := math.MaxFloat64
+	if n.Max > 0 {
+		hi = n.Max
+	}
+	v := protocol.AdvanceValue(n.Value, n.Rate, n.At, now.UnixMilli(), 0, hi)
+	if v < hi {
+		// The value reads a new second when it reaches the next whole one,
+		// or its max.
+		boundary := min(math.Floor(v)+1, hi)
+		next = time.Duration((boundary-v)/n.Rate*float64(time.Second)) + time.Millisecond
+	}
+	return protocol.FormatClock(v), true, next
 }
 
 // progressBar draws a progress part: a thin track, the accent up to its
 // value, which the pane moves itself from the rate and the instant.
 func (v *pluginView) progressBar(c *ui.Context, pal *palette, n *protocol.Node) {
 	const h = 6
-	value := pluginProgressValue(n, c.Now())
-	v.progress[n.ID] = value
-	if n.Rate > 0 && n.At > 0 && value < 1 {
-		// The plugin gave a rate, not a frame: the bar asks for its own
-		// frames, or a quiet pane would show it standing still.
-		c.After(pluginProgressTick)
-	}
+	v.progress[n.ID] = pluginProgressValue(n, c.Now())
+	running := n.Rate > 0 && n.At > 0
 	track := pal.text.Alpha(0.12)
 	if pal.dark {
 		track = ui.RGBA(255, 255, 255, 0.16)
@@ -511,6 +688,13 @@ func (v *pluginView) progressBar(c *ui.Context, pal *palette, n *protocol.Node) 
 	}
 	e := ui.Box(c.Key(n.ID)).Height(h).MinHeight(h).MinWidth(0).AlignSelf(ui.Stretch).Label(pluginPartLabel(n, locales.PluginPartProgress()))
 	e.Draw(func(p *ui.Painter, r ui.Rect) {
+		// The bar moves with the painter's clock, and asks to be painted
+		// again, not to be built again: a running bar costs no view build.
+		value := pluginProgressValue(n, p.Now())
+		v.progress[n.ID] = value
+		if running && value < 1 {
+			p.After(pluginProgressTick)
+		}
 		p.Fill(r, track, h/2)
 		if value > 0 {
 			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: max(r.W*float32(value), h), H: r.H}, fill, h/2)
@@ -520,21 +704,82 @@ func (v *pluginView) progressBar(c *ui.Context, pal *palette, n *protocol.Node) 
 
 // list draws a list part: its rows scroll in the pane, and keep where they
 // were scrolled to by the list's id, and a click on a row sends a select
-// that names it.
+// that names it. In a pane that scrolls as one, the list shows all its
+// rows at their height, and the pane scrolls past them.
 func (v *pluginView) list(c *ui.Context, pal *palette, n *protocol.Node, send func(pluginEvent)) {
-	st := v.scroll[n.ID]
-	if st == nil {
-		st = &ui.ScrollState{}
-		v.scroll[n.ID] = st
+	var box ui.Element
+	if v.flow {
+		box = ui.Column(c.Key(n.ID)).MinWidth(0).Label(n.ID)
+	} else {
+		st := v.scroll[n.ID]
+		if st == nil {
+			st = &ui.ScrollState{}
+			v.scroll[n.ID] = st
+		}
+		box = ui.Scroll(c.Key(n.ID)).TrackScroll(st).Grow(1).MinHeight(60).MinWidth(0).Label(n.ID)
 	}
-	box := ui.Scroll(c.Key(n.ID)).TrackScroll(st).Grow(1).MinHeight(60).MinWidth(0).Label(n.ID)
 	box.Children(func() {
+		if n.Variant == protocol.VariantGrid {
+			ui.Row(c.Key("tiles")).Wrap().MinWidth(0).Gap(pluginGridGap).AlignItems(ui.Start).Children(func() {
+				for _, item := range n.Items {
+					v.gridTile(c, pal, n, item, send)
+				}
+			})
+			return
+		}
 		ui.Column(c.Key("rows")).MinWidth(0).Gap(2).Children(func() {
 			for _, item := range n.Items {
 				v.listRow(c, pal, n, item, send)
 			}
 		})
 	})
+}
+
+// pluginGridGap is the space between a grid's tiles, both ways. A plugin
+// that fills a row with tiles counts it between them.
+const pluginGridGap = 12
+
+// gridTile draws one item of a grid list: its picture, square and as wide
+// as the list says, with the title and the subtitle under it.
+func (v *pluginView) gridTile(c *ui.Context, pal *palette, n *protocol.Node, item protocol.Item, send func(pluginEvent)) {
+	enabled := item.Enabled == nil || *item.Enabled
+	w := float32(n.Width)
+	if w <= 0 {
+		w = 120
+	}
+	t := ui.Column(c.Key(item.ID)).Width(w).Gap(6).Padding(0).Radius(8).Label(item.Title).Shrink(0)
+	shade := ui.Transparent
+	switch {
+	case !enabled:
+	case t.Pressed():
+		shade = ui.RGB(0, 0, 0).Alpha(0.18)
+	case t.Hovered():
+		shade = ui.RGB(255, 255, 255).Alpha(0.08)
+	}
+	t.Children(func() {
+		pic := ui.Box(c.Key("frame")).Size(w, w).Radius(6).Clip().Shrink(0)
+		pic.Children(func() {
+			var bm *ui.Bitmap
+			if item.Image != "" {
+				bm = v.picture(c, pluginSource{url: item.Image, side: pluginTileSide(w)})
+			}
+			if bm != nil {
+				ui.Image(c.Key("pic"), bm).Size(w, w).Fit(ui.Cover)
+			} else {
+				ui.Box(c.Key("pic")).Size(w, w).Background(pal.chip)
+			}
+			ui.Box(c.Key("shade")).Absolute().Top(0).Left(0).Right(0).Bottom(0).PassThrough().Background(t.AnimateColor("shade", shade, row))
+		})
+		ui.Text(c.Key("title"), item.Title).FontSize(12.5).FontWeight(600).TextColor(pal.text).SingleLine().Ellipsis("…").Width(w)
+		if item.Subtitle != "" {
+			ui.Text(c.Key("sub"), item.Subtitle).FontSize(11.5).TextColor(pal.textMuted).SingleLine().Ellipsis("…").Width(w)
+		}
+	})
+	if !enabled {
+		t.Opacity(0.45)
+	} else if t.Clicked() {
+		v.emit(send, n.ID, protocol.KindSelect, item.ID)
+	}
 }
 
 // listRow draws one row of a list: its picture, title, subtitle and
@@ -559,14 +804,21 @@ func (v *pluginView) listRow(c *ui.Context, pal *palette, n *protocol.Node, item
 		// The picture leads the row, inside it: each row's own "pic" key,
 		// so that two rows with pictures do not share one.
 		if item.Image != "" {
-			if bm := v.picture(c, pluginSource{url: item.Image}); bm != nil {
+			if bm := v.picture(c, pluginSource{url: item.Image, side: pluginTileSide(28)}); bm != nil {
 				ui.Image(c.Key("pic"), bm).Size(28, 28).Fit(ui.Cover).Radius(6).Shrink(0)
 			} else {
 				ui.Box(c.Key("pic")).Size(28, 28).Radius(6).Shrink(0).Background(pal.chip)
 			}
 		}
+		if item.Leading != "" || item.Active {
+			v.listLeading(c, pal, item)
+		}
+		titleColor, titleWeight := pal.text, 400
+		if item.Active {
+			titleColor, titleWeight = pal.accent, 600
+		}
 		ui.Column(c.Key("text")).Grow(1).MinWidth(0).Gap(1).Children(func() {
-			ui.Text(c.Key("title"), item.Title).FontSize(13).TextColor(pal.text).SingleLine().Ellipsis("…")
+			ui.Text(c.Key("title"), item.Title).FontSize(13).FontWeight(titleWeight).TextColor(titleColor).SingleLine().Ellipsis("…")
 			if item.Subtitle != "" {
 				ui.Text(c.Key("sub"), item.Subtitle).FontSize(11.5).TextColor(pal.textMuted).SingleLine().Ellipsis("…")
 			}
@@ -580,6 +832,27 @@ func (v *pluginView) listRow(c *ui.Context, pal *palette, n *protocol.Node, item
 	} else if r.Clicked() {
 		v.emit(send, n.ID, protocol.KindSelect, item.ID)
 	}
+}
+
+// listLeading draws the column before a row's picture: its leading text,
+// such as a track's number, right-aligned in a fixed width so that the
+// titles line up, or the speaker symbol in the accent for the row that is
+// on.
+func (v *pluginView) listLeading(c *ui.Context, pal *palette, item protocol.Item) {
+	col := ui.Row(c.Key("leading")).Width(22).Shrink(0).AlignItems(ui.Center).Justify(ui.End)
+	col.Children(func() {
+		if item.Active {
+			if sym, scale := v.symbol(c, "volume", 12, symbolMedium); sym != nil {
+				drawSymbol(c, "symbol", sym, scale, pal.accent)
+				return
+			}
+		}
+		color := pal.textFaint
+		if item.Active {
+			color = pal.accent
+		}
+		ui.Text(c.Key("number"), item.Leading).FontSize(11.5).FontFeatures("tnum").TextColor(color).SingleLine()
+	})
 }
 
 // searchField draws a search field, sends a change once the typing pauses,
@@ -682,7 +955,11 @@ func (v *pluginView) emit(send func(pluginEvent), node, kind string, value any) 
 
 // pluginImageSource is the source of an image part.
 func pluginImageSource(n *protocol.Node) pluginSource {
-	return pluginSource{url: n.URL, data: n.Data, tint: n.Tint}
+	src := pluginSource{url: n.URL, data: n.Data, tint: n.Tint}
+	if px := 2 * max(n.Width, n.Height); px > 0 {
+		src.side = pluginSideBucket(px, pluginMaxArtSide)
+	}
+	return src
 }
 
 // pluginSourceKey names a picture's source in the pane's cache.
@@ -760,14 +1037,15 @@ func (v *pluginView) startPicture(key string, pic *pluginPicture, started time.T
 
 // prunePictures drops the pictures the tree no longer asks for, the
 // longest unasked first, while the pane keeps more than its budget. A
-// picture this draw asked for, or one still on its way, stays.
+// picture this draw asked for stays. One still on its way that nothing
+// asks for goes too, and its result is dropped when it arrives.
 func (v *pluginView) prunePictures() {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	for len(v.pictures) > pluginPictureBudget {
 		oldestKey, oldest := "", uint64(0)
 		for key, pic := range v.pictures {
-			if pic.loading || pic.used == v.frame {
+			if pic.used == v.frame {
 				continue
 			}
 			if oldestKey == "" || pic.used < oldest {
@@ -807,11 +1085,61 @@ func (v *pluginView) pictureTint(src pluginSource) (tint ui.Color, ok, pending b
 const (
 	pluginMaxImageBytes  = 32 << 20
 	pluginMaxImagePixels = 4096 * 4096
+	// pluginMaxImageSide is the longest side that a decoded picture keeps
+	// by default, and pluginMaxArtSide the longest an image part with a size
+	// of its own may ask for. A cover of 200 points is sharp on a Retina
+	// screen at 400 pixels, and a larger one only costs memory: about 50
+	// tiles at 512 pixels are 50 MB.
+	pluginMaxImageSide = 512
+	pluginMaxArtSide   = 1024
 )
+
+// pluginSideBucket rounds a size in pixels up to 128, 256, 512 or 1024, at
+// most max, so that a pane that resizes by a pixel asks for the same size.
+func pluginSideBucket(px, max int) int {
+	for _, b := range []int{128, 256, 512, 1024} {
+		if px <= b || b >= max {
+			return min(b, max)
+		}
+	}
+	return max
+}
+
+// pluginTileSide is the longest side, in pixels, to keep a picture at that
+// is drawn points wide: twice the points, in a bucket, at most
+// pluginMaxImageSide.
+func pluginTileSide(points float32) int {
+	return pluginSideBucket(int(points*2+0.5), pluginMaxImageSide)
+}
+
+// pluginDownscale returns img with its longest side at most side (and at
+// most pluginMaxImageSide; zero is the latter), in the same proportions,
+// or img itself when it is small enough.
+func pluginDownscale(img image.Image, side int) image.Image {
+	if side <= 0 {
+		side = pluginMaxImageSide
+	}
+	side = min(side, pluginMaxArtSide)
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= side && h <= side {
+		return img
+	}
+	if w >= h {
+		h = max(1, h*side/w)
+		w = side
+	} else {
+		w = max(1, w*side/h)
+		h = side
+	}
+	out := image.NewRGBA(image.Rect(0, 0, w, h))
+	xdraw.CatmullRom.Scale(out, out.Bounds(), img, b, xdraw.Src, nil)
+	return out
+}
 
 // pluginFetch loads a picture off the UI goroutine: a data: URI's bytes,
 // or a URL's, decoded once, to an image for its colors and a bitmap of it
-// for the pane. Its size is read from its header first, so a picture too
+// for the pane, with its longest side at most pluginMaxImageSide. Its size is read from its header first, so a picture too
 // large to decode is turned away before it takes the memory.
 func pluginFetch(src pluginSource) (*ui.Bitmap, image.Image, error) {
 	data, err := pluginPictureBytes(src)
@@ -829,6 +1157,7 @@ func pluginFetch(src pluginSource) (*ui.Bitmap, image.Image, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	img = pluginDownscale(img, src.side)
 	return ui.NewBitmap(img), img, nil
 }
 
