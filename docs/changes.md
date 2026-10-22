@@ -601,6 +601,11 @@ no file of its own: a caller gives it a `save` func.
   environment at the time it runs. A failed save still shows the toast, from
   `a.update`. `ensureConfig`, which writes the file before the editor opens
   it, saves and flushes for the same reason.
+- **A reload while a write waits.** `reloadConfig` reads the file and hands
+  it to `applyConfigFile` on the main thread; while `a.setOut.pending()`, it
+  keeps the app's own newer value, whose write fires the watch again when it
+  lands, rather than flicker the window back to the file's older one each
+  time a step of a setting is written.
 - **Quitting.** `mygo.App.OnBeforeQuit` calls `(*App).beforeQuit`, which
   saves the prefs, then flushes the prefs and the settings: a change made in
   the last half second is on disk before the app goes.
@@ -624,7 +629,9 @@ Code: [`app.go`](../app.go) (`savePrefs`, `snapshotPrefs`, `saveSettings`,
 [`internal/settings/settings.go`](../internal/settings/settings.go). Tests:
 `prefs_test.go` (a burst writes once, holding the last value; unchanged
 prefs write nothing; a quit writes what waits), `TestImagePeekStatsOncePerHover`
-in [`view_test.go`](../view_test.go).
+in [`view_test.go`](../view_test.go), and
+`TestReloadDuringAPendingSaveKeepsTheNewer` in
+[`settings_test.go`](../settings_test.go).
 
 ## Terminal responsiveness and attachments
 

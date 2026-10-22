@@ -1057,17 +1057,24 @@ func (a *App) watchConfig() {
 func (a *App) reloadConfig() {
 	cur := settings.Load()
 	problems := settings.Problems()
-	a.update(func() {
-		changed := strings.Join(problems, "\n") != strings.Join(a.ss.problems, "\n")
-		a.ss.problems = problems
-		if !reflect.DeepEqual(cur, a.applied) {
-			a.apply(cur, false)
-		}
-		if changed && len(problems) > 0 {
-			a.toast(locales.ToastConfigProblems(len(problems)))
-		}
-		a.invalidateMain()
-	})
+	a.update(func() { a.applyConfigFile(cur, problems) })
+}
+
+// applyConfigFile applies the configuration the file holds, cur, on the main
+// thread. A settings write waits in the background (writeBack), so the file
+// can hold an older value than the app: while one waits, the app's own value
+// stands, and the write that carries it fires the watch again, which reloads
+// the file then.
+func (a *App) applyConfigFile(cur settings.Settings, problems []string) {
+	changed := strings.Join(problems, "\n") != strings.Join(a.ss.problems, "\n")
+	a.ss.problems = problems
+	if !a.setOut.pending() && !reflect.DeepEqual(cur, a.applied) {
+		a.apply(cur, false)
+	}
+	if changed && len(problems) > 0 {
+		a.toast(locales.ToastConfigProblems(len(problems)))
+	}
+	a.invalidateMain()
 }
 
 func vibrancyFor(s settings.Settings) mygo.Vibrancy {

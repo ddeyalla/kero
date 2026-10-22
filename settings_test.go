@@ -85,6 +85,34 @@ func TestEnsureConfigWritesTheFile(t *testing.T) {
 	}
 }
 
+// A reload while a settings write waits keeps the app's newer value: the
+// file holds the write before that one, and the waiting write's own change
+// reloads the file when it lands.
+func TestReloadDuringAPendingSaveKeepsTheNewer(t *testing.T) {
+	a := testApp(t)
+	b := a.set
+	b.FontSize = 15
+	a.applySettings(b)
+	a.flushSettings() // B is on disk
+	c := a.set
+	c.FontSize = 18
+	a.applySettings(c) // no flush: C waits for its write
+	if !a.setOut.pending() {
+		t.Fatal("C does not wait for a write, so nothing is in flight")
+	}
+	// The watcher reads the file, which still holds B, and hands it to the
+	// main thread, as reloadConfig does; with no window, the hand is the
+	// test's.
+	a.applyConfigFile(settings.Load(), settings.Problems())
+	if got := a.applied.FontSize; got != 18 {
+		t.Errorf("a reload of the older file took the font size to %v, want the pending 18", got)
+	}
+	a.flushSettings()
+	if got := settings.Load().FontSize; got != 18 {
+		t.Errorf("the file holds the font size %v after the flush, want 18", got)
+	}
+}
+
 // A choice made in a segmented control stays, and is saved.
 func TestSegmentedChoiceSticks(t *testing.T) {
 	a := testApp(t)

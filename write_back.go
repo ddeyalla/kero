@@ -125,3 +125,12 @@ func (w *writeBack[T]) writes() int {
 	defer w.mu.Unlock()
 	return w.wrote
 }
+
+// pending tells that a value waits for its write, or is being written: the
+// disk does not hold what the app holds, so a reader of the file would take
+// an older value for the app's.
+func (w *writeBack[T]) pending() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.busy
+}
