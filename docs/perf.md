@@ -10,7 +10,7 @@ Every performance change records its numbers here, before and after.
 | --- | --- | --- |
 | Footprint per pane, kerod | ≤ 25 MB | `scripts/perf.sh`: kerod's footprint with N panes, less its footprint with none, divided by N |
 | Footprint per pane, app | ≤ 30 MB | `scripts/perf.sh`: the app's footprint, one pane shown (see the limits below) |
-| Idle wakeups, app + kerod | ≤ 30 a minute | `scripts/perf.sh`: interrupt wakeups over 60 s of idle |
+| Idle wakeups, app + kerod | ≤ 2,000 a minute (kerod ≤ 500, app ≤ 1,500), window shown and unfocused, at 4 and 8 panes | `scripts/perf.sh`: interrupt wakeups over 60 s of idle. Agreed 2026-10-22 in place of 30, which a Go process with a MyGo window cannot reach (BRU-336, below) |
 | Idle CPU, app + kerod | ≤ 1 % | `scripts/perf.sh`: CPU time over 60 s of idle, of one core |
 | Idle frames, app | < 10 a minute that build the window | `scripts/perf.sh`: frames `MYGO_FRAME_STATS=all` logs over 60 s of idle. A frame that only paints the last one again ("painted again"), as a focused terminal's cursor blinks, is counted apart and not judged |
 | p99 frame build | ≤ 4 ms | `scripts/perf.sh`: `MYGO_FRAME_STATS=all` while a shown pane streams output for 10 s |
@@ -277,10 +277,9 @@ The unfocused runs after the change read 779 to 1,152 a minute for app +
 kerod (kerod 110 to 230 beside the app, 67 to 281 in all runs; the app 669
 to 922), and runs vary by up to two times. A budget with room for that
 would be **≤ 2,000 a minute** for app + kerod at rest, window shown and
-unfocused, at 4 and 8 panes (kerod ≤ 500, app ≤ 1,500). This is a
-proposal, provisional on more runs, and it needs the user's agreement;
-until then the table above still says 30. Going further would need these
-steps:
+unfocused, at 4 and 8 panes (kerod ≤ 500, app ≤ 1,500). The user agreed
+to it on 2026-10-22, and the budget table above now says so. Going further
+would need these steps:
 
 - Stop the meters' readings while the window does not have the focus,
   not only slow them (about 300 a minute).

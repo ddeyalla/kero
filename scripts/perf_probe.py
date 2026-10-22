@@ -197,7 +197,7 @@ def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames
                 cpu = ra["cpu"] + r["cpu"]
                 woke = ra["interrupt_wakeups"] + r["interrupt_wakeups"]
                 row("app + kerod idle CPU", f"{cpu:.2f} %", "<= 1 %", _verdict(cpu, 1))
-                row("app + kerod idle wakeups", f"{woke:.0f}/min", "<= 30/min", _verdict(woke, 30))
+                row("app + kerod idle wakeups", f"{woke:.0f}/min", "<= 2000/min", _verdict(woke, 2000))
         if idle_frames is not None and r:
             # The budget is for frames that build the window. A frame that
             # only paints the last one again, as a focused terminal's
@@ -224,8 +224,8 @@ def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames
     else:
         if r:
             row("kerod idle CPU, without the app", f"{r['cpu']:.2f} %", "<= 1 %", _verdict(r["cpu"], 1))
-            row("kerod idle wakeups, without the app", f"{r['interrupt_wakeups']:.0f}/min", "<= 30/min",
-                _verdict(r["interrupt_wakeups"], 30))
+            row("kerod idle wakeups, without the app", f"{r['interrupt_wakeups']:.0f}/min", "<= 500/min",
+                _verdict(r["interrupt_wakeups"], 500))
         row("app", f"not measured ({app_reason or 'not started'})")
     row("key -> paint p99", "not measured (needs GUI input injection)", "<= 50 ms")
 
