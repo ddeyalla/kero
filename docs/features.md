@@ -24,6 +24,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Linear workspace: board or list, search, project/milestone/state filters, issue detail with relations, attachments and comments | Sidebar **Linear** row, `Cmd+Shift+L` | 2.0.7-local.1 | Shipped |
 | Linear API key in the personal data directory (`0600`), or `LINEAR_API_KEY` | Settings › Agents, `kero linear auth` | 2.0.7-local.1 | Shipped |
 | Daemon keeps the workspace fresh (30 s changes, 5 min full read, last good read kept offline) | Automatic | 2.0.7-local.1 | Shipped |
+| Daemon idle work cut: foreground program read as it changes, directory 1.5 s only for the focused pane, branch scan 30 s plus focus and a HEAD check every 1.6 s, `state.json` at most every 2 s, Linear in its own `linear.json`, written per Linear read, not per status change | Automatic | Unreleased | Untried |
 | Session linked to its task, kept across restarts; issue shows the session and its agent resume id | `kero link <session> <BRU-25>`, issue detail | 2.0.7-local.1 | Shipped |
 | Start a task: link the session, move the issue to In Progress, print its branch | `kero task start <BRU-25>` | 2.0.7-local.1 | Shipped |
 | Project mapped to its Linear project (the one named like the repository offered first) | The project's menu in the sidebar, or the Tasks pane toolbar | 2.0.7-local.1 | Shipped |
@@ -111,6 +112,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Faster redraws after a synchronized frame (55.9 ms → 16.9 ms transport median) | Automatic | 2.0.5-local.2 | Shipped |
 | Native ARM64 build, no constant status animation | Automatic | 2.0.5-local.1 | Shipped |
 | Status detection reads the last rows, not the whole scrollback (0.75 ms → 10 µs a look at 4 MB) | Automatic | Unreleased | Untried |
+| Scrollback budget: the app's terminals keep the Scrollback setting (not 10 MB), 8 stay attached (every pane of the shown session kept), the 10 s history save writes the last 256 KB | Settings › Shell › Scrollback; automatic | Unreleased | Untried |
 
 ## Window
 

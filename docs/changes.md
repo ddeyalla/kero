@@ -638,6 +638,96 @@ Typing latency with a long scrollback was not measured by hand.
 Code: [`internal/daemon/session.go`](../internal/daemon/session.go)
 (`screen`, `tail`, `lastLines`, `readText`),
 [`internal/daemon/screen_test.go`](../internal/daemon/screen_test.go).
+## Scrollback budget
+
+One setting, Settings › Shell › Scrollback (`scrollback`, 4 MB by
+default), bounds both copies of a session's history: kerod's terminal and
+the app's attached one. `Settings.ScrollbackBytes`
+([`internal/settings/scrollback.go`](../internal/settings/scrollback.go))
+turns it into what `terminal.Options.Scrollback` takes, -1 for none,
+because a 0 there means MyGo's default of 10 MB. `newPane` in
+[`internal/daemon/session.go`](../internal/daemon/session.go) and
+`termOptions` in [`app.go`](../app.go) both use it. The setting counts the
+emulator's memory, not text: a full 4 MB scrollback is about 350 KB of
+history on disk, a full 16 MB one about 1.5 MB.
+
+The app keeps at most `maxTerms` (8) terminals attached
+([`term_budget.go`](../term_budget.go)). Every terminal that attaches is
+counted (`noteTerm`), not only the pane in focus, which used to leave the
+other panes of a session attached for good. `touch` drops those shown
+longest ago (`trimTerms`), never a pane of the selected session, and never
+while a frame builds. A dropped pane attaches again when it shows; kerod
+kept it meanwhile.
+
+kerod saves a pane's history (`terminal.History`) to `sessions/<id>.vt`
+when it changed. The 10-second save writes only its tail: the last 256 KB,
+cut right after a row's `\r\n` (`historyTail` in
+[`internal/daemon/history.go`](../internal/daemon/history.go)). The whole
+history goes only when kerod ends on a signal (`saveHistories(true)`). The
+restore format did not change: a short file or an empty one restores, and
+a crash restores the last screen with what fits above it. `History` still
+serializes the whole scrollback before the cut; only the bytes written
+shrink. Tests: `internal/daemon/history_test.go` (the tail restores the
+same last screen as the whole history; short and empty files restore;
+`BenchmarkSaveHistories`, `BenchmarkPaneHistory`) and
+[`term_budget_test.go`](../term_budget_test.go).
+
+## Daemon idle work
+
+kerod's tick runs every 400 ms (`tickLoop` in
+[`internal/daemon/daemon.go`](../internal/daemon/daemon.go)); what it does
+for each pane is now bounded
+([`internal/daemon/proc_cache.go`](../internal/daemon/proc_cache.go)):
+
+- The foreground group (`TIOCGPGRP`) is still asked every tick. The
+  program's name (`kern.proc.pid`) is read when the group changes, on every
+  tick for its first 2 s, while env or a shim execs the real program, and
+  then every 10 s. The arguments (`kern.procargs2`) are read only when the
+  name changes and is not an agent's by itself: `node …/codex.js` and
+  `bash …/claude` need them, `claude` does not. A minute of ticks on one
+  program reads its name 10 times instead of 150, and its arguments at
+  most once instead of 150.
+- The shell's directory and the program's (`procCwd`) are read every
+  1.5 s for the pane the user is in, the focus of the session the app
+  shows (`focusedPaneLocked`), every 10 s for the others, and at once when
+  the foreground group changes. A `cd` in a pane the user is not in shows
+  in the sidebar up to 10 s later.
+- The branch scan has no loop of its own
+  ([`internal/daemon/branch.go`](../internal/daemon/branch.go)). Every
+  fourth tick (1.6 s) `branchTick` stats the HEAD files that the last scan
+  read; it reads the branches again when one changed, every 30 s, and when
+  `branchWatch.due` is set: by the `focus` and `view` requests and by a
+  pane whose agent, directory or program directory changed. git replaces
+  HEAD with a rename, which changes its time, so a switch is seen within
+  2 s. If the tick ever stops while idle, this check needs a file watch
+  instead.
+
+`state.json` is written 2 s after the first change of those that come
+meanwhile (`saveLoopWith` in
+[`internal/daemon/store.go`](../internal/daemon/store.go)), not 300 ms
+after each: at most one write per 2 s under a storm of status changes. The
+signal and `shutdown` paths still save at once.
+
+The Linear workspace moved from `state.json` to `linear.json`
+([`internal/daemon/linear_store.go`](../internal/daemon/linear_store.go)).
+In memory and to the app it is as before. `saveState` writes
+`linear.json` only when the workspace is a new copy (`linearSet` replaces
+it and never changes it in place), and writes it before `state.json`, so a
+crash between the two writes loses nothing. Each delta read moves
+`fetchedAt`, which `linearEqual` counts as a change, so `linear.json` is
+still written after every successful read (about every 30 s), as the
+blob in `state.json` was; what changed is that a status flip no longer
+rewrites it. Migration: the restore reads
+`linear.json`, and takes the workspace from an old `state.json` when
+`linear.json` has none or an older one (by `fetchedAt`). The next save
+writes it to `linear.json` and leaves it out of `state.json`. The
+`state.json` format is otherwise unchanged, and its `linear` field stays
+readable. Rollback: an older kerod reads the new `state.json` with no
+workspace, and loses only the cached copy until its first read from
+Linear. Tests: `internal/daemon/linear_store_test.go` (a fixture saved by
+the release before, `testdata/state-linear-v2.json`, loads whole, moves,
+and reloads), `internal/daemon/idle_test.go` (read counts, focus, the
+debounce under a storm, the HEAD check).
 
 ## Title bar and traffic lights
 

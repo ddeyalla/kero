@@ -162,6 +162,33 @@ builds only. What each feature is and where it stands is tracked in the
   12.6 ms and 6.2 MB with 64 MB, while the session's lock is held. `kero
   read` reads its lines the same way. Detection sees the same text, byte for
   byte. It needs MyGo's `Terminal.TailText`, from the fork.
+- The terminal service does less while nothing happens. It asks the
+  kernel for a pane's foreground program as the program changes, not every
+  400 ms; it reads the arguments only for a program whose name is not an
+  agent's; it follows the directory of the pane the user is in every 1.5 s
+  and of the others every 10 s; and it reads the branches agents work on
+  every 30 seconds and when the user focuses a pane, with a cheap check of
+  each HEAD file every 1.6 s, so a branch switch still links its session
+  within 2 seconds. It writes `state.json` at most once every 2 seconds
+  under a storm of status changes, and keeps the Linear workspace in a
+  file of its own, `linear.json`, written when a read of Linear brings a
+  new copy (about every 30 seconds while a key is set) instead of with
+  every status change.
+  An existing `state.json` with the workspace in it loads as before, and
+  the next save moves the workspace out. Going back to an older release
+  loses only the cached workspace until it is read from Linear again.
+  The protocol did not change.
+- A session's scrollback costs less memory and disk. The app's terminals
+  keep the scrollback that Settings › Shell › Scrollback sets, as the
+  terminal service does, instead of MyGo's 10 MB each; at the default of
+  4 MB that is up to 6 MB less per attached pane. The app keeps 8 terminals
+  attached instead of 12, and counts every pane of a session, not only the
+  one in focus, so the panes of sessions shown long ago are let go; the
+  panes of the session on screen always stay. The terminal service writes
+  at most the last 256 KB of a pane's history every 10 seconds, and the
+  whole of it only as it ends, so a crash restores the last screen and a
+  little above it. A history file of any length, or an empty one, still
+  restores.
 - A restart of the terminal service no longer loses the sessions' marks:
   what was unread stays unread, the ages keep their times, and a failure
   stays failed, as does a shell that crashed unseen ("Exited with code N").
