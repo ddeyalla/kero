@@ -132,6 +132,20 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- The terminal service does less while nothing happens. It asks the
+  kernel for a pane's foreground program as the program changes, not every
+  400 ms; it reads the arguments only for a program whose name is not an
+  agent's; it follows the directory of the pane the user is in every 1.5 s
+  and of the others every 10 s; and it reads the branches agents work on
+  every 30 seconds and when the user focuses a pane, with a cheap check of
+  each HEAD file every 1.6 s, so a branch switch still links its session
+  within 2 seconds. It writes `state.json` at most once every 2 seconds
+  under a storm of status changes, and keeps the Linear workspace in a
+  file of its own, `linear.json`, written only as the workspace changes.
+  An existing `state.json` with the workspace in it loads as before, and
+  the next save moves the workspace out. Going back to an older release
+  loses only the cached workspace until it is read from Linear again.
+  The protocol did not change.
 - A session's scrollback costs less memory and disk. The app's terminals
   keep the scrollback that Settings › Shell › Scrollback sets, as the
   terminal service does, instead of MyGo's 10 MB each; at the default of

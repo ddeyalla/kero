@@ -1,0 +1,101 @@
+{
+  "version": 2,
+  "projects": [
+    {
+      "id": "proj",
+      "name": "shibu",
+      "dir": "/tmp/shibu",
+      "linearProject": "lp"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "s",
+      "project": "proj",
+      "name": "working",
+      "created": 1700000000000,
+      "layout": {
+        "row": true,
+        "ratio": 0.5,
+        "a": {
+          "pane": "p"
+        },
+        "b": {
+          "pane": "q"
+        }
+      },
+      "focus": "p",
+      "panes": [
+        {
+          "id": "p",
+          "view": "files",
+          "target": "/tmp",
+          "dir": "/tmp",
+          "task": "uuid",
+          "created": 1700000000000,
+          "cols": 80,
+          "rows": 24,
+          "status": "error",
+          "since": 1700000001000,
+          "unread": true,
+          "message": "tests failed"
+        },
+        {
+          "id": "q",
+          "view": "files",
+          "dir": "/tmp",
+          "created": 1700000000000,
+          "cols": 80,
+          "rows": 24
+        }
+      ],
+      "unlinked": [
+        "uuid-old"
+      ]
+    }
+  ],
+  "saved": 1792670877999,
+  "linear": {
+    "status": "ok",
+    "team": "BRU",
+    "states": [
+      {
+        "id": "st1",
+        "name": "In Progress",
+        "type": "started",
+        "position": 0
+      }
+    ],
+    "projects": [
+      {
+        "id": "lp",
+        "name": "Shibu Code",
+        "status": "",
+        "progress": 0
+      }
+    ],
+    "issues": [
+      {
+        "id": "uuid",
+        "identifier": "BRU-25",
+        "title": "Task",
+        "state": ""
+      }
+    ],
+    "fetchedAt": 1760000000000
+  },
+  "tasks": {
+    "uuid": {
+      "identifier": "BRU-25",
+      "runs": [
+        {
+          "agent": "codex",
+          "session": "s",
+          "pane": "p",
+          "dir": "/tmp/shibu",
+          "started": 0
+        }
+      ]
+    }
+  }
+}

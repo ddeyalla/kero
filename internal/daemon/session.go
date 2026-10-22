@@ -44,6 +44,7 @@ type pane struct {
 	shellPID     int
 	fgPGID       int
 	cwdAt        time.Time
+	fg           fgProgram // the foreground program, as last read (proc_cache.go)
 
 	dirty bool // output since the history on disk
 	// seen is what the screen showed when the status last came from it,
@@ -295,8 +296,9 @@ func (s *pane) wake() {
 }
 
 // tick follows the foreground program and the shell's directory, and ends
-// work that went quiet.
-func (s *pane) tick(now time.Time) bool {
+// work that went quiet. focused tells that the pane is the one the user
+// is in, whose directory it follows closely (cwdEvery).
+func (s *pane) tick(now time.Time, focused bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.proc == nil || s.info.Status == proto.Exited {
@@ -304,11 +306,12 @@ func (s *pane) tick(now time.Time) bool {
 	}
 	changed := false
 	pg := s.proc.Foreground()
+	moved := pg != s.fgPGID
 	s.fgPGID = pg
 	proc, agent, runtime := "", "", ""
 	if pg != 0 && pg != s.shellPID {
-		proc = procName(pg)
-		args := procArgs(pg)
+		var args []string
+		proc, args = s.foreground(pg, now)
 		agent = detectAgent(proc, args)
 		if proc == "node" || proc == "bun" || proc == "python" || proc == "python3" || proc == "deno" {
 			// A script: name it by the script, as "codex", not "node".
@@ -320,6 +323,8 @@ func (s *pane) tick(now time.Time) bool {
 		if agent != "" {
 			proc = agent
 		}
+	} else {
+		s.fg = fgProgram{}
 	}
 	if proc == "" && s.info.Process != "" {
 		// The program ended: its live reports go with it, and an agent's
@@ -338,7 +343,7 @@ func (s *pane) tick(now time.Time) bool {
 			s.d.taskEnd(s.info.ID)
 		}
 		if agent != "" {
-			dir := procCwd(pg)
+			dir := readCwd(pg)
 			if dir == "" {
 				dir = s.info.Dir
 			}
@@ -346,22 +351,26 @@ func (s *pane) tick(now time.Time) bool {
 		}
 	}
 	if proc != s.info.Process || agent != s.info.Agent || runtime != s.info.Runtime {
+		if agent != s.info.Agent {
+			s.d.branch.due.Store(true)
+		}
 		s.info.Process, s.info.Agent, s.info.Runtime = proc, agent, runtime
 		s.seen, s.looked = "", false
 		changed = true
 	}
-	if now.Sub(s.cwdAt) > 1500*time.Millisecond || proc == "" && s.info.ProcessDir != "" {
+	if moved || now.Sub(s.cwdAt) > cwdEvery(focused) || proc == "" && s.info.ProcessDir != "" {
 		s.cwdAt = now
-		if dir := procCwd(s.shellPID); dir != "" && dir != s.info.Dir {
+		if dir := readCwd(s.shellPID); dir != "" && dir != s.info.Dir {
 			s.info.Dir = dir
 			changed = true
+			s.d.branch.due.Store(true)
 			s.d.save()
 		}
 		// The program's own, from its group's leader, as an agent's that
 		// went into a worktree: the shell under it stays where it was.
 		pdir := ""
 		if proc != "" {
-			pdir = procCwd(pg)
+			pdir = readCwd(pg)
 		}
 		if pdir == s.info.Dir {
 			pdir = ""
@@ -369,6 +378,7 @@ func (s *pane) tick(now time.Time) bool {
 		if pdir != s.info.ProcessDir {
 			s.info.ProcessDir = pdir
 			changed = true
+			s.d.branch.due.Store(true)
 		}
 	}
 	if s.look(now) {
