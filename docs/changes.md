@@ -709,6 +709,16 @@ because a 0 there means MyGo's default of 10 MB. `newPane` in
 emulator's memory, not text: a full 4 MB scrollback is about 350 KB of
 history on disk, a full 16 MB one about 1.5 MB.
 
+The images programs show are bounded the same way, without a setting.
+`settings.ImageLimitBytes` ([`internal/settings/scrollback.go`](../internal/settings/scrollback.go))
+is 32 MB, and both `termOptions` in [`app.go`](../app.go) and kerod's
+`(*pane).termOptions` in [`internal/daemon/session.go`](../internal/daemon/session.go)
+give it to `terminal.Options.ImageLimit`; a 0 there is MyGo's 320 MB for
+each of a pane's two copies, which twenty-five panes would add up to. Tests:
+`TestTermImageLimit` in [`term_budget_test.go`](../term_budget_test.go) and
+`TestPaneTerminalImageLimit` in
+[`internal/daemon/term_budget_test.go`](../internal/daemon/term_budget_test.go).
+
 The app keeps at most `maxTerms` (8) terminals attached
 ([`term_budget.go`](../term_budget.go)). Every terminal that attaches is
 counted (`noteTerm`), not only the pane in focus, which used to leave the

@@ -882,6 +882,7 @@ func (a *App) termOptions(id string, conn *gated) terminal.Options {
 	o := terminal.Options{
 		Conn:          conn,
 		Scrollback:    a.set.ScrollbackBytes(),
+		ImageLimit:    settings.ImageLimitBytes,
 		Font:          a.termFont(),
 		Theme:         light,
 		DarkTheme:     dark,

@@ -124,15 +124,7 @@ func newPane(d *Daemon, sid string, info proto.Pane) (*pane, error) {
 	if s.info.Cols <= 0 || s.info.Rows <= 0 {
 		s.info.Cols, s.info.Rows = 120, 36
 	}
-	term, err := terminal.New(terminal.Options{
-		Conn:       &headless{s: s, closed: make(chan struct{})},
-		Scrollback: settings.Load().ScrollbackBytes(),
-		// Programs' reads of the clipboard go on to the clients, whose
-		// terminals answer them, asking the user as they would.
-		ClipboardRead: terminal.ClipboardForward,
-		OnTitle:       s.onTitle,
-		OnNotify:      s.onNotify,
-	})
+	term, err := terminal.New(s.termOptions())
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +132,24 @@ func newPane(d *Daemon, sid string, info proto.Pane) (*pane, error) {
 	term.UseTheme(d.theme.Load())
 	s.term = term
 	return s, nil
+}
+
+// termOptions are the options of the pane's terminal in kerod: the session's
+// own copy, headless, whose screen the app's terminals show. Its scrollback
+// and its image limit are the app's, so that the two copies of a session
+// keep the same, and so that one pane's images cannot take the daemon's
+// memory for all of them.
+func (s *pane) termOptions() terminal.Options {
+	return terminal.Options{
+		Conn:       &headless{s: s, closed: make(chan struct{})},
+		Scrollback: settings.Load().ScrollbackBytes(),
+		ImageLimit: settings.ImageLimitBytes,
+		// Programs' reads of the clipboard go on to the clients, whose
+		// terminals answer them, asking the user as they would.
+		ClipboardRead: terminal.ClipboardForward,
+		OnTitle:       s.onTitle,
+		OnNotify:      s.onNotify,
+	}
 }
 
 // isView tells a pane that is a view of the app's, which runs nothing.
