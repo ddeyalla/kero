@@ -589,7 +589,9 @@ open details in the usage modal. Bars are clamped to 0–100%, turn amber at
 90%, and stay empty when a measurement is unavailable.
 
 macOS Mach calls sample every five seconds in the background without shell
-processes. CPU covers all cores; RAM includes active, wired and compressed
+processes, and every 30 seconds while the window does not have the focus
+(`resourceWait`); a window that gets the focus back reads at once
+(`resourcePace`, BRU-336). CPU covers all cores; RAM includes active, wired and compressed
 physical memory, excluding reclaimable cache. These are whole-Mac readings,
 not Shibu process usage or memory pressure.
 
@@ -876,9 +878,10 @@ after it).
 
 ## Daemon idle work
 
-kerod's tick runs every 400 ms (`tickLoop` in
-[`internal/daemon/daemon.go`](../internal/daemon/daemon.go)); what it does
-for each pane is now bounded
+kerod's tick runs every 400 ms while anything happens in a pane, and every
+10 s once nothing has for 10 s (`tickLoop` in
+[`internal/daemon/daemon.go`](../internal/daemon/daemon.go), see the pace
+below); what it does for each pane is now bounded
 ([`internal/daemon/proc_cache.go`](../internal/daemon/proc_cache.go)):
 
 - The foreground group (`TIOCGPGRP`) is still asked every tick. The
@@ -896,13 +899,53 @@ for each pane is now bounded
   in the sidebar up to 10 s later.
 - The branch scan has no loop of its own
   ([`internal/daemon/branch.go`](../internal/daemon/branch.go)). Every
-  fourth tick (1.6 s) `branchTick` stats the HEAD files that the last scan
+  1.6 s of ticks (`branchCheck`), or each slow tick, `branchTick` stats the HEAD files that the last scan
   read; it reads the branches again when one changed, every 30 s, and when
   `branchWatch.due` is set: by the `focus` and `view` requests and by a
   pane whose agent, directory or program directory changed. git replaces
   HEAD with a rename, which changes its time, so a switch is seen within
-  2 s. If the tick ever stops while idle, this check needs a file watch
-  instead.
+  2 s while the panes are busy, and within 10 s once they are quiet. A
+  switch made in a pane prints to it, which makes the tick fast again.
+
+**The pace (BRU-336).** Each tick woke kerod a few times (the timer, the
+Go runtime's sysmon, and a sysmon wake for each syscall of the tick), so
+the fixed 400 ms tick alone cost about 1,000 wakeups a minute at rest. The
+tick now waits `tickFast` (400 ms) while something happened within
+`tickQuiet` (10 s), and `tickSlow` (10 s) after (`tickPace`):
+
+- `stir` marks that something happened: `output`, every frame an attached
+  client sends (a key, a resize, a theme), and every control request
+  after it is handled. It wakes a slow loop at once through `tickWake`.
+  While the loop is fast, a stir costs two atomic loads, so the output
+  path stays cheap. The loop and `stir` set `stirred` and `tickSlow` in
+  opposite orders, and each checks the other's flag, so a stir is never
+  lost between a tick and its wait.
+- A pane that waits out `idleHold` (its `idleFrom` is set) reports
+  itself busy from `tick`. A kerod with no session and no client stays
+  fast too. Both keep the fast pace, so the status hold and the 30 s
+  idle exit keep their timing.
+- The transcript scan (`scanEvery`, 4.8 s) and the HEAD check
+  (`branchCheck`, 1.6 s) run by time, not by tick count, so a slow tick
+  does both.
+- `tickSlow` is no longer than `cwdEvery(false)` and `fgRecheck`, so a
+  quiet pane that the user is not in is read as often as before. A quiet
+  pane loses only what changes with no output and no request: a program
+  started silently, a branch switched outside Shibu, a transcript written
+  without screen output. It sees these within 10 s, not 0.4 to 4.8 s. A
+  quiet focused pane reads its directory every 10 s, not every 1.5 s, but
+  a `cd` prints a prompt, which makes the tick fast again.
+
+The histories went to disk every 10 s, changed or not, which cost a timer
+fire of its own. Now `historySoon` (from `output` and `clear`) starts a
+10 s timer (`historyWait`), and `saveLoopWith` writes the histories when
+it fires, and once 10 s after start, for the restored panes. `histArmed`
+makes the first change ask, and the rest cost an atomic load until the
+save, so a pane that streams output does not wake the save loop for each
+read. A history is
+still at most 10 s old after a crash, and shutdown still saves it whole.
+Tests in `internal/daemon/idle_test.go`: `TestTickPace`,
+`TestTickLoopStir` (a slow loop wakes on a stir and goes slow again; no
+queued wakes) and `TestHistorySaveOnChange`.
 
 `state.json` is written 2 s after the first change of those that come
 meanwhile (`saveLoopWith` in
@@ -953,7 +996,7 @@ the baseline are in [Performance](perf.md).
   `Run`). A non-loopback address, one without a host, or a port in use is
   logged and refused, and kerod runs on. While it serves, `profiled`
   labels `pane.tick` (`tickLoop`), `pane.screen` (`screen`),
-  `saveHistories` (the 10 s save) and `attachment.send` with
+  `saveHistories` (10 s after a change) and `attachment.send` with
   `pprof.Do`. Unset, `profiled` only calls its function, and its closure
   stays on the stack: no allocation on the frame path.
 - `TestScreenAllocsFlatWithScrollback` measures the bytes and objects one

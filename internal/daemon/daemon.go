@@ -69,6 +69,16 @@ type Daemon struct {
 	theme    atomic.Pointer[terminal.Theme]
 	changeCh chan struct{}
 	saveCh   chan struct{}
+	// histCh asks for the histories to go to disk (historySoon), once
+	// until they do: histArmed tells that it asked.
+	histCh    chan struct{}
+	histArmed atomic.Bool
+	// The tick loop's pace (tickLoop): stirred tells that something
+	// happened in a pane since its last tick, and tickSlow that it waits
+	// tickSlow for the next, which tickWake cuts short.
+	stirred  atomic.Bool
+	tickSlow atomic.Bool
+	tickWake chan struct{}
 	quit     chan struct{}
 	quitOnce sync.Once
 
@@ -127,6 +137,8 @@ func Run() error {
 		panes:    map[string]*pane{},
 		changeCh: make(chan struct{}, 1),
 		saveCh:   make(chan struct{}, 1),
+		histCh:   make(chan struct{}, 1),
+		tickWake: make(chan struct{}, 1),
 		quit:     make(chan struct{}),
 		idleAt:   time.Now(),
 	}
@@ -208,6 +220,19 @@ func (d *Daemon) save() {
 	}
 }
 
+// historySoon asks for the histories to go to disk within historyWait,
+// as a pane's text changed. Once asked, it costs an atomic load until they
+// do, so streaming output does not wake the save loop for each read.
+func (d *Daemon) historySoon() {
+	if d == nil || d.histArmed.Load() || !d.histArmed.CompareAndSwap(false, true) {
+		return
+	}
+	select {
+	case d.histCh <- struct{}{}:
+	default:
+	}
+}
+
 // notice passes a program's desktop notification on to the app.
 func (d *Daemon) notice(n proto.Notice) {
 	d.mu.Lock()
@@ -280,11 +305,75 @@ func (d *Daemon) forgetLinear() {
 	d.linearOutMu.Unlock()
 }
 
-func (d *Daemon) tickLoop() {
-	t := time.NewTicker(400 * time.Millisecond)
+// The tick follows the panes (pane.tick) every tickFast while something
+// happens in them: output, a key, a request of a client. Once nothing has
+// for tickQuiet, it ticks every tickSlow, as often as it already read the
+// directory and the program of a pane the user is not in (cwdEvery,
+// fgRecheck), until the next thing happens (stir). Each tick woke kerod a
+// few times, so the fixed 400 ms tick alone was some 1,000 wakeups a minute
+// of a kerod at rest (docs/perf.md, BRU-336). What a tick reads of a quiet
+// pane changes with output, as a command that starts or ends, a cd or a
+// branch switched in it, so a quiet pane loses nothing but what changed
+// outside it: a branch switched elsewhere, or a transcript written without
+// a word on the screen, seen within tickSlow rather than seconds.
+const (
+	tickFast  = 400 * time.Millisecond
+	tickSlow  = 10 * time.Second
+	tickQuiet = 10 * time.Second
+	// The agents' transcripts are scanned this often, and the HEAD files
+	// of the branches checked: slow reads, of what else told nothing.
+	scanEvery   = 12 * tickFast
+	branchCheck = 4 * tickFast
+)
+
+// tickPace is the pace of the tick loop: fast within quiet of when
+// something last happened, and slow after.
+type tickPace struct{ fast, slow, quiet time.Duration }
+
+// wait returns how long the tick loop waits for its next tick, active
+// being when something last happened.
+func (p tickPace) wait(now, active time.Time) time.Duration {
+	if now.Sub(active) < p.quiet {
+		return p.fast
+	}
+	return p.slow
+}
+
+// stir tells the tick loop that something happened in a pane: a loop that
+// waits tickSlow ticks at once, and at its fast pace for tickQuiet after.
+// It costs two atomic loads while the loop already ticks fast, as it does
+// while output streams.
+func (d *Daemon) stir() {
+	if d == nil {
+		return
+	}
+	if !d.stirred.Load() {
+		d.stirred.Store(true)
+	}
+	if d.tickSlow.Load() && d.tickSlow.CompareAndSwap(true, false) {
+		select {
+		case d.tickWake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (d *Daemon) tickLoop() { d.tickLoopWith(tickPace{tickFast, tickSlow, tickQuiet}) }
+
+func (d *Daemon) tickLoopWith(pace tickPace) {
+	t := time.NewTimer(pace.fast)
 	defer t.Stop()
-	ticks := 0
-	for now := range t.C {
+	start := time.Now()
+	active, scanned, branched := start, start, start
+	for {
+		select {
+		case <-d.quit:
+			return
+		case <-t.C:
+		case <-d.tickWake:
+		}
+		d.tickSlow.Store(false)
+		now := time.Now()
 		d.mu.Lock()
 		panes := make([]*pane, 0, len(d.panes))
 		for _, p := range d.panes {
@@ -297,24 +386,23 @@ func (d *Daemon) tickLoop() {
 		idleFor := now.Sub(d.idleAt)
 		focused := d.focusedPaneLocked()
 		d.mu.Unlock()
-		changed := false
+		changed, busy := false, false
 		for _, s := range panes {
 			profiled("pane.tick", func() {
-				if s.tick(now, s == focused) {
-					changed = true
-				}
+				c, b := s.tick(now, s == focused)
+				changed = changed || c
+				busy = busy || b
 			})
 		}
 		if changed {
 			d.changed()
 		}
-		// The agents' transcripts, every few of these ticks: slow reads
-		// of the end of a file, of what else told nothing.
-		ticks++
-		if ticks%12 == 0 {
+		if now.Sub(scanned) >= scanEvery {
+			scanned = now
 			d.scanPass(now)
 		}
-		if ticks%4 == 0 {
+		if now.Sub(branched) >= branchCheck {
+			branched = now
 			d.branchTick(now)
 		}
 		// Nothing to keep: go, rather than linger in the background.
@@ -323,6 +411,21 @@ func (d *Daemon) tickLoop() {
 			d.stop()
 			return
 		}
+		// A pane that waits out idleHold, and a kerod that counts down to
+		// its exit, keep the fast pace too.
+		if d.stirred.Swap(false) || changed || busy || idle {
+			active = now
+		}
+		wait := pace.wait(now, active)
+		if wait != pace.fast {
+			d.tickSlow.Store(true)
+			// What stirred since the swap above finds the loop not yet
+			// slow, and wakes nothing: the loop sees it here instead.
+			if d.stirred.Load() && d.tickSlow.CompareAndSwap(true, false) {
+				wait = pace.fast
+			}
+		}
+		t.Reset(wait)
 	}
 }
 
@@ -644,6 +747,8 @@ func (d *Daemon) serveAttach(conn net.Conn, r *bufio.Reader, hello proto.Hello, 
 		if err != nil {
 			return
 		}
+		// A key or a resize: the pane is followed closely for a while.
+		d.stir()
 		switch kind {
 		case proto.FrameInput:
 			s.input(payload)
@@ -696,6 +801,9 @@ func (d *Daemon) serveControl(conn net.Conn, r *bufio.Reader) {
 		}
 		go func() {
 			res, err := d.call(c, req.Method, req.Params)
+			// A request may start, end or tell of the work of a pane:
+			// the panes are followed closely for a while.
+			d.stir()
 			m := proto.Message{ID: req.ID, Result: res}
 			if err != nil {
 				m.Error = err.Error()

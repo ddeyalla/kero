@@ -337,6 +337,18 @@ builds only. What each feature is and where it stands is tracked in the
 - The sidebar's CPU and RAM meters read the Mac every 5 seconds, as Activity
   Monitor does by default, instead of every 2. Their changes rebuilt the
   window up to 30 times a minute while it was otherwise idle; now at most 12.
+- While the window does not have the focus, the CPU and RAM meters read the
+  Mac every 30 seconds instead of every 5, and read again at once when the
+  window gets the focus back. Each reading that changed them rebuilt the
+  window, which cost the idle app most of its wakeups (BRU-336).
+- kerod follows a quiet pane less often. While a pane has output, a key, a
+  resize or a request, kerod checks it every 400 ms, as before. After 10
+  seconds with none of these, it checks every 10 seconds, until the next one.
+  Pane histories are written 10 seconds after their text changes, not every
+  10 seconds. At rest, kerod wakes about 70 to 280 times a minute, not
+  1,000 (BRU-336). A branch switched outside Shibu, or an agent transcript
+  written without screen output, can now show up to 10 seconds later in a
+  quiet pane.
 
 - The Tasks entry of the New Pane chooser, `Cmd+Alt+L` and `kero split
   --tasks` open the Linear plugin pane. The daemon still accepts the view

@@ -223,6 +223,8 @@ func (s *pane) output(p []byte) {
 	s.frameSoon()
 	changed := s.info.Status != before
 	s.mu.Unlock()
+	s.d.stir()
+	s.d.historySoon()
 	if changed {
 		s.d.changed()
 	}
@@ -309,14 +311,15 @@ func (s *pane) wake() {
 
 // tick follows the foreground program and the shell's directory, and ends
 // work that went quiet. focused tells that the pane is the one the user
-// is in, whose directory it follows closely (cwdEvery).
-func (s *pane) tick(now time.Time, focused bool) bool {
+// is in, whose directory it follows closely (cwdEvery). It reports what
+// changed, and whether the pane waits for the next tick to tell its status
+// (idleHold), which then must come soon.
+func (s *pane) tick(now time.Time, focused bool) (changed, busy bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.proc == nil || s.info.Status == proto.Exited {
-		return false
+		return false, false
 	}
-	changed := false
 	pg := s.proc.Foreground()
 	moved := pg != s.fgPGID
 	s.fgPGID = pg
@@ -396,7 +399,7 @@ func (s *pane) tick(now time.Time, focused bool) bool {
 	if s.look(now) {
 		changed = true
 	}
-	return changed
+	return changed, !s.idleFrom.IsZero()
 }
 
 // look sets the status from what the screen shows, when it may have
@@ -614,6 +617,7 @@ func (s *pane) clear(what byte) {
 	s.dirty = true
 	s.looked = false
 	s.frameSoon()
+	s.d.historySoon()
 }
 
 // frameDelay is how long frames wait after output, for more of it: a

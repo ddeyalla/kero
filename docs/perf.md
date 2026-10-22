@@ -174,6 +174,126 @@ those that only paint it again.
   BRU-336.
 - The app's footprint moves as much between runs as before.
 
+### Idle wakeups (BRU-336)
+
+Measured 2026-10-22 on the same Mac, defaults as above, on
+`fix/bru-336-wakeups` off `shibu` at 179327e. Each app run is classed by
+its `app.log`: **unfocused** (frames built, none painted again: the
+window shows, without the focus, so the cursor does not blink),
+**focused** (about 100 frames a minute painted again: the cursor blinks)
+or **hidden** (no frame). `perf.sh` does not choose which; macOS does, as
+the window opens. Wakeups are interrupt wakeups a minute.
+
+**What woke them.**
+
+- *The Go runtime.* A Go program with nothing to do wakes about 2 times a
+  minute. A `time.Ticker` costs about 3 wakeups a fire: 450 a minute at
+  400 ms, 90 at 2 s, 38 at 5 s, 19 at 10 s (a 60 s probe of a test
+  program). A syscall while the runtime's sysmon sleeps wakes sysmon too,
+  which then polls every 20 µs until every P is idle again.
+- *kerod.* A 20 s `runtime/trace` of an idle kerod with 4 panes
+  (`PERF_PPROF`) shows the 400 ms `tickLoop` as nearly all its scheduled
+  work: 50 ticks, each with about 5 syscalls (`TIOCGPGRP` for each pane,
+  and some `procName` and `procCwd` reads). The 10 s history save fired
+  twice, the Linear poll once (no key: it returns at once), and the GC
+  did not run. 150 ticks a minute, with their syscalls, account for the
+  1,000 a minute.
+- *The app.* A 20 s trace of the app shows little Go work: the main
+  thread ran 105 times and the Metal presenter 38, of which the blink was
+  33 paints; the meters' reader ran 7 times. Most of the app's wakeups are
+  in AppKit, Core Animation and Metal threads, which run for each frame.
+  A minimal MyGo window (`examples/counter-native` from the pinned MyGo,
+  its own `HOME` and `TMPDIR`) wakes 39 times a minute at rest. Each frame
+  of Shibu's window costs about 100 to 150 wakeups, and each blink paint
+  about 85. So the app's wakeups at rest are its frames:
+  - unfocused, 13 to 16 frames built a minute, 12 of them for the CPU and
+    RAM meters (a reading every 5 s whose labels change);
+  - focused, the same, plus 90 to 100 blink paints a minute.
+
+  With the meters turned off (a test build only), the app read 564 a
+  minute unfocused, at 1 frame built a minute.
+
+**What changed.** kerod ticks every 400 ms only while something happens
+in a pane, and every 10 s after 10 s with nothing. It writes the
+histories only after their text changed. The meters read every 30 s while
+the window does not have the focus. See
+[Changes › Daemon idle work](changes.md#daemon-idle-work).
+
+kerod alone (`PERF_APP=0`):
+
+| Run | Panes | kerod idle wakeups | kerod idle CPU |
+| --- | --- | --- | --- |
+| 179327e | 1 | 1,104/min | 0.05 % |
+| 179327e | 4 | 973/min | 0.05 % |
+| after | 1 | 67/min | 0.01 % |
+| after | 4 | 99/min | 0.01 % |
+| after | 4 | 201/min | 0.02 % |
+| after, `GODEBUG=gctrace=1,scavtrace=1` | 4 | 161/min | |
+
+The run with the GC trace logged no GC and no scavenger work during the
+idle minute.
+
+App and kerod, 4 panes unless the run says otherwise:
+
+| Run | Window | kerod | app | app + kerod | app idle CPU | frames built / painted again |
+| --- | --- | --- | --- | --- | --- | --- |
+| 179327e, 1 | unfocused | 1,069 | 1,999 | 3,068/min | 0.35 % | 13 / 0 |
+| 179327e, 2 | unfocused | 1,090 | 2,487 | 3,577/min | 0.35 % | 14 / 0 |
+| kerod change only | focused | 271 | 10,437 | 10,707/min | 0.65 % | 16 / 90 |
+| after, 1 | unfocused | 148 | 751 | 899/min | 0.10 % | 4 / 0 |
+| after, 2 | unfocused | 230 | 922 | 1,152/min | 0.11 % | 4 / 0 |
+| after, 3 | focused | 126 | 9,410 | 9,536/min | 0.60 % | 13 / 99 |
+| after, 1 pane | focused for part of the minute | 281 | 2,900 | 3,182/min | 0.20 % | 8 / 12 |
+| after, 8 panes | unfocused | 110 | 669 | 779/min | 0.07 % | 4 / 0 |
+
+The second run on 179327e was built with a trace hook that does nothing
+unless an environment variable is set; it was not. The "kerod change
+only" run had that hook on, for the app's trace.
+
+- In the case the issue judges, 4 panes with the window shown and
+  unfocused, app + kerod went from 3,068 to 3,577 a minute down to 899 to
+  1,152: about a third. kerod went from about 1,000 to 100 to 230, and
+  the app from 2,000 to 2,500 to 750 to 920. The app's idle CPU went from
+  0.35 % to 0.10 %.
+- Focused, the blink still costs about 8,500 a minute: 9,536 in all.
+- kerod alone reads 67 a minute with 1 pane and 99 to 201 with 4. The
+  spread at 4 panes is not explained: the trace of a run beside the app
+  shows the tick waking every 10 s, as it should. Beside the app kerod
+  reads 110 to 281: each focus change and request of the app makes its
+  tick fast for 10 s.
+
+**What is achievable.** 30 a minute is not, with this design, for these
+reasons:
+
+- A bare MyGo window wakes 39 times a minute at rest.
+- A Go process with even one timer every 10 s wakes about 20 times a
+  minute.
+- kerod must poll each pane's foreground group (`TIOCGPGRP`): macOS has no
+  event for it.
+- Each frame of the window costs 100 or more wakeups. So does any rebuild
+  the app shows, such as a time-ago label that moves once a minute.
+
+The unfocused runs after the change read 779 to 1,152 a minute for app +
+kerod (kerod 110 to 230 beside the app, 67 to 281 in all runs; the app 669
+to 922), and runs vary by up to two times. A budget with room for that
+would be **≤ 2,000 a minute** for app + kerod at rest, window shown and
+unfocused, at 4 and 8 panes (kerod ≤ 500, app ≤ 1,500). This is a
+proposal, provisional on more runs, and it needs the user's agreement;
+until then the table above still says 30. Going further would need these
+steps:
+
+- Stop the meters' readings while the window does not have the focus,
+  not only slow them (about 300 a minute).
+- Follow the shell's children with `kqueue` (`EVFILT_PROC`,
+  `NOTE_FORK`/`NOTE_EXEC`) instead of a slow poll.
+- In MyGo, make a frame of an idle window cheaper.
+
+Focused, the blink is the cost: a cursor that stops blinking after some
+seconds without a key, as GTK's `gtk-cursor-blink-timeout` (10 s) does,
+would take the focused case to about the unfocused one. That is a change
+of MyGo's terminal plugin, and of what the Blink setting means, so it is
+not done here.
+
 ## Limits
 
 - **Key press → paint** is not measured: it needs keys sent to the app's

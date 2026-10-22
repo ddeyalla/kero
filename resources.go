@@ -5,6 +5,7 @@ import (
 	"math"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -12,12 +13,48 @@ import (
 	"kero/internal/resources"
 )
 
-// resourcePeriod is how often the app reads the Mac's CPU and RAM.
-const resourcePeriod = 5 * time.Second
+// resourcePeriod is how often the app reads the Mac's CPU and RAM while
+// its window has the focus, and resourceAway while it does not. A reading
+// that changes the meters rebuilds and paints the window, which costs the
+// app over a hundred wakeups: at 12 a minute, most of what the app woke for
+// at rest (docs/perf.md, BRU-336). The user's eyes are elsewhere while the
+// window does not have the focus, so the meters then move twice a minute, and
+// read again at once as it comes back.
+const (
+	resourcePeriod = 5 * time.Second
+	resourceAway   = 30 * time.Second
+)
+
+// resourceWait is the wait for the next reading of the meters.
+func resourceWait(focused bool) time.Duration {
+	if focused {
+		return resourcePeriod
+	}
+	return resourceAway
+}
 
 type resourceState struct {
 	sample resources.Sample
 	err    string
+}
+
+// resourcePace is what the reader of the meters, on a goroutine of its
+// own, knows of the window: whether it has the focus, and wake, which a
+// window that gains it sends on to read at once.
+type resourcePace struct {
+	focused atomic.Bool
+	wake    chan struct{}
+}
+
+// windowFocused tells the reader of the meters that the window gained or
+// lost the focus.
+func (p *resourcePace) windowFocused(focused bool) {
+	if p.focused.Swap(focused) != focused && focused {
+		select {
+		case p.wake <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (a *App) startResources() {
@@ -31,9 +68,10 @@ func (a *App) startResources() {
 		// Every 5 s, as Activity Monitor reads by default: on a Mac at work
 		// the meters' whole percent and tenth of a GiB change with nearly
 		// every read, and each change rebuilds the window, so the period
-		// is what bounds those rebuilds, at 12 a minute (docs/perf.md).
-		ticker := time.NewTicker(resourcePeriod)
-		defer ticker.Stop()
+		// is what bounds those rebuilds, at 12 a minute, and 2 while the
+		// window does not have the focus (resourceWait).
+		timer := time.NewTimer(resourceWait(a.resourcePace.focused.Load()))
+		defer timer.Stop()
 		// A read rebuilds and paints the window only when what the app
 		// shows of it changed: at rest the readings can move by fractions
 		// that the labels and bars round away. shown is what the app shows, kept here so
@@ -59,10 +97,12 @@ func (a *App) startResources() {
 					a.resources = resourceState{sample: reading}
 				})
 			}
+			timer.Reset(resourceWait(a.resourcePace.focused.Load()))
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
+			case <-timer.C:
+			case <-a.resourcePace.wake:
 			}
 		}
 	}()

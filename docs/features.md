@@ -118,6 +118,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | CPU and RAM meters for the whole Mac | Sidebar, `kero resources --json` | 2.0.5-local.2 | Shipped |
 | Performance budgets and a one-command measurement: footprint, idle CPU, wakeups and frames, and frame times while streaming, for N panes, in an isolated kerod and app; kerod profiles on a loopback address; allocation tests for screen reads and a key's echo | `sh scripts/perf.sh N`, `KERO_PPROF=127.0.0.1:6060`; see [Performance](perf.md) | Unreleased | Untried |
 | Idle window paints less: CPU and RAM meters redraw only when what they show changes; times ago tick once a minute, only while shown | Automatic | Unreleased | Untried |
+| Fewer idle wakeups: kerod checks quiet panes every 10 s instead of every 400 ms and writes histories only after a change; the CPU and RAM meters read every 30 s while the window does not have the focus | Automatic; numbers in [Performance](perf.md) | Unreleased | Untried |
 | The loading.dev ring wherever the app itself is busy: connecting, attaching a pane, reading Files or Linear; it and a working session's ring turn at 15 frames a second | Automatic | Unreleased | Untried |
 
 ## Settings

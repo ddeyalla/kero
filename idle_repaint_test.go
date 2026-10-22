@@ -85,3 +85,28 @@ func TestIdleAgoTick(t *testing.T) {
 		t.Errorf("the attention pane built %d times in two minutes with the sidebar hidden, want its times ago to move on", n)
 	}
 }
+
+// The meters are read every 5 s while the window has the focus, every 30 s
+// while it has not, and at once as it comes back (BRU-336).
+func TestResourcesPaceWithFocus(t *testing.T) {
+	if resourceWait(true) != 5*time.Second || resourceWait(false) != 30*time.Second {
+		t.Fatalf("waits %v and %v", resourceWait(true), resourceWait(false))
+	}
+	p := &resourcePace{wake: make(chan struct{}, 1)}
+	p.focused.Store(true)
+	p.windowFocused(false)
+	if p.focused.Load() || len(p.wake) != 0 {
+		t.Fatal("a blur woke the reader, or was not told")
+	}
+	p.windowFocused(true)
+	if !p.focused.Load() || len(p.wake) != 1 {
+		t.Fatal("the focus regained did not wake the reader")
+	}
+	// Told twice, or while the reader has yet to wake: one read.
+	p.windowFocused(true)
+	p.windowFocused(false)
+	p.windowFocused(true)
+	if len(p.wake) != 1 {
+		t.Fatal("more than one read asked")
+	}
+}

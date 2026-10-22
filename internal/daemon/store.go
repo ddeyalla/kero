@@ -143,13 +143,24 @@ func (d *Daemon) historyPath(id string) string { return filepath.Join(d.dir, "se
 // saved: a storm of status changes writes state.json once every 2 s.
 const stateWait = 2 * time.Second
 
-func (d *Daemon) saveLoop() { d.saveLoopWith(stateWait, d.saveState) }
+// historyWait is how long the text of a pane waits to go to disk after it
+// changed: its history is at most this old after a crash. A kerod whose
+// panes show nothing new writes nothing, and wakes for nothing: the
+// histories went to disk every 10 s whatever happened (BRU-336).
+const historyWait = 10 * time.Second
+
+func (d *Daemon) saveLoop() {
+	d.saveLoopWith(stateWait, historyWait, d.saveState, func() { d.saveHistories(false) })
+}
 
 // saveLoopWith saves the state with save, wait after the first change of
-// those that come meanwhile, and the histories every 10 s.
-func (d *Daemon) saveLoopWith(wait time.Duration, save func()) {
-	snaps := time.NewTicker(10 * time.Second)
+// those that come meanwhile, and the histories with snap, history after
+// the first change of their text (historySoon), and once at the start,
+// for those restored.
+func (d *Daemon) saveLoopWith(wait, history time.Duration, save, snap func()) {
+	snaps := time.NewTimer(history)
 	defer snaps.Stop()
+	d.histArmed.Store(true)
 	var due <-chan time.Time
 	for {
 		select {
@@ -160,8 +171,14 @@ func (d *Daemon) saveLoopWith(wait time.Duration, save func()) {
 		case <-due:
 			due = nil
 			save()
+		case <-d.histCh:
+			snaps.Reset(history)
 		case <-snaps.C:
-			profiled("saveHistories", func() { d.saveHistories(false) })
+			// What changes from now on asks again: a pane's dirty flag
+			// is set before historySoon is asked, so a change the save
+			// misses asks after this.
+			d.histArmed.Store(false)
+			profiled("saveHistories", snap)
 		case <-d.quit:
 			return
 		}

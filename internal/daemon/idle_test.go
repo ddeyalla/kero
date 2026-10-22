@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -103,7 +105,7 @@ func TestStateSaveDebounce(t *testing.T) {
 	defer close(d.quit)
 	var saves atomic.Int64
 	const wait = 100 * time.Millisecond
-	go d.saveLoopWith(wait, func() { saves.Add(1) })
+	go d.saveLoopWith(wait, time.Hour, func() { saves.Add(1) }, func() {})
 	storm := time.Now()
 	for time.Since(storm) < time.Second {
 		d.changed()
@@ -166,5 +168,99 @@ func TestBranchTickFollowsHead(t *testing.T) {
 	d.branchTick(at.Add(branchEvery))
 	if d.branch.at == at {
 		t.Fatal("no read after branchEvery")
+	}
+}
+
+// The tick goes slow once nothing has happened for a while, and fast
+// again as soon as something does (BRU-336).
+func TestTickPace(t *testing.T) {
+	pace := tickPace{tickFast, tickSlow, tickQuiet}
+	now := time.Now()
+	if got := pace.wait(now, now); got != tickFast {
+		t.Fatalf("just stirred: %v", got)
+	}
+	if got := pace.wait(now, now.Add(-tickQuiet+time.Millisecond)); got != tickFast {
+		t.Fatalf("within the quiet: %v", got)
+	}
+	if got := pace.wait(now, now.Add(-tickQuiet)); got != tickSlow {
+		t.Fatalf("quiet: %v", got)
+	}
+	// A quiet pane is read no less often than one the user is not in
+	// was read already.
+	if tickSlow > cwdEvery(false) || tickSlow > fgRecheck {
+		t.Fatalf("tickSlow %v reads quiet panes less often than before", tickSlow)
+	}
+}
+
+// A tick loop at its slow pace ticks at once when something happens in a
+// pane, and goes slow again once nothing has for a while; one with no
+// session and no client keeps the fast pace, to exit on time.
+func TestTickLoopStir(t *testing.T) {
+	d := &Daemon{log: log.New(io.Discard, "", 0), panes: map[string]*pane{}, changeCh: make(chan struct{}, 1), saveCh: make(chan struct{}, 1),
+		tickWake: make(chan struct{}, 1), quit: make(chan struct{})}
+	d.viewed.Store(new(string))
+	d.sessions = []*session{{id: "s"}}
+	defer d.stop()
+	ticked := func() time.Time {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.idleAt
+	}
+	const fast, quiet = 5 * time.Millisecond, 50 * time.Millisecond
+	go d.tickLoopWith(tickPace{fast, time.Hour, quiet})
+	waitFor := func(what string, ok func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(2 * time.Second); !ok(); time.Sleep(time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal(what)
+			}
+		}
+	}
+	waitFor("the loop never went slow", d.tickSlow.Load)
+	slowAt := ticked()
+	time.Sleep(5 * fast)
+	if ticked() != slowAt {
+		t.Fatal("ticked at its slow pace")
+	}
+	d.stir()
+	waitFor("a stir did not wake the slow loop", func() bool { return ticked().After(slowAt) })
+	if d.tickSlow.Load() {
+		t.Fatal("slow right after a stir")
+	}
+	waitFor("the loop did not go slow again", d.tickSlow.Load)
+}
+
+// The histories go to disk after their text changed, and not while nothing
+// changes: a kerod at rest writes nothing, and wakes for nothing.
+func TestHistorySaveOnChange(t *testing.T) {
+	d := linearTestDaemon(t)
+	d.quit = make(chan struct{})
+	d.histCh = make(chan struct{}, 1)
+	defer close(d.quit)
+	var snaps atomic.Int64
+	const history = 20 * time.Millisecond
+	go d.saveLoopWith(time.Hour, history, func() {}, func() { snaps.Add(1) })
+	// Once at the start, for the histories restored.
+	time.Sleep(3 * history)
+	if n := snaps.Load(); n != 1 {
+		t.Fatalf("%d snapshots at the start, want 1", n)
+	}
+	time.Sleep(5 * history)
+	if n := snaps.Load(); n != 1 {
+		t.Fatalf("%d snapshots with nothing changed, want 1", n)
+	}
+	// A stream of output asks once, and wakes the loop once.
+	for range 100 {
+		d.historySoon()
+	}
+	if !d.histArmed.Load() {
+		t.Fatal("the stream did not ask")
+	}
+	time.Sleep(10 * history)
+	if n := snaps.Load(); n != 2 {
+		t.Fatalf("%d snapshots after a change, want 2", n)
+	}
+	if d.histArmed.Load() {
+		t.Fatal("still armed after the save")
 	}
 }

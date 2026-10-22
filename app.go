@@ -167,6 +167,7 @@ type App struct {
 	copyText     string
 	usage        usageState
 	resources    resourceState
+	resourcePace resourcePace
 	maintenance  maintenanceState
 	peek         peek     // the image a path Command hovers shows
 	peekLook     peekLook // the link that hover resolved, and what it found
@@ -198,6 +199,8 @@ func newApp() *App {
 	a := &App{terms: map[string]*termEntry{}, active: true, focused: true,
 		refs: map[string]*ui.Handle{}, focus: map[string]string{}, arrived: map[string]bool{},
 		hoverSeen: map[string]bool{}, hoverUntil: map[string]time.Time{}, opening: map[string]int{}}
+	a.resourcePace.focused.Store(true)
+	a.resourcePace.wake = make(chan struct{}, 1)
 	// The writers name their files now: they write on another thread, by
 	// which time the environment may say another, as a test's does.
 	prefsFile := prefsPath()

@@ -139,8 +139,14 @@ func runApp() {
 		}))
 		setCompactTitleBar(a.win)
 		followFullScreen(a.win)
-		a.win.OnFocus(func() { a.update(func() { a.focused = true; a.reportView() }) })
-		a.win.OnBlur(func() { a.update(func() { a.focused = false; a.reportView() }) })
+		a.win.OnFocus(func() {
+			a.resourcePace.windowFocused(true)
+			a.update(func() { a.focused = true; a.reportView() })
+		})
+		a.win.OnBlur(func() {
+			a.resourcePace.windowFocused(false)
+			a.update(func() { a.focused = false; a.reportView() })
+		})
 		// Settings, in the window, goes with it.
 		a.win.OnClosed(a.endSettings)
 		// The plugins the user installed are read off the UI goroutine,
