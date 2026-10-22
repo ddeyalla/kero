@@ -25,7 +25,7 @@ import (
 // can't ignore: a client refuses a daemon of another version, which it
 // offers to restart. A new optional field, which the other side leaves
 // out or skips, doesn't change it.
-const Version = 3
+const Version = 4
 
 // Hello opens a connection.
 type Hello struct {
@@ -65,8 +65,12 @@ type Message struct {
 	Result any    `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
 
-	Event string `json:"event,omitempty"` // "state", "select", "action", "notice"
+	Event string `json:"event,omitempty"` // "state", "linear", "select", "action", "notice"
 	State *State `json:"state,omitempty"`
+	// Linear is the workspace, on an event of its own: it changes with the
+	// workspace and with the sessions tasks show, not with a title, and
+	// the state carries none, so that a storm of titles sends none of it.
+	Linear *LinearState `json:"linear,omitempty"`
 	// Select asks the app to show a session ("kero focus").
 	Select string `json:"select,omitempty"`
 	// Action asks the app to run one of its actions ("kero do"), with

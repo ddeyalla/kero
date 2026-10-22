@@ -35,8 +35,12 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		d.mu.Lock()
 		d.subs[c] = struct{}{}
 		d.mu.Unlock()
-		st := d.state()
+		st := d.broadcastState()
 		c.event(proto.Message{Event: "state", State: &st})
+		// The workspace is its own event, and this client has none yet: it
+		// gets the one the daemon holds, and the others still get the next
+		// broadcast, which this does not stand in for.
+		d.sendLinearTo(c, d.workspace())
 		return true, nil
 
 	case "linear.state":

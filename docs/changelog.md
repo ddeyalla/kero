@@ -383,6 +383,14 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- The terminal service no longer sends the Linear workspace with every state,
+  and a pane's title no longer writes the saved state. An agent's spinner,
+  renaming its pane many times a second, rebuilt the app's window and its
+  Linear views for each name, with the whole workspace encoded over the
+  socket again each time. The workspace now has an event of its own, sent only
+  when it changes; the app ignores a state equal to the one it shows; and a
+  title change is broadcast without a save. The daemon protocol is 4:
+  **restart the terminal service once** after updating (BRU-332).
 - An old Tasks pane that was not migrated yet now shows the Linear plugin even
   before the terminal service restarts, and a new Tasks pane opens as a Linear
   plugin pane directly.

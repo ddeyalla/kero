@@ -325,7 +325,16 @@ func (a *App) connect() {
 			}
 			a.cl, a.conn, a.connErr, a.retries = cl, connReady, "", 0
 			a.daemonApp = cl.Welcome.App
-			cl.OnEvent(func(m proto.Message) { a.update(func() { a.event(cl, m) }) })
+			// Most states kerod sends show nothing new, one per title
+			// change: the ones equal to the last are dropped here, on the
+			// client's goroutine, before they cost the window a build.
+			var seen stateSeen
+			cl.OnEvent(func(m proto.Message) {
+				if seen.stale(m) {
+					return
+				}
+				a.update(func() { a.event(cl, m) })
+			})
 			cl.Go("subscribe", nil, nil)
 			a.viewSent = nil
 			a.reportView()
@@ -351,6 +360,25 @@ func (a *App) disconnected(cl *client.Client) {
 	time.AfterFunc(300*time.Millisecond, func() { a.update(a.connect) })
 }
 
+// stateSeen drops a state equal to the one before it. kerod sends a state
+// for every title change, and the window would build for each; the state
+// kerod sends is the whole of what the window shows, so one equal to the
+// last shows nothing new. It lives on the client's goroutine, where the
+// messages come, and keeps the last state it took there.
+type stateSeen struct{ last *proto.State }
+
+// stale tells whether m is a state the window already shows.
+func (s *stateSeen) stale(m proto.Message) bool {
+	if m.Event != "state" || m.State == nil {
+		return false
+	}
+	if s.last != nil && reflect.DeepEqual(*s.last, *m.State) {
+		return true
+	}
+	s.last = m.State
+	return false
+}
+
 func (a *App) event(cl *client.Client, m proto.Message) {
 	if a.cl != cl {
 		return
@@ -360,6 +388,10 @@ func (a *App) event(cl *client.Client, m proto.Message) {
 		if m.State != nil {
 			a.setState(*m.State)
 		}
+	case "linear":
+		// The workspace comes apart from the sessions (proto.Message),
+		// and the state that follows keeps it.
+		a.st.Linear = m.Linear
 	case "select":
 		if !a.set.RemoteControl {
 			return
@@ -398,6 +430,11 @@ func (a *App) event(cl *client.Client, m proto.Message) {
 
 func (a *App) setState(st proto.State) {
 	first := !a.loaded
+	// The workspace comes on its own event: a state carries none, and the
+	// one the app has stands.
+	if st.Linear == nil {
+		st.Linear = a.st.Linear
+	}
 	a.st, a.loaded = st, true
 	// Terminals of panes gone go too.
 	live := map[string]bool{}
