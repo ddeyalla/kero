@@ -55,4 +55,9 @@ func TestLinearEventUpdatesTheWorkspace(t *testing.T) {
 	if a.st.Viewed != "s1" {
 		t.Errorf("the state did not come: viewed %q", a.st.Viewed)
 	}
+	// A workspace that went is nil, not an empty one: the views take nil.
+	a.event(nil, proto.Message{Event: "linear"})
+	if a.st.Linear != nil {
+		t.Errorf("a workspace that went stayed: %+v", a.st.Linear)
+	}
 }

@@ -48,12 +48,29 @@ func (d *Daemon) stateOf(withLinear bool) proto.State {
 	for _, s := range d.sessions {
 		st.Sessions = append(st.Sessions, d.sessionInfo(s))
 	}
-	if withLinear && d.linear != nil {
-		lin := *d.linear
-		lin.Issues = d.linearIssues()
-		st.Linear = &lin
+	if withLinear {
+		st.Linear = d.workspaceLocked()
 	}
 	return st
+}
+
+// workspace is the workspace a subscriber gets on its own event, with its
+// task links: nil when the daemon has none, as State.Linear was. The
+// linear.state call answers with a status instead (linearState).
+func (d *Daemon) workspace() *proto.LinearState {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.workspaceLocked()
+}
+
+// workspaceLocked is workspace, with d.mu held.
+func (d *Daemon) workspaceLocked() *proto.LinearState {
+	if d.linear == nil {
+		return nil
+	}
+	lin := *d.linear
+	lin.Issues = d.linearIssues()
+	return &lin
 }
 
 // linearIssues is the workspace's issues, each with the session working

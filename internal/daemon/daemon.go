@@ -72,11 +72,13 @@ type Daemon struct {
 	quit     chan struct{}
 	quitOnce sync.Once
 
-	// linearOut is the workspace last sent to the subscribers, which the
-	// broadcast sends again only when it differs (sendLinear), under
-	// linearOutMu.
+	// linearOut is the workspace last sent to the subscribers, and
+	// linearKnown tells that it reached them all: a Linear event a client
+	// was too far behind to take clears it (forgetLinear), and the next
+	// broadcast sends the workspace again (sendLinear), under linearOutMu.
 	linearOutMu sync.Mutex
 	linearOut   *proto.LinearState
+	linearKnown bool
 	// dropped counts the events a client was too far behind to take, and
 	// dropAt is when the log last said so (dropEvent).
 	dropped atomic.Int64
@@ -231,7 +233,7 @@ func (d *Daemon) broadcastLoop() {
 // time, and the Linear workspace, only when it is not the one they have.
 func (d *Daemon) broadcastNow() {
 	st := d.broadcastState()
-	lin := d.linearState()
+	lin := d.workspace()
 	d.mu.Lock()
 	for c := range d.subs {
 		c.event(proto.Message{Event: "state", State: &st})
@@ -243,11 +245,14 @@ func (d *Daemon) broadcastNow() {
 // sendLinear sends the workspace as an event of its own, when it differs
 // from the last one sent: it changes with the workspace and with the
 // sessions tasks show, not with a title, and encoding it per subscriber is
-// what a storm of titles would pay.
+// what a storm of titles would pay. A nil workspace is one too: it says the
+// daemon has none, as State.Linear did.
 func (d *Daemon) sendLinear(lin *proto.LinearState) {
 	d.linearOutMu.Lock()
-	same := reflect.DeepEqual(d.linearOut, lin)
-	d.linearOut = lin
+	same := d.linearKnown && reflect.DeepEqual(d.linearOut, lin)
+	// linearOutMu is let go before d.mu is taken: event holds d.mu and
+	// takes linearOutMu (forgetLinear), so that is the one order.
+	d.linearOut, d.linearKnown = lin, true
 	d.linearOutMu.Unlock()
 	if same {
 		return
@@ -260,12 +265,19 @@ func (d *Daemon) sendLinear(lin *proto.LinearState) {
 }
 
 // sendLinearTo gives a client that has just subscribed the workspace it
-// holds, and keeps it as the last one sent.
+// holds. It records nothing: the others did not get it, so the next
+// broadcast must still send it to them, and a second copy for this one is
+// cheap.
 func (d *Daemon) sendLinearTo(c *controlConn, lin *proto.LinearState) {
-	d.linearOutMu.Lock()
-	d.linearOut = lin
-	d.linearOutMu.Unlock()
 	c.event(proto.Message{Event: "linear", Linear: lin})
+}
+
+// forgetLinear says that a workspace did not reach every client: the next
+// broadcast sends it once more, whether or not it changed.
+func (d *Daemon) forgetLinear() {
+	d.linearOutMu.Lock()
+	d.linearKnown = false
+	d.linearOutMu.Unlock()
 }
 
 func (d *Daemon) tickLoop() {
@@ -531,13 +543,19 @@ func (c *controlConn) write(m proto.Message) {
 }
 
 // event queues an event for a subscriber, dropping it when it is far
-// behind: the next state replaces it anyway, and a Linear event comes again
-// with the next change of the workspace.
+// behind: the next state replaces it anyway, and a Linear event is sent
+// again by the next broadcast, so one dropped is not lost.
 func (c *controlConn) event(m proto.Message) {
 	select {
 	case c.out <- m:
 	default:
 		if c.d != nil {
+			if m.Event == "linear" {
+				// d.mu is held here, as the broadcast sends: forgetLinear
+				// takes linearOutMu under it, and nothing takes d.mu while
+				// holding linearOutMu.
+				c.d.forgetLinear()
+			}
 			c.d.dropEvent()
 		}
 	}

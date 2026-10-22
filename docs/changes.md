@@ -813,14 +813,31 @@ spinner in a pane, which renames its title many times a second, made both
 happen (BRU-332).
 
 - **The workspace has an event of its own.** `proto.Message.Linear` carries
-  it, on an event `linear`. `d.state()`
-  ([`internal/daemon/sessions.go`](../internal/daemon/sessions.go)) keeps it
-  for a client that asks once, with `kero task`, `kero hooks` and the CLI's
-  own reading; `d.broadcastState()` leaves it out. `sendLinear`
-  ([`internal/daemon/daemon.go`](../internal/daemon/daemon.go)) compares the
-  payload, its task links included, with the last one sent, and sends it
-  only when it differs; a subscriber gets one as it subscribes
-  ([`internal/daemon/rpc.go`](../internal/daemon/rpc.go)).
+  it, on an event `linear`, and nil means the daemon has none, as
+  `State.Linear` was nil then (`d.workspace()`;
+  `linearState` still answers `no_token` for the `linear.state` call).
+  `d.state()` ([`internal/daemon/sessions.go`](../internal/daemon/sessions.go))
+  keeps the workspace for a client that asks once, with `kero task`,
+  `kero hooks` and the CLI's own reading; `d.broadcastState()` leaves it out.
+  `sendLinear` ([`internal/daemon/daemon.go`](../internal/daemon/daemon.go))
+  compares the payload, its task links included, with the last one sent, and
+  sends it only when it differs; a subscriber gets one as it subscribes
+  ([`internal/daemon/rpc.go`](../internal/daemon/rpc.go)), and that records
+  nothing, so a change that landed before it still reaches the others on the
+  next broadcast.
+- **Every subscriber puts the two back together.** The app keeps the
+  workspace a `linear` event gave it, and a state keeps it (`setState` in
+  [`app.go`](../app.go)); the Linear plugin does the same in
+  `events.handle`, in
+  [`internal/plugin/builtin/linear/daemon.go`](../internal/plugin/builtin/linear/daemon.go),
+  where the pane reads `st.Linear` as it did when every state carried it.
+- **A dropped workspace is sent again, and counted.** `(*controlConn).event`
+  counts what a client too far behind cannot take, in `(*Daemon).dropped`
+  (`dropEvent` says the count in the log at most once a minute; `scripts/perf.sh`
+  has no query for it). A state lost loses nothing, since the next replaces
+  it, but a `linear` event would be lost until the workspace changed: so it
+  also clears `linearKnown` (`forgetLinear`, under `linearOutMu` while `d.mu`
+  is held), and the next broadcast sends the workspace to all of them.
 - **A title change broadcasts and does not save.** `(*Daemon).broadcast`
   signals `changeCh` alone, and `changed` is `broadcast` plus `save`; every
   other caller keeps `changed`. `(*pane).onTitle`
@@ -832,10 +849,6 @@ happen (BRU-332).
   client's goroutine where the messages come, and an event equal to it
   never reaches the main thread, so `a.update` and the build it asks for do
   not happen. No other caller of `a.update` changed.
-- **A dropped event is counted.** `(*controlConn).event` counts the events a
-  client too far behind could not take, in `(*Daemon).dropped`, and
-  `dropEvent` says the count in the log at most once a minute. `scripts/perf.sh`
-  has no query for it, so the log is the one place it shows.
 
 Measured with a probe of the daemon, 25 sessions of two panes and a
 workspace of 120 issues, per subscriber: a broadcast state is 14,581 B
@@ -851,11 +864,15 @@ kerod the same way. The service needs that one restart after updating.
 
 Tests: `internal/daemon/broadcast_test.go` (a storm of 25 titles sends the
 workspace once, and once more for a workspace or a task-link change; a
-subscribe gets it once; a state asked for once carries it; a title change
-saves nothing; a dropped event is counted) and
+subscribe gets it once and hides nothing from the others; a state asked for
+once carries it; no workspace is nil; a workspace dropped is sent again; a
+title change saves nothing; a dropped event is counted),
 [`state_event_test.go`](../state_event_test.go) (an identical state is
 dropped before the window; the workspace arrives on its event, and a state
-keeps it).
+keeps it, or nil when there is none) and
+[`internal/plugin/builtin/linear/daemon_test.go`](../internal/plugin/builtin/linear/daemon_test.go)
+(the plugin is handed the workspace on its own event, and on the states
+after it).
 
 ## Daemon idle work
 

@@ -119,14 +119,86 @@ func TestSubscribeSendsTheLinearOnce(t *testing.T) {
 	if states != 1 || len(linears) != 1 {
 		t.Fatalf("a subscribe got %d states and %d workspaces, want one of each", states, len(linears))
 	}
-	// The next state, from any change, carries none.
+	// The broadcast after it sends the workspace once more, to this client
+	// too: the subscribe recorded nothing, so nothing is lost to it.
 	d.mu.Lock()
 	d.sessions[0].panes[0].info.Title = "renamed"
 	d.mu.Unlock()
 	d.broadcastNow()
 	states, linears = events(c)
-	if states != 1 || len(linears) != 0 {
-		t.Errorf("a change after subscribing sent %d states and %d workspaces, want one state and none", states, len(linears))
+	if states != 1 || len(linears) != 1 {
+		t.Errorf("the broadcast after a subscribe sent %d states and %d workspaces, want one of each", states, len(linears))
+	}
+}
+
+// A client that subscribes while the workspace changed does not hide the
+// change from the others: the subscribe records nothing, so the next
+// broadcast still sends it.
+func TestSubscribeDoesNotHideAChange(t *testing.T) {
+	d, a := broadcastDaemon(t)
+	d.broadcastNow() // a has the first workspace
+	events(a)
+	d.mu.Lock()
+	d.linear.Issues[0].Title = "Two"
+	d.mu.Unlock()
+	b := &controlConn{out: make(chan proto.Message, 256), d: d}
+	if _, err := d.call(b, "subscribe", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, got := events(b); len(got) != 1 || got[0].Issues[0].Title != "Two" {
+		t.Fatalf("the new client got %+v, want the workspace that changed", got)
+	}
+	d.broadcastNow()
+	if _, got := events(a); len(got) != 1 || got[0].Issues[0].Title != "Two" {
+		t.Errorf("the client that was there got %+v, want the workspace that changed", got)
+	}
+}
+
+// A workspace event a client was too far behind to take is sent again: the
+// states after it carry none, so it would otherwise stay stale until the
+// workspace changed.
+func TestDroppedLinearIsResent(t *testing.T) {
+	d, c := broadcastDaemon(t)
+	d.broadcastNow() // the first workspace, which c takes
+	events(c)
+	for range cap(c.out) { // c is as far behind as its queue allows
+		c.out <- proto.Message{Event: "state"}
+	}
+	d.mu.Lock()
+	d.linear.Issues[0].Title = "Two"
+	d.mu.Unlock()
+	d.broadcastNow() // the workspace event is dropped
+	events(c)        // c catches up
+	d.broadcastNow() // nothing changed, and the workspace comes again
+	if _, got := events(c); len(got) != 1 || got[0].Issues[0].Title != "Two" {
+		t.Errorf("after the drop the client got %+v, want the workspace sent again", got)
+	}
+}
+
+// A daemon with no workspace tells a subscriber so with a nil one, as
+// State.Linear was then: the app and the plugin take nil for none.
+func TestNoWorkspaceIsNil(t *testing.T) {
+	d := &Daemon{subs: map[*controlConn]struct{}{}, panes: map[string]*pane{}, changeCh: make(chan struct{}, 1), saveCh: make(chan struct{}, 1)}
+	empty := ""
+	d.viewed.Store(&empty)
+	c := &controlConn{out: make(chan proto.Message, 8), d: d}
+	if _, err := d.call(c, "subscribe", nil); err != nil {
+		t.Fatal(err)
+	}
+	states, linears := events(c)
+	if states != 1 || len(linears) != 1 {
+		t.Fatalf("a subscribe got %d states and %d workspaces, want one of each", states, len(linears))
+	}
+	if linears[0] != nil {
+		t.Errorf("a daemon with no workspace sent %+v, want nil", linears[0])
+	}
+	// A state asked for once has none either, as it always had.
+	if st := d.state(); st.Linear != nil {
+		t.Errorf("a state asked for once has a workspace: %+v", st.Linear)
+	}
+	// And the RPC that answers the Linear view keeps its status.
+	if lin := d.linearState(); lin == nil || lin.Status != proto.LinearNoToken {
+		t.Errorf("the linear.state call answers %+v, want no_token", lin)
 	}
 }
 
