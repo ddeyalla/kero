@@ -132,6 +132,9 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- The Browser pane's **Open in Default Browser** button and a Markdown
+  link in the Files pane open the page again. The app handed the address
+  to the system as a file's path, so the page never opened.
 - A restart of the terminal service no longer loses the sessions' marks:
   what was unread stays unread, the ages keep their times, and a failure
   stays failed, as does a shell that crashed unseen ("Exited with code N").

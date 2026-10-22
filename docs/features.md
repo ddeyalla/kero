@@ -55,6 +55,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Folder tree with git changes, refreshed every few seconds | Files pane | 2.0.7-local.1 | Shipped |
 | Markdown, code and images shown beside the tree | Click a file | 2.0.7-local.1 | Shipped |
 | Markdown links to headings (`#section`) and other files open in the pane | Click the link | 2.0.7-local.1 | Shipped |
+| Markdown web links open in the default browser (fixed: they were handed over as a file's path) | Click the link | Unreleased | Untried |
 | Fuzzy Find across the project, indexed off the main thread | `Cmd+F` in the pane, arrows or `Ctrl+N`/`Ctrl+P`, Enter | 2.0.7-local.1 | Shipped |
 | Drag a row into a terminal to type its path | Drag and drop | 2.0.7-local.1 | Shipped |
 | Unfolded folders kept across restarts | Automatic | 2.0.7-local.1 | Shipped |
@@ -67,6 +68,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Select the address | `Cmd+L` | 2.0.7-local.1 | Shipped |
 | Zoom the page (Safari's steps); the zoom chip resets it | `Cmd+=`, `Cmd+-`, `Cmd+0` | 2.0.7-local.1 | Shipped |
 | Reload the page (instead of renaming the session) | `Cmd+R` | 2.0.7-local.1 | Shipped |
+| Open the page in the default browser (fixed: it was handed over as a file's path) | The pane bar's **Open in Default Browser** | Unreleased | Untried |
 
 ## Agents
 

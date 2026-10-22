@@ -812,3 +812,17 @@ restart into this version still loses the marks once, from the old file;
 kerod saves the fields with every change of status (`changed` queues a
 save), and every restart after keeps them. Tests:
 `internal/daemon/store_test.go`.
+
+## Web links open in the browser
+
+`openPath` (`platform.go`) calls `mygo.Shell.OpenPath`, which builds a
+`file://` URL from its argument, so a web address handed to it became a
+file's path and nothing opened. `openURL`, beside it, calls
+`mygo.Shell.OpenExternal` and opens a link in the app that handles its
+scheme. The Browser pane's **Open in Default Browser** button
+(`browser_pane.go`) and a web link in a Files pane Markdown file
+(`fileLink` in `files_pane.go`) use it. The other `openPath` callers hand it
+real paths: a file's **Open** in the Files pane, a Command+clicked path in a
+terminal (`openLink` in `app.go`, which leaves URLs to the system) and the
+data folder in Settings. The same `openURL` lands with the plugin host on
+`feat/plugins`, where it also opens plugin links.

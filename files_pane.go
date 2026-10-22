@@ -992,7 +992,7 @@ func (a *App) markdownFile(c *ui.Context, st *filesState, f *fileContent) {
 // a file of the folder in the pane, a heading of it there.
 func (a *App) fileLink(st *filesState, dir, link string) {
 	if linearSafeURL(link) {
-		openPath(link)
+		openURL(link)
 		return
 	}
 	if strings.Contains(link, "://") || strings.HasPrefix(link, "mailto:") {
