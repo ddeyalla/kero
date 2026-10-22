@@ -93,7 +93,7 @@ kero config check             # report unknown keys and bad values
 | `notify-on-done`    | `true`  | When an agent finishes                         |
 | `notify-on-error`   | `true`  | When a program reports it failed               |
 | `notify-sound`      | `false` | Play a sound with notifications                |
-| `notify-throttle-minutes` | `5` | How long the same session and state stays quiet after a notification, in minutes; `0` tells every time |
+| `notify-throttle-minutes` | `5` | How long the same session and state stays quiet after a notification, in minutes, when it asks again within 30 seconds of the answer; `0` tells every time |
 | `silence-session`   |         | A session whose notifications are off, by its id; repeat it |
 | `dock-badge`        | `true`  | Show how many sessions need you on the Dock icon |
 | `dock-bounce`       | `false` | Bounce the Dock icon once when a session comes to need you |

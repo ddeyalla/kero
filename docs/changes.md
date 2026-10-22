@@ -365,35 +365,55 @@ The app tells of a session by comparing the attention kerod folded
   is what changes, and the same session and state inside
   `notify-throttle-minutes` (five by default, `0` for no throttle) is
   counted silently, so a chatty agent's loop does not fill Notification
-  Center. A turn that begins again after the window tells again;
+  Center. Only a notification that was shown starts the throttle: an ask
+  the user saw in the focused session, or one a setting turned off, holds
+  nothing back. A session that asks again less than 30 seconds after it
+  left the state is a loop; one that asks again later (a real second ask
+  after an approval) tells even inside the window;
+- a clean exit of a plain program, and a view pane's unread mark, tell
+  nothing; an exit with a non-zero code is a failure;
+- after kerod restarts and the app reconnects, the watch starts anew:
+  panes kerod brings back idle and unread are not news;
 - an unseen end whose pane failed keeps the error's title and body, and
   `notify-on-error` decides it; `notify-on-waiting` and `notify-on-done`
   decide the rest, as they did. The sound, the Dock badge and the bounce
   stay as they were; the badge counts the sessions whose fold waits
   (`waiting-user`), not a pane's status.
 
-Focus is the only filter: the session the user is in, in a window in
-front, tells nothing. The watch itself knows nothing of windows or
+Focus is the only filter: the session the user is in, in a window that is
+in front and has the keyboard, tells nothing, and neither does a zoomed
+session's pane in sight (another pane of it that asks does tell). A click
+on a notification selects its session and moves into the pane it comes
+from. (The Attention pane's own focus action, `focusAttention`, is on
+another branch and replaces this click handling when merged.) The watch itself knows nothing of windows or
 profiles — it is handed every session the daemon holds, so a session in a
 profile the user is not looking at still tells. That is the global rule
 the profiles of `feat/profiles-a1` will need; no profiles code is built
 here, and a later filter must not hide a session's attention from this
 watch.
 
-A session can be silenced: **Session › Silence Notifications**, the
-session's context menu, or `kero do session.silence` turns its
+A session can be silenced: **Session › Silence or Resume Notifications**,
+the session's context menu, or `kero do session.silence [session=<id or
+name>] [state=on|off]` turns its
 notifications off until the user resumes them. The list is saved with the
-settings (`silence-session`) and survives a restart of the app. A silenced
+settings (`silence-session`) and survives a restart of the app; ids of
+sessions that were closed fall off the list at the next state. Without
+`session=` the action is about the selected session, and without `state=`
+it toggles. A silenced
 session tells nothing; once resumed, its next turn tells, inside the same
 throttle window. A daemon of before the `Attention` field says none, so
 `foldOf` reads the fold from the session's lead pane: nothing goes quiet
 in that window.
 
-What a notification says is the session's name and one line of what it
-needs — the fold's `Msg`, which is the hook's or the screen's line, cut to
-80 bytes by kerod — or the agent and the folder when the fold has none.
-Nothing more of the conversation is read for it, and no credential goes in
-it.
+What a notification says is the session's name and, for a wait or a
+failure, one line of what it needs: the fold's `Msg`, which is the hook's
+or the screen's line (or the name of the tool call a wait hangs on), cut to
+80 bytes by kerod. A session's end never uses the fold's line: kerod can
+fold it from the agent's own transcript (the last message of a Codex turn),
+and what an agent wrote is not for a notification, so an end says the agent
+and the folder. The transcript scan is kerod's existing one; the
+notification does not read more of it. A daemon of before the `Attention`
+field is read pane by pane, and the most urgent pane wins.
 
 Code: [`attention_notify.go`](../attention_notify.go) (`attentionWatch`,
 `foldOf`), [`app.go`](../app.go) (`notify`, `tell`, `toggleSilence`),

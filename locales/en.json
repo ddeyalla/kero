@@ -12,7 +12,7 @@
   "actionNextSession": "Next Session",
   "actionPreviousSession": "Previous Session",
   "actionRenameSession": "Rename Session",
-  "actionSilenceSession": "Silence Notifications for This Session",
+  "actionSilenceSession": "Silence or Resume Notifications for This Session",
   "actionRestartPane": "Restart Pane",
   "actionClose": "Close",
   "actionCloseSession": "Close Session",
