@@ -320,9 +320,9 @@ func (a *App) dropBrowser(id string) {
 }
 
 // sweepViews lets go of what the views of panes that closed held: their
-// web views, read folders and plugin views.
+// web views, read folders, Linear views, Attention views and plugin views.
 func (a *App) sweepViews() {
-	if len(a.browsers) == 0 && len(a.files) == 0 && len(a.cardSize) == 0 && len(a.prefs.Files) == 0 && len(a.plugins.panes) == 0 {
+	if len(a.browsers) == 0 && len(a.files) == 0 && len(a.tasks) == 0 && len(a.attention) == 0 && len(a.cardSize) == 0 && len(a.prefs.Files) == 0 && len(a.plugins.panes) == 0 {
 		return
 	}
 	alive := map[string]bool{}
@@ -343,6 +343,16 @@ func (a *App) sweepViews() {
 	for id := range a.files {
 		if !alive[id] {
 			delete(a.files, id)
+		}
+	}
+	for id := range a.tasks {
+		if !alive[id] {
+			delete(a.tasks, id)
+		}
+	}
+	for id := range a.attention {
+		if !alive[id] {
+			delete(a.attention, id)
 		}
 	}
 	for id := range a.cardSize {

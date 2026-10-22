@@ -283,26 +283,32 @@ Tests: `attention_test.go`, `store_test.go` (`TestRestoreKeepsSummary`).
 
 The **Attention** pane shows what needs the user, of every session, in one
 list. It reads `Session.Attention` as kerod sends it and holds no state of
-its own beyond the list: it runs nothing in the daemon, so it needs no
-protocol change, and a kerod that does not send the state leaves the list
-empty rather than breaking it. Its own state — the filter, the search,
-where it is scrolled to — is the app's, one per pane (`App.attention`,
-`attention_pane.go`). The pane itself is a view as Tasks, Files and
+its own beyond the list: it runs nothing in the daemon. A kerod that does
+not send the state leaves the list empty. The pane view itself is new to
+the protocol, though: `"attention"` joins `proto.PaneViews`, and a kerod
+that predates it refuses the pane (`internal/daemon/sessions.go`), so the
+terminal service needs a restart once, when agents are idle. Its own
+state — the filter, the search, where it is scrolled to — is the app's,
+one per pane (`App.attention`, `attention_pane.go`), dropped when the pane
+closes. It is not kept in the pane's Target, so a restart resets it; that
+is deferred, as a search would send a Target change per keystroke.
+
+The pane is a view as Tasks, Files and
 Browser are: kerod keeps it and its Target across a restart.
 
 A row says the state's mark and name, the session's name and its project,
 the agent, the line the state came with, and how long it has been so
 (`ago`). Rows are the sessions of the sidebar's order, the most urgent
-first — `waiting-user`, `running`, `unread`, `done`, `idle`, the daemon's
+first — `waiting-user`, `running`, `unread`, `done`, the daemon's
 order — and of two as urgent, the one whose state came last. A click
 selects the session and puts the keyboard in the pane the state came from
-(`Attention.Pane`), where the decision is; it does not zoom, so the panes
-beside it stay in sight.
+(`Attention.Pane`), where the decision is; it does not zoom, and it ends a zoom
+on another pane, so the panes beside it stay in sight.
 
 The chips narrow the list to a state and count what each shows: **All**,
 **Needs you**, **Working**, **Unread**, **Done**. The copy is the app's
 own, as the sidebar and the footer say it: `waiting-user` is **Needs
-you**. Idle sessions, at rest, have no chip: they are in **All**, last.
+you**. Idle sessions, at rest, need nothing and are not listed.
 The search finds what a row says — its name, project, agent, message and
 state — as plain text, and Escape clears it.
 

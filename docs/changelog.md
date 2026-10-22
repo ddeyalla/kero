@@ -131,11 +131,14 @@ builds only. What each feature is and where it stands is tracked in the
   so. A row puts the keyboard in the pane the state came from, where the
   decision is, without zooming. Chips narrow it to **Needs you**,
   **Working**, **Unread** or **Done** and count each; a plain-text search
-  finds a row by its words. A Codex wait whose message the agent did not
-  give says **Focus pane to approve** rather than nothing. `Cmd+Alt+A`,
+  finds a row by its words. A Codex wait adds **Focus pane to approve**
+  to the line kerod gave it. Sessions at rest are not listed. `Cmd+Alt+A`,
   the New Pane chooser's `A`, or `kero split --attention`. It reads the
-  attention state kerod already sends, so it needs no protocol change, and
-  it keeps the filter and search while the pane is open.
+  attention state kerod sends, and it keeps the filter and search while
+  the pane is open (not across a restart). The pane view is new to the
+  protocol (`proto.PaneViews`), so an older kerod refuses it: **restart
+  the terminal service once** (when agents are idle) to open an Attention
+  pane. A row's click also ends a zoom on another pane.
 - New icons are SF Symbols, drawn by macOS through AppKit and cached as
   bitmaps, so they match the system at any size and in the light and the
   dark (`symbols_darwin.go`). The Attention pane's mark and its rows'
