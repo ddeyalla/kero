@@ -240,7 +240,7 @@ func TestRestoreDropsSummaryOfWorkAndWait(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(d.dir, "state.json"), []byte(saved), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			d.restore()
+			restoreAll(t, d)
 			if len(d.sessions) != 1 || len(d.sessions[0].panes) != 1 {
 				t.Fatalf("the restore made no pane: %+v", d.sessions)
 			}

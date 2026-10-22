@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 
+	"kero/internal/plugin/protocol"
 	"kero/internal/proto"
 )
 
@@ -305,5 +307,53 @@ func TestAttentionCodexApproval(t *testing.T) {
 	rows[0].att.State, rows[0].att.Msg = proto.AttentionRunning, ""
 	if got := a.attentionSummary(rows[0]); got != "Working" {
 		t.Fatalf("a Codex run says %q", got)
+	}
+}
+
+// A row of a session working on an issue offers the issue, which opens in
+// the Linear view; a row of a session with none offers nothing.
+func TestAttentionRowOpensIssue(t *testing.T) {
+	a := testAttention(t,
+		attnFixture{state: proto.AttentionWaitingUser, msg: "Approve", agent: "claude"},
+		attnFixture{state: proto.AttentionWaitingUser, msg: "Approve too", agent: "claude"})
+	a.session("s2").TaskID = "BRU-25"
+	a.st.Linear = &proto.LinearState{Status: proto.LinearOK, Team: "BRU"}
+	target, _ := protocol.EncodeTarget(protocol.Target{Plugin: "linear", Widget: "board", State: json.RawMessage(`{"query":"keep"}`)})
+	a.session("s1").Panes = append(a.session("s1").Panes, proto.Pane{ID: "linear", View: proto.PanePlugins, Target: target})
+	var saved string
+	a.plugins.saveTarget = func(pane, target string) { saved = target }
+	tt := ui.NewTester(a.view, 1280, 720)
+	frames(tt)
+	if _, ok := tt.Find("Open issue BRU-25"); !ok {
+		t.Fatalf("no way to the issue; texts %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Open issue"); ok {
+		t.Error("a session with no issue offers one")
+	}
+	if err := tt.Click("Open issue BRU-25"); err != nil {
+		t.Fatal(err)
+	}
+	frames(tt)
+	targetState, err := protocol.DecodeTarget(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]string
+	if err := json.Unmarshal(targetState.State, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state["open"] != "BRU-25" || state["query"] != "keep" || a.focusOf(a.session("s1")) != "linear" {
+		t.Fatalf("issue target %s, focus %s", saved, a.focusOf(a.session("s1")))
+	}
+	if a.selected == "s2" {
+		t.Error("the button also opened the row's session")
+	}
+
+	// Back on the pane, with the session's issue gone: no button.
+	a.show, a.selected = "session", "s1"
+	a.session("s2").TaskID = ""
+	frames(tt)
+	if _, ok := tt.Find("Open issue BRU-25"); ok {
+		t.Error("a session with no issue offers one")
 	}
 }

@@ -125,6 +125,24 @@ builds only. What each feature is and where it stands is tracked in the
   Two tests fail if a screen read or a key's echo starts to allocate with
   the scrollback. Budgets and the first numbers: [Performance](perf.md)
   (BRU-223).
+- **Next Waiting Session** goes from one session that waits on the
+  user to the next: Session › **Next Waiting Session**, the command
+  palette, or `kero do attention.next-blocked`. It takes the sessions
+  whose attention state is `waiting-user`, longest
+  wait first and then by session id, shows the pane that needs you, and
+  puts the keyboard in it. It starts after the session shown when that one
+  waits too, goes on from the one it went to last, and says "Nothing needs
+  you" when none waits. A zoom follows the focus, as when panes are cycled
+  while zoomed, so the jump never lands on a pane the zoom hides. The
+  issue detail's **Open the session**, and a running conversation's
+  **Open**, go to the pane that needs you when the session waits on you,
+  and leave the focus and zoom where they are when it does not. A daemon
+  of before this state reads each session's lead pane instead, as the
+  notifications do. No state is saved for it.
+- A row of the **Attention** pane whose session works on a Linear issue has
+  an **Open issue** button, which opens the Linear view on that issue: the
+  way back from a session to its issue, as the issue detail's **Open the
+  session** is the way to the session.
 - An **Attention** pane: every session that needs the user, in one list,
   the most urgent first — what it is doing or asking, the session and its
   project, the agent, the line that came with it, and how long it has been
@@ -408,6 +426,11 @@ builds only. What each feature is and where it stands is tracked in the
   terminal's cursor by painting the window again, without building it.
 
 ### Fixed
+
+- Attention integration preserves the adaptive daemon scheduler and plugin
+  views. Linear issue links open the Linear plugin, and session jumps and
+  notification clicks reveal the asking pane under zoom. Opening an Attention
+  row saves the expanded project in sidebar preferences.
 
 - The app connects at once after a terminal service restart. Sessions appear
   as they come back, in their saved order, with up to four restoring at a

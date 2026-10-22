@@ -279,6 +279,75 @@ Code: [`internal/daemon/attention.go`](../internal/daemon/attention.go),
 [`internal/proto/proto.go`](../internal/proto/proto.go) (`Attention`).
 Tests: `attention_test.go`, `store_test.go` (`TestRestoreKeepsSummary`).
 
+## Attention navigation
+
+A session that waits on the user can be gone to, and the next one can be
+gone to after it. Moving between them is `attention.next-blocked`
+(Session › **Next Waiting Session**, the command palette, or
+`kero do attention.next-blocked` from an agent's shell). It has no default
+shortcut: the menu, the palette and the CLI reach it, and no key is taken
+from a pane's program for it.
+
+**The cycle.** The action reads each session's fold (`foldOf`, shared with
+the notifications), so it, the notifications and the attention pane see one
+truth. The sessions it visits are those whose state
+is `waiting-user`, ordered by `Attention.Since` ascending and then by the
+session's id: the longest wait first, and the same order when two came at
+the same millisecond, whatever order kerod sent them in. Nothing is saved
+for the order; the app keeps the session it went to last in
+`App.attentionLast` ([`attention_nav.go`](../attention_nav.go),
+`nextBlocked`). A press goes after the session shown when it waits, else
+after the session it went to last, else to the longest wait, and wraps. So
+a press from a waiting session goes on to the next, and looking at a
+session that does not wait does not start the cycle over. With no session
+waiting it
+is a no-op and says "Nothing needs you", as Jump to Session Needing You
+does. A session that stops waiting leaves the cycle, and the next press
+goes on from where it was. A daemon of before this feature sends no
+attention state; `foldOf` then reads the session's lead pane (waiting is
+`Status == Waiting`), and such sessions have no `Since`, so they come first
+and are ordered by id.
+
+**Focus.** `focusAttention(session, pane)` is the one way to take the user
+to what a session needs; the issue detail and the cycle use it. It opens the session's project in the sidebar, selects the
+session, and moves both the app's focus and kerod's (`focus`) to the pane
+the attention came from; the pane's terminal then takes the keyboard, as
+the app's pane focus does (`setFocus`). A pane named that has closed since
+the state came falls back to the pane the session was in last, so a stale
+row never focuses nothing.
+
+A zoom follows the focus, exactly as it does when panes are cycled while
+zoomed: when the session is zoomed on another pane, the zoom moves to the
+named pane. That is what keeps the jump from landing on a pane the zoom
+hides, and the session stays zoomed on the pane the user came to see
+rather than dropping to the whole layout. The one case `setFocus` alone
+would miss — the pane already focused while `kero focus`/`select` left the
+zoom elsewhere, which does not pass through `focus` — is set right
+explicitly with the `zoom` method.
+
+**Linear round trip.** A session linked to an issue shows in the issue's
+detail, and the detail's **Open the session**, like a running
+conversation's **Open**, now goes through `focusAttentionOf(session)`: the
+session is selected, and when it waits on the user the pane its attention
+came from is in front. A session at rest keeps its focus and zoom, since
+the fold names its first pane then, which needs nobody. The other end is
+the attention pane's **Open issue** button (`attentionIssueButton` in
+`attention_pane.go`), shown on a row whose session has a `TaskID`: it
+opens the issue in the Linear plugin (`openAttentionIssue`). An existing
+Linear pane in the selected session keeps its filters; otherwise a new pane
+is split with the issue in its saved target. The row's own click is skipped for that press. Nothing
+new is stored: both ends read the link the daemon already keeps for the
+task (`session.link`, the panes' `TaskID`, `savedPane.Task`), and the app
+keeps no link of its own.
+
+Code: [`attention_nav.go`](../attention_nav.go), `actions.go` (`run`),
+[`internal/actions/actions.go`](../internal/actions/actions.go),
+[`app.go`](../app.go) (`session.attention` action from the Linear plugin).
+Tests: `attention_nav_test.go` (cycle order and wrap, no session waiting,
+a zoomed session, a closed pane, the issue detail's jump, a session at
+rest, a daemon with no fold); `attention_pane_test.go`
+(`TestAttentionRowOpensIssue`).
+
 ## The Attention pane
 
 The **Attention** pane shows what needs the user, of every session, in one
@@ -352,6 +421,7 @@ The Attention pane's mark and its rows' states are symbols:
 `bell.badge`, `hand.raised.fill`, `arrow.triangle.2.circlepath`,
 `checkmark.circle.fill`, `checkmark.circle` and `circle`. The app's older
 icons stay SVG, as they are. Tests: `symbols_test.go`.
+
 ## Notifications from attention
 
 The app tells of a session by comparing the attention kerod folded
@@ -384,8 +454,8 @@ Focus is the only filter: the session the user is in, in a window that is
 in front and has the keyboard, tells nothing, and neither does a zoomed
 session's pane in sight (another pane of it that asks does tell). A click
 on a notification selects its session and moves into the pane it comes
-from. (The Attention pane's own focus action, `focusAttention`, is on
-another branch and replaces this click handling when merged.) The watch itself knows nothing of windows or
+from through `focusAttention`, so a zoom follows the asking pane.
+The watch itself knows nothing of windows or
 profiles — it is handed every session the daemon holds, so a session in a
 profile the user is not looking at still tells. That is the global rule
 the profiles of `feat/profiles-a1` will need; no profiles code is built
@@ -1401,7 +1471,8 @@ there is no protocol or saved-state format change.
 - `Run` in `internal/daemon/daemon.go` reads a restore plan, starts the accept
   loop, then restores sessions in a background goroutine. The initial
   transcript scan runs only after that restore returns; `scanPass` in
-  `internal/daemon/attention.go` locks each pane while reading its transcript.
+  `internal/daemon/attention.go` takes a snapshot and applies results under the
+  pane lock, while transcript disk reads run without it.
 - `restore` in `internal/daemon/store.go` loads the state, workspace, projects
   and task runs. `restoreInBackground` uses up to four workers. History feeds
   and shell forks run outside `d.mu`; `restoreRun.publish` inserts a whole
@@ -1797,3 +1868,22 @@ text in the light and the dark, and writes shots of them to
 `TestPaletteIsGlass` checks that the palette shows the terminal through it
 where an opaque panel would be one shade, and `TestGlassTextContrast` that
 the palette's muted text keeps 4.5 to 1 on the glass, light and dark.
+
+## Attention integration on current Shibu
+
+The B1–B4 fixes share the existing adaptive tick scheduler: transcript scans
+run off the tick goroutine and the atomic scan guard prevents overlapping
+passes. `scanTranscript` owns the pane lock; `scanPass` does not take it
+again. The branch watcher and elapsed-time scan cadence remain intact.
+Screen overrides and the 30-second re-ask loop rule are intentional owner
+choices (BRU-261 and BRU-269).
+
+Linear links use the built-in Linear plugin, rather than the removed Linear
+screen. Its `session.attention session=<id>` action passes through `focusAttentionOf`, and
+notification clicks through `focusAttention`, so the pane that needs the user
+stays visible under zoom. An Attention row also saves a project fold it opens.
+
+Known limits remain: Attention search and filters live only while the pane is
+open, and a Codex transcript discovery miss may walk the full sessions tree.
+The transcript dedupe retains what it told after a screen override to avoid
+reclaiming the same working state on every scan.

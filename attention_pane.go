@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 
+	"kero/internal/plugin/protocol"
 	"kero/internal/proto"
 
 	"kero/locales"
@@ -303,9 +305,7 @@ func (a *App) attentionRowView(c *ui.Context, pal *palette, r attentionRow) {
 		bg = pal.rowHover
 	}
 	row.Background(row.AnimateColor("bg", bg, hover))
-	if row.Clicked() {
-		a.gotoAttention(r)
-	}
+	issue := false
 	color := attentionColor(pal, r.att.State)
 	row.Children(func() {
 		ui.Row(c.Key("state")).Gap(6).AlignItems(ui.Center).Width(96).Shrink(0).Children(func() {
@@ -327,7 +327,82 @@ func (a *App) attentionRowView(c *ui.Context, pal *palette, r attentionRow) {
 			}
 			ui.Text(c, ago(r.att.Since, c.Now())).FontSize(12).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine().Shrink(0)
 		})
+		if r.session.TaskID != "" {
+			issue = a.attentionIssueButton(c, pal, r.session.TaskID)
+		}
 	})
+	// The issue's button is the row's own click when it is the target.
+	if !issue && row.Clicked() {
+		a.gotoAttention(r)
+	}
+}
+
+// attentionIssueButton is a row's way to the issue its session works on:
+// the mark of a link out, which opens the Linear workspace on that issue.
+// It is the other end of the issue detail's way to the session, and it
+// reports whether it was clicked.
+func (a *App) attentionIssueButton(c *ui.Context, pal *palette, task string) bool {
+	label := locales.AttentionOpenIssue(task)
+	b := ui.ButtonBase(c.Key("issue")).Size(26, 26).Radius(6).Center().Shrink(0).Label(label).Tooltip(label)
+	switch {
+	case b.Pressed():
+		b.Background(pal.rowHover.Alpha(0.12))
+	case b.Hovered():
+		b.Background(pal.rowHover)
+	}
+	b.Children(func() {
+		symbolMark(c, "arrow.up.right.square", 14, pal.textMuted, pal.dark)
+	})
+	if !b.Clicked() {
+		return false
+	}
+	a.openAttentionIssue(task)
+	return true
+}
+
+// openAttentionIssue opens the issue in a Linear plugin pane. An existing
+// pane in this session keeps its filters; without one, a new pane opens.
+func (a *App) openAttentionIssue(task string) {
+	s := a.session(a.selected)
+	if s == nil {
+		return
+	}
+	for i := range s.Panes {
+		p := &s.Panes[i]
+		if p.View != proto.PanePlugins {
+			continue
+		}
+		target, err := protocol.DecodeTarget(p.Target)
+		if err != nil || target.Plugin != "linear" {
+			continue
+		}
+		st := a.pluginPaneState(p)
+		state := map[string]json.RawMessage{}
+		if len(st.state) > 0 {
+			if err := json.Unmarshal(st.state, &state); err != nil {
+				continue
+			}
+		}
+		if state == nil {
+			state = map[string]json.RawMessage{}
+		}
+		state["open"], _ = json.Marshal(task)
+		data, _ := json.Marshal(state)
+		if st.opened && a.plugins.host != nil {
+			a.plugins.host.Close(p.ID)
+		}
+		st.opened, st.visible = false, false
+		a.pluginStateSaved("linear", p.ID, data)
+		a.focusAttention(s.ID, p.ID)
+		return
+	}
+	state, _ := json.Marshal(map[string]string{"open": task})
+	target, err := protocol.EncodeTarget(protocol.Target{Plugin: "linear", Widget: "board", State: state})
+	if err != nil {
+		a.toast(err.Error())
+		return
+	}
+	a.splitTarget(s, "", "right", proto.PanePlugins, target)
 }
 
 // attentionSummary is a row's one line: what the hook said, exactly, and
@@ -354,7 +429,10 @@ func (a *App) attentionSummary(r attentionRow) string {
 // panes beside it stay in sight. A zoom on another pane is ended, as
 // setFocus alone would leave it hiding the target.
 func (a *App) gotoAttention(r attentionRow) {
-	delete(a.prefs.Collapsed, r.session.Project)
+	if _, ok := a.prefs.Collapsed[r.session.Project]; ok {
+		delete(a.prefs.Collapsed, r.session.Project)
+		a.savePrefs()
+	}
 	a.selectSession(r.session.ID)
 	s := a.session(r.session.ID)
 	if s == nil || r.att.Pane == "" || s.PaneByID(r.att.Pane) == nil {

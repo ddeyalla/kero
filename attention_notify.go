@@ -76,9 +76,6 @@ func orderedPanes(s *proto.Session) []*proto.Pane {
 	return out
 }
 
-// attentionRank orders the states as kerod does: a wait beats work, and
-// an unseen end beats rest.
-
 // unreadFold narrows an unseen end by the pane it comes from. A view (Tasks,
 // Files, Browser, Attention) never works or fails: its mark is the user's
 // to clear, and it ends no turn, so it tells nothing. A program that

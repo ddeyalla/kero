@@ -47,7 +47,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | Open the new pane below instead of beside | Hold Shift in the chooser | 2.0.7-local.1 | Shipped |
 | Open a kind of pane directly | `Cmd+Alt+T` / `L` / `E` / `B` (and `A`) | 2.0.7-local.1 | Shipped |
 | Turn a pane into another kind | Pane menu › **Show in This Pane** | 2.0.7-local.1 | Shipped |
-| Attention pane: every session that needs you, one list, most urgent first, with chips (All, Needs you, Working, Unread, Done), counts and a plain-text search; a row opens the pane that needs you | `Cmd+Alt+A`, the chooser's `A`, or `kero split --attention` | Unreleased | Untried |
+| Attention pane: every session that needs you, one list, most urgent first, with chips (All, Needs you, Working, Unread, Done), counts and a plain-text search; a row opens the pane that needs you, and an Open issue button on a session with an issue opens it in a Linear plugin pane | `Cmd+Alt+A`, the chooser's `A`, or `kero split --attention` | Unreleased | Untried |
 | New icons are SF Symbols, drawn by macOS and cached as bitmaps | Automatic; the Attention pane's mark and its rows' states | Unreleased | Untried |
 | Agents open views beside themselves | `kero split --browser 5173`, `--files --open docs/plan.md`, `--tasks`, `--attention` | 2.0.7-local.1 | Shipped |
 | A view's page or file is kept across restarts | Automatic | 2.0.7-local.1 | Shipped |
@@ -104,6 +104,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | Session title marks (SF Symbols, derived, never typed): needs you, bug (linked task labeled Bug), working, done and seen; the title truncates, not the mark | Automatic; sidebar rows and the command palette | Unreleased | Untried |
 | Sidebar project groups: room above each header, header close to its sessions, fixed order and places for the count, "needs you", chevron and add button; emoji in project titles kept and drawn whole | Sidebar; rename a project from its header's context menu | Unreleased | Untried |
 | Each session carries one attention state — running, waiting-user, unread, done or idle — with one line of what it says, the pane it comes from and its age; a transcript scan fills in where an agent reports nothing (Codex's approvals) | Automatic: it rides on the state kerod sends | Unreleased | Untried |
+| Go to the next session waiting on you, longest wait first, with the pane that needs you in front (a zoom follows it); the issue detail's session opens there too | Session › **Next Waiting Session**, the command palette, `kero do attention.next-blocked` | Unreleased | Untried |
 | Notifications from that attention: a session that needs you or ends unseen tells once, a turn that begins again clears it, and the same session and state inside `notify-throttle-minutes` is counted silently; every session kerod holds tells, in any profile or window | Automatic; `notify-on-waiting`, `notify-on-done`, `notify-on-error` and `notify-throttle-minutes` in the configuration, Settings › Notifications | Unreleased | Untried |
 | Silence one session's notifications, remembered across restarts | Session › Silence Notifications, the session's context menu, `kero do session.silence`; `silence-session` in the configuration | Unreleased | Untried |
 

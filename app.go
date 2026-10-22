@@ -113,6 +113,9 @@ type App struct {
 	// the system's notification.
 	watch   *attentionWatch
 	deliver func(id, pane, title, body string)
+	// attentionLast is the session `attention.next-blocked` went to last:
+	// where the next press goes on from.
+	attentionLast string
 
 	// windowBar is the title bar as it last was in the window, which
 	// titleBar keeps in full screen, where the traffic lights are the
@@ -487,10 +490,7 @@ func (a *App) showNotification(id, pane, title, body string) {
 	n := mygo.NewNotification(mygo.NotificationOptions{ID: "session/" + id, Group: id, Title: title, Body: body, Silent: !a.set.NotifySound})
 	n.OnClick(func() {
 		a.update(func() {
-			a.selectSession(id)
-			if s := a.session(id); s != nil && pane != "" && s.PaneByID(pane) != nil {
-				a.setFocus(s, pane)
-			}
+			a.focusAttention(id, pane)
 			a.win.Show()
 			a.win.Focus()
 		})
@@ -1462,7 +1462,11 @@ func (a *App) jumpTo(want func(*proto.Session) bool) bool {
 	for k := 1; k <= len(ids); k++ {
 		id := ids[(i+k+len(ids))%len(ids)]
 		if s := a.session(id); s != nil && id != a.selected && want(s) {
-			delete(a.prefs.Collapsed, s.Project)
+			if _, ok := a.prefs.Collapsed[s.Project]; ok {
+				// The row shows; selectSession saves only a change of session.
+				delete(a.prefs.Collapsed, s.Project)
+				a.savePrefs()
+			}
 			a.selectSession(id)
 			return true
 		}
