@@ -527,6 +527,11 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Documentation
 
+- Recorded visible, unfocused idle measurements at 1, 4 and 8 panes,
+  including a repeat at 4 panes, and the remaining memory, focused-idle and
+  input-latency limits. Clarified the cursor blink timeout, its code and
+  regression checks, and independent focus verification after the timeout
+  (BRU-223, BRU-225, BRU-336).
 - Rewrote [Linear plugin and session links](linear-workspace.md) around the
   plugin, and updated the plugin guide (new parts, the `focus` permission,
   widget icons and pins), the security notes and the feature tracker.
