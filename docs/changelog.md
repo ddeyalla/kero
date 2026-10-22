@@ -180,6 +180,10 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Documentation
 
+- `scripts/dev-env.sh` puts the bundled Go on the shell's path from any
+  worktree, sharing one toolchain and one warm build cache, and
+  `scripts/check.sh` runs the commit checks, or the tests of chosen packages,
+  without reaching the daily app. See [Build](build.md).
 - Added the [feature tracker](features.md): every Shibu feature, the release
   that shipped it, how to reach it and its status.
 - Noted the one-time service restart for 2.0.7-local.1 and the Files Find
