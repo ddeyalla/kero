@@ -107,7 +107,7 @@ ambiguous one), 4 kerod unreachable.
 // Commands lists the subcommands, which main sends here.
 var Commands = []string{"ls", "list", "new", "split", "send", "key", "prompt", "read", "capture", "wait", "status",
 	"rename", "focus", "close", "kill", "restart", "notify", "report", "projects", "skill", "hook", "daemon", "do", "actions", "config",
-	"linear", "link", "task", "usage", "resources", "help", "--help", "-h", "version", "--version"}
+	"linear", "link", "task", "plugin", "usage", "resources", "help", "--help", "-h", "version", "--version"}
 
 // Errors of exit statuses other than 1.
 var (
@@ -229,6 +229,8 @@ func run(args []string) error {
 		return linkCmd(args)
 	case "task":
 		return taskCmd(args)
+	case "plugin":
+		return pluginCmd(args)
 	case "usage":
 		return accountUsage(args)
 	case "resources":
@@ -345,7 +347,15 @@ func run(args []string) error {
 		view, target := "", ""
 		switch {
 		case f.set["tasks"]:
-			view = proto.PaneTasks
+			// Tasks are the Linear plugin's board, as the migration of
+			// the old Tasks pane makes it.
+			view = proto.PanePlugins
+			t, err := protocol.EncodeTarget(protocol.Target{Plugin: "linear", Widget: "board",
+				State: json.RawMessage(`{"mode":"list","scope":"project","hideDone":true}`)})
+			if err != nil {
+				return err
+			}
+			target = t
 		case f.set["files"]:
 			view, target = proto.PaneFiles, f.vals["open"]
 			if target != "" {

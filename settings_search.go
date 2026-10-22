@@ -72,10 +72,7 @@ func settingsIndex() []searchEntry {
 		{"agents", locales.SetProgramStatus(), "osc 7501 report progress"},
 
 		{"linear", locales.LinearApiKey(), "linear api key token lin_api workspace"},
-		{"linear", locales.SetLinearSidebar(), "linear-sidebar workspace row tray"},
 		{"linear", locales.SetLinearRefresh(), "linear-refresh-interval poll sync refresh seconds quota"},
-		{"linear", locales.SetLinearEmptyColumns(), "linear-empty-columns hidden columns states board"},
-		{"linear", locales.SetLinearDensity(), "linear-card-density compact comfortable cards"},
 
 		{"advanced", locales.SetConfigFile(), "configuration ghostty edit file dotfiles"},
 		{"advanced", "kerod", "daemon background service restart sessions"},

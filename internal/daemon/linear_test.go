@@ -106,3 +106,41 @@ func TestLinearIntervalFollowsTheSetting(t *testing.T) {
 		}
 	}
 }
+
+func TestLinearIssueMapsAssigneePriorityParentAndViewer(t *testing.T) {
+	snap := &linear.Snapshot{
+		Viewer: &linear.User{ID: "u1", Name: "Me"},
+		Issues: []linear.Issue{{
+			ID: "i1", Identifier: "BRU-2", Title: "Child",
+			Assignee: &linear.User{ID: "u2", Name: "Ann"}, Parent: &linear.Issue{Identifier: "BRU-1"},
+		}, {ID: "i2", Identifier: "BRU-3"}},
+	}
+	st := linearSnapshot(snap)
+	if st.Viewer == nil || st.Viewer.ID != "u1" || st.Viewer.Name != "Me" {
+		t.Fatalf("viewer %+v", st.Viewer)
+	}
+	i := st.Issues[0]
+	if i.Assignee != "Ann" || i.AssigneeID != "u2" || i.Parent != "BRU-1" {
+		t.Fatalf("issue %+v", i)
+	}
+	if u := st.Issues[1]; u.Assignee != "" || u.AssigneeID != "" || u.Parent != "" || u.Priority != 0 {
+		t.Fatalf("an unassigned issue has fields: %+v", u)
+	}
+	if linearSnapshot(&linear.Snapshot{}).Viewer != nil {
+		t.Fatal("a snapshot with no viewer has one")
+	}
+}
+
+func TestLinearSnapshotCollectsLabelColors(t *testing.T) {
+	snap := &linear.Snapshot{Issues: []linear.Issue{
+		{ID: "i1", Labels: []linear.Label{{Name: "bug", Color: "#E5484D"}, {Name: "plain"}}},
+		{ID: "i2", Labels: []linear.Label{{Name: "bug", Color: "#E5484D"}, {Name: "ui", Color: "#2F6FED"}}},
+	}}
+	got := linearSnapshot(snap).LabelColors
+	if len(got) != 2 || got["bug"] != "#E5484D" || got["ui"] != "#2F6FED" {
+		t.Fatalf("label colors %v", got)
+	}
+	if linearSnapshot(&linear.Snapshot{}).LabelColors != nil {
+		t.Fatal("a workspace with no labels has colors")
+	}
+}

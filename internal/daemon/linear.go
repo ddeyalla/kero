@@ -179,6 +179,9 @@ func linearSnapshot(snap *linear.Snapshot) *proto.LinearState {
 		TeamName:  snap.Team.Name,
 		FetchedAt: snap.Read.UnixMilli(),
 	}
+	if snap.Viewer != nil && snap.Viewer.ID != "" {
+		st.Viewer = &proto.LinearUser{ID: snap.Viewer.ID, Name: snap.Viewer.Name}
+	}
 	for _, s := range snap.Team.States {
 		st.States = append(st.States, proto.LinearWorkflowState{
 			ID: s.ID, Name: s.Name, Type: s.Type, Position: s.Position, Color: s.Color,
@@ -197,6 +200,15 @@ func linearSnapshot(snap *linear.Snapshot) *proto.LinearState {
 	}
 	for _, i := range snap.Issues {
 		st.Issues = append(st.Issues, linearIssue(i))
+		for _, l := range i.Labels {
+			if l.Name == "" || l.Color == "" {
+				continue
+			}
+			if st.LabelColors == nil {
+				st.LabelColors = map[string]string{}
+			}
+			st.LabelColors[l.Name] = l.Color
+		}
 	}
 	return st
 }
@@ -220,6 +232,13 @@ func linearIssue(i linear.Issue) proto.LinearIssue {
 	if i.Milestone != nil {
 		out.Milestone = i.Milestone.Name
 	}
+	if i.Assignee != nil {
+		out.Assignee, out.AssigneeID = i.Assignee.Name, i.Assignee.ID
+	}
+	out.Priority = int(i.Priority)
+	if i.Parent != nil {
+		out.Parent = i.Parent.Identifier
+	}
 	for _, l := range i.Labels {
 		out.Labels = append(out.Labels, l.Name)
 	}
@@ -242,6 +261,7 @@ func linearIssue(i linear.Issue) proto.LinearIssue {
 			Identifier: r.Issue.Identifier,
 			Title:      r.Issue.Title,
 			State:      r.Issue.State.Name,
+			StateType:  r.Issue.State.Type,
 		})
 	}
 	out.Children = len(i.Children)
@@ -538,14 +558,14 @@ func (d *Daemon) linearDetail(id string) (*proto.LinearIssueDetail, error) {
 		Description: iss.Description,
 		BranchName:  iss.BranchName,
 	}
-	if iss.Assignee != nil {
-		out.Assignee = iss.Assignee.Name
+	for _, l := range iss.Labels {
+		out.LabelColors = append(out.LabelColors, proto.LinearLabel{Name: l.Name, Color: l.Color})
 	}
 	if iss.Creator != nil {
 		out.Creator = iss.Creator.Name
 	}
 	if iss.Parent != nil {
-		out.Parent = iss.Parent.Identifier
+		out.ParentTitle = iss.Parent.Title
 	}
 	for _, a := range iss.Attachments {
 		out.Attachments = append(out.Attachments, proto.LinearAttachment{
@@ -562,9 +582,14 @@ func (d *Daemon) linearDetail(id string) (*proto.LinearIssueDetail, error) {
 		})
 	}
 	for _, sub := range iss.Children {
-		out.SubIssues = append(out.SubIssues, proto.LinearIssue{
+		si := proto.LinearIssue{
 			ID: sub.ID, Identifier: sub.Identifier, Title: sub.Title, State: sub.State.Name,
-		})
+			StateType: sub.State.Type, Priority: int(sub.Priority),
+		}
+		if sub.Assignee != nil {
+			si.Assignee, si.AssigneeID = sub.Assignee.Name, sub.Assignee.ID
+		}
+		out.SubIssues = append(out.SubIssues, si)
 	}
 	// The session working on the issue, when one is, and every
 	// conversation that did: what a person needs to open the work again.

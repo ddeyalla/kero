@@ -47,6 +47,10 @@ type Node struct {
 
 	surface  string
 	segments []protocol.Segment
+
+	pressable, scrollX, scrollY bool
+	contextMenu                 []protocol.Item
+	chip, hex                   string
 }
 
 // Build returns the protocol node, with the children built.
@@ -90,6 +94,12 @@ func (n *Node) Build() *protocol.Node {
 		Variant:     n.variant,
 		Surface:     n.surface,
 		Segments:    n.segments,
+		Pressable:   n.pressable,
+		ScrollX:     n.scrollX,
+		ScrollY:     n.scrollY,
+		ContextMenu: n.contextMenu,
+		Chip:        n.chip,
+		Hex:         n.hex,
 	}
 	for _, child := range n.children {
 		out.Children = append(out.Children, child.Build())
@@ -104,6 +114,17 @@ func (n *Node) Tree() protocol.Tree { return protocol.Tree{Root: n.Build()} }
 // lists show all their rows, and the pane scrolls past them.
 func (n *Node) ScrollingTree() protocol.Tree {
 	return protocol.Tree{Root: n.Build(), Scroll: true}
+}
+
+// ScrollingTreeUnder is the tree of the part as a pane that scrolls as one,
+// with header fixed above it: the search and the filters of a long list.
+// Keys, which the caller sets on the tree, are the keys the pane hears.
+func (n *Node) ScrollingTreeUnder(header *Node) protocol.Tree {
+	t := n.ScrollingTree()
+	if header != nil {
+		t.Header = header.Build()
+	}
+	return t
 }
 
 func newNode(typ, id string) *Node { return &Node{typ: typ, id: id} }
@@ -236,6 +257,70 @@ func Donut(id string, segments ...protocol.Segment) *Node {
 	return n
 }
 
+// Menu draws a pop-up button that shows its label, and an icon when it has
+// one (see Icon). Its items open under it, those that are Active checked,
+// several at once if the plugin says so. Choosing one sends a select with
+// the item's id.
+func Menu(id, label string, items ...protocol.Item) *Node {
+	n := newNode(protocol.NodeMenu, id)
+	n.label = label
+	n.items = items
+	return n
+}
+
+// Markdown draws GitHub-flavoured markdown: headings, lists, code, tables
+// and links, in the app's own look. Images show as their descriptions. A
+// link opens in the browser when the plugin holds the openURL permission;
+// without it the click sends a press with the link as its value. The
+// source is at most protocol.MaxMarkdown bytes.
+func Markdown(id, source string) *Node {
+	n := newNode(protocol.NodeMarkdown, id)
+	n.text = source
+	return n
+}
+
+// Pressable makes a row or column a control: it draws a hover and a
+// pressed state, takes the focus, and sends a press naming its id when it
+// is clicked. Label names it for assistive technology.
+func (n *Node) Pressable() *Node { n.pressable = true; return n }
+
+// ScrollX makes a row scroll sideways, its children keeping their Widths,
+// such as the columns of a board.
+func (n *Node) ScrollX() *Node { n.scrollX = true; return n }
+
+// ScrollY makes a column scroll on its own, filling the room its parent
+// gives it, such as one side of two panes side by side.
+func (n *Node) ScrollY() *Node { n.scrollY = true; return n }
+
+// ContextMenu gives a pressable row or column the menu a right click opens.
+// Choosing an entry sends a context event naming the part, with the
+// entry's id as its value. Build the entries with MenuItem, Separator and
+// Submenu.
+func (n *Node) ContextMenu(entries ...protocol.Item) *Node {
+	n.contextMenu = entries
+	return n
+}
+
+// MenuItem is an entry of a context menu. Set the Item's Active to check
+// it, and its Enabled to turn it off.
+func MenuItem(id, title string) protocol.Item { return protocol.Item{ID: id, Title: title} }
+
+// Separator is a line between the entries of a context menu.
+func Separator() protocol.Item { return protocol.Item{Separator: true} }
+
+// Submenu is an entry of a context menu that opens more entries.
+func Submenu(id, title string, entries ...protocol.Item) protocol.Item {
+	return protocol.Item{ID: id, Title: title, Items: entries}
+}
+
+// Chip draws a text as a chip: its words on a soft fill in the color
+// "#RRGGBB", or protocol.ChipNeutral for the app's quiet fill.
+func (n *Node) Chip(color string) *Node { n.chip = color; return n }
+
+// Hex colors a text and its icon "#RRGGBB", where a color role does not
+// say it, such as a team's own color of a state.
+func (n *Node) Hex(color string) *Node { n.hex = color; return n }
+
 // Role sets a text's role: headline, title, body, caption, mono or strong.
 func (n *Node) Role(role string) *Node { n.role = role; return n }
 
@@ -296,7 +381,8 @@ func (n *Node) Tint() *Node { n.tint = true; return n }
 func (n *Node) Primary() *Node { n.primary = true; return n }
 
 // Active draws an icon button as switched on, in the accent color, such as
-// shuffle while it is on.
+// shuffle while it is on. On a pressable row or column it marks the one that
+// is selected, and the pane scrolls it into view when it becomes so.
 func (n *Node) Active(on bool) *Node { n.active = on; return n }
 
 // Enabled sets whether a part takes input.

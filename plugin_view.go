@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 	xdraw "golang.org/x/image/draw"
 
 	"kero/internal/plugin/protocol"
@@ -144,6 +145,7 @@ type pluginView struct {
 	marquees map[string]*pluginMarquee
 	progress map[string]float64 // the value each bar shows this frame
 	pictures map[string]*pluginPicture
+	markdown map[string]*markdown.Options
 	symbols  map[symbolKey]*pluginSymbol
 	// lastSymbol is the newest bitmap drawn for each symbol name, which
 	// stands in while another size or weight of it is drawn.
@@ -167,9 +169,25 @@ type pluginView struct {
 	// replace it. It is nil where the system has none.
 	render func(name string, size, weight float64, scale int) (*image.RGBA, bool)
 
+	// openLink opens a link of a markdown part in the browser and tells
+	// that it did, which the pane sets when its plugin may (the openURL
+	// permission). A link it does not open goes to the plugin as a press.
+	openLink func(url string) bool
+	// sideways tells that the part being drawn is a child of a row that
+	// scrolls sideways, whose children keep their widths.
+	sideways bool
+
 	// ring is the path a donut strokes, rebuilt for each slice so that its
 	// storage is kept from one frame to the next.
 	ring ui.Path
+
+	// keysOn tells that the pane may hear the keys its tree asks for
+	// (Tree.Keys): the pane has the focus and nothing else takes the keys.
+	// The pane sets it each frame. active and wasActive are the pressable
+	// parts that are selected (Node.Active) this frame and the last, so
+	// that a part that becomes so is scrolled into view.
+	keysOn            bool
+	active, wasActive map[string]bool
 
 	// flow tells that the pane scrolls as one this frame, and its lists
 	// show all their rows, as the scroll around them moves them.
@@ -202,6 +220,7 @@ func newPluginView() *pluginView {
 		marquees:   map[string]*pluginMarquee{},
 		progress:   map[string]float64{},
 		pictures:   map[string]*pluginPicture{},
+		markdown:   map[string]*markdown.Options{},
 		symbols:    map[symbolKey]*pluginSymbol{},
 		lastSymbol: map[string]symbolStandIn{},
 		fetch:      pluginFetch,
@@ -218,6 +237,7 @@ func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send
 	v.invalidate = c.Invalidate
 	v.mu.Unlock()
 	v.ids = make(map[string]bool, 64)
+	v.wasActive, v.active = v.active, make(map[string]bool)
 	v.lastControls, v.controls = v.controls, make(map[string]uint64, len(v.controls))
 	v.frame++
 	// The root's own key holds the pane's place: a tree of the same root
@@ -236,6 +256,11 @@ func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send
 			v.part(c, parts, tree.Root, true, send)
 			return
 		}
+		// A header stays above the scroll, where the pane's parts that the
+		// user needs while reading stay in reach.
+		if tree.Header != nil {
+			v.part(c, parts, tree.Header, true, send)
+		}
 		// One scroll holds the whole tree, which keeps where it was
 		// scrolled to by the root's id.
 		st := v.scroll[tree.Root.ID]
@@ -243,10 +268,17 @@ func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send
 			st = &ui.ScrollState{}
 			v.scroll[tree.Root.ID] = st
 		}
-		ui.Scroll(c.Key("page")).TrackScroll(st).Fill().MinWidth(0).MinHeight(0).Label(tree.Root.ID).Children(func() {
+		page := ui.Scroll(c.Key("page")).TrackScroll(st).MinWidth(0).MinHeight(0).Label(tree.Root.ID)
+		if tree.Header != nil {
+			page.Grow(1)
+		} else {
+			page.Fill()
+		}
+		page.Children(func() {
 			v.part(c, parts, tree.Root, true, send)
 		})
 	})
+	v.hearKeys(c, tree, send)
 	v.forget()
 	v.prunePictures()
 	v.pruneSymbols()
@@ -288,6 +320,36 @@ func (v *pluginView) forget() {
 			delete(v.progress, id)
 		}
 	}
+	for id := range v.markdown {
+		if !v.ids[id] {
+			delete(v.markdown, id)
+		}
+	}
+}
+
+// pluginKeys maps the names of protocol.KnownKeys to the keys they are.
+var pluginKeys = map[string]ui.Key{
+	"j": ui.KeyJ, "k": ui.KeyK, "up": ui.KeyUp, "down": ui.KeyDown,
+	"left": ui.KeyLeft, "right": ui.KeyRight, "enter": ui.KeyEnter, "escape": ui.KeyEscape,
+}
+
+// hearKeys sends the plugin the keys its tree asked for, when the pane may
+// hear them: it has the focus, and no field of the tree takes the typing. It
+// runs after the parts are drawn, so that a focused control that took a key
+// first, such as Enter on a button, has taken it. A key the tree did not ask
+// for is never read.
+func (v *pluginView) hearKeys(c *ui.Context, tree *protocol.Tree, send func(pluginEvent)) {
+	if !v.keysOn || len(tree.Keys) == 0 {
+		return
+	}
+	if _, typing := v.searches[v.focus]; typing && v.ids[v.focus] {
+		return
+	}
+	for _, name := range tree.Keys {
+		if key, ok := pluginKeys[name]; ok && c.Shortcut(0, key) {
+			v.emit(send, "keys", protocol.KindKey, name)
+		}
+	}
 }
 
 // part draws one part of the tree, and its children. horizontal tells
@@ -300,32 +362,7 @@ func (v *pluginView) part(c *ui.Context, pal *palette, n *protocol.Node, horizon
 	v.ids[n.ID] = true
 	switch n.Type {
 	case protocol.NodeRow, protocol.NodeColumn:
-		var e ui.Element
-		if n.Type == protocol.NodeRow {
-			e = ui.Row(c.Key(n.ID)).AlignItems(ui.Center)
-		} else {
-			e = ui.Column(c.Key(n.ID)).AlignItems(ui.Stretch)
-		}
-		e.Gap(float32(n.Gap)).Padding(float32(n.Padding)).MinWidth(0)
-		if n.Width > 0 {
-			e.Width(float32(n.Width))
-		}
-		if n.Height > 0 {
-			e.Height(float32(n.Height))
-		}
-		pluginAlign(e, n.Align)
-		if n.Grow > 0 {
-			e.Grow(float32(n.Grow))
-		}
-		if n.Surface == protocol.SurfaceCard {
-			pluginCard(e, pal, n)
-		}
-		row := n.Type == protocol.NodeRow
-		e.Children(func() {
-			for _, child := range n.Children {
-				v.part(c, pal, child, row, send)
-			}
-		})
+		v.box(c, pal, n, send)
 	case protocol.NodeText:
 		if text, ok, next := pluginClockText(n, c.Now()); ok {
 			// A clock: the pane counts it itself between the plugin's
@@ -338,7 +375,9 @@ func (v *pluginView) part(c *ui.Context, pal *palette, n *protocol.Node, horizon
 				c.After(next)
 			}
 		}
-		if (n.Icon != "" || n.Mark != "") && !n.Marquee {
+		if n.Chip != "" {
+			v.chip(c, pal, n)
+		} else if (n.Icon != "" || n.Mark != "") && !n.Marquee {
 			v.iconText(c, pal, n)
 		} else {
 			v.text(c, pal, n, horizontal)
@@ -359,6 +398,10 @@ func (v *pluginView) part(c *ui.Context, pal *palette, n *protocol.Node, horizon
 		v.segmented(c, pal, n, horizontal, send)
 	case protocol.NodeDonut:
 		v.donut(c, pal, n)
+	case protocol.NodeMenu:
+		v.menu(c, pal, n, horizontal, send)
+	case protocol.NodeMarkdown:
+		v.markdownPart(c, pal, n, send)
 	case protocol.NodeEmptyState:
 		v.emptyState(c, pal, n, send)
 	case protocol.NodeSpacer:
@@ -374,6 +417,195 @@ func (v *pluginView) part(c *ui.Context, pal *palette, n *protocol.Node, horizon
 		// it takes no room rather than breaking the pane.
 		ui.Box(c.Key(n.ID)).Size(0, 0)
 	}
+}
+
+// box draws a row or a column and its children. A pressable one is a
+// control: it shades under the pointer, takes the focus, and sends a press
+// naming it. A row that scrolls sideways keeps its children at their
+// widths, and the columns of a board stand as tall as it is.
+func (v *pluginView) box(c *ui.Context, pal *palette, n *protocol.Node, send func(pluginEvent)) {
+	// A child of a row that scrolls sideways does not give up its width.
+	keep := v.sideways
+	v.sideways = false
+	row := n.Type == protocol.NodeRow
+	var e ui.Element
+	switch {
+	case n.Pressable:
+		e = ui.ButtonBase(c.Key(n.ID))
+		// A button centers what it holds; a row or column of a plugin
+		// starts it, unless its Align says otherwise.
+		if row {
+			e.Row().AlignItems(ui.Center).Justify(ui.Start)
+		} else {
+			e.Column().AlignItems(ui.Stretch).Justify(ui.Start)
+		}
+		e.Label(pluginPartLabel(n, n.ID))
+	case !row && n.ScrollY:
+		st := v.scroll[n.ID]
+		if st == nil {
+			st = &ui.ScrollState{}
+			v.scroll[n.ID] = st
+		}
+		e = ui.Scroll(c.Key(n.ID)).TrackScroll(st).MinHeight(0).AlignItems(ui.Stretch)
+		v.flow = true
+	case row && stretchesChildren(n):
+		e = ui.Row(c.Key(n.ID)).AlignItems(ui.Stretch)
+	case row && n.ScrollX:
+		st := v.scroll[n.ID]
+		if st == nil {
+			st = &ui.ScrollState{}
+			v.scroll[n.ID] = st
+		}
+		e = ui.ScrollHorizontal(c.Key(n.ID)).TrackScroll(st).AlignItems(ui.Stretch)
+	case row:
+		e = ui.Row(c.Key(n.ID)).AlignItems(ui.Center)
+	default:
+		e = ui.Column(c.Key(n.ID)).AlignItems(ui.Stretch)
+	}
+	e.Gap(float32(n.Gap)).Padding(float32(n.Padding)).MinWidth(0)
+	if n.Width > 0 {
+		e.Width(float32(n.Width))
+	}
+	if n.Height > 0 {
+		e.Height(float32(n.Height))
+	}
+	if keep || n.ScrollY && n.Width > 0 {
+		e.Shrink(0)
+	}
+	pluginAlign(e, n.Align)
+	if n.Grow > 0 {
+		e.Grow(float32(n.Grow))
+	}
+	switch {
+	case n.Pressable:
+		v.bindFocus(e, n.ID)
+		fill := ui.Transparent
+		if n.Surface == protocol.SurfaceCard {
+			pluginCard(e, pal, n)
+			fill = pluginCardFill(pal)
+		}
+		card := n.Surface == protocol.SurfaceCard
+		if n.Active {
+			// The selected part: a card gets the accent's edge, a row the
+			// selection's fill.
+			if v.active == nil {
+				v.active = map[string]bool{}
+			}
+			v.active[n.ID] = true
+			if !v.wasActive[n.ID] {
+				e.ScrollIntoView()
+			}
+			if card {
+				e.InsetShadow(0, 0, 0, 1.5, pal.accent.Alpha(0.85))
+			} else {
+				fill = pal.rowSelected
+			}
+		}
+		e.Background(e.AnimateColor("bg", pluginPressShade(pal, card, fill, e.Hovered(), e.Pressed()), hover))
+		if len(n.ContextMenu) > 0 {
+			e.ContextMenu(func(m *ui.Menu) { v.contextEntries(m, n, n.ContextMenu, send) })
+		}
+	case n.Surface == protocol.SurfaceCard:
+		pluginCard(e, pal, n)
+	}
+	e.Children(func() {
+		for _, child := range n.Children {
+			v.sideways = row && n.ScrollX
+			v.part(c, pal, child, row, send)
+		}
+		v.sideways = false
+	})
+	if n.Pressable && e.Clicked() {
+		v.emit(send, n.ID, protocol.KindPress, nil)
+	}
+}
+
+// stretchesChildren tells a row that holds a column that scrolls on its own:
+// its children stand as tall as it is, so that each side fills the room.
+func stretchesChildren(n *protocol.Node) bool {
+	for _, child := range n.Children {
+		if child != nil && child.ScrollY {
+			return true
+		}
+	}
+	return false
+}
+
+// contextEntries builds a context menu from the plugin's entries, and sends
+// the one the user chose.
+func (v *pluginView) contextEntries(m *ui.Menu, n *protocol.Node, entries []protocol.Item, send func(pluginEvent)) {
+	for _, item := range entries {
+		switch {
+		case item.Separator:
+			m.Separator()
+		case len(item.Items) > 0:
+			m.Submenu(item.Title, func(sub *ui.Menu) { v.contextEntries(sub, n, item.Items, send) })
+		default:
+			off := item.Enabled != nil && !*item.Enabled
+			if m.Item(item.Title).Checked(item.Active).Disabled(off).Chosen() {
+				v.emit(send, n.ID, protocol.KindContext, item.ID)
+			}
+		}
+	}
+}
+
+// chip draws a text as a chip: its words, and its icon, on a soft fill of
+// the chip's color, rounded. The words take the color mixed toward the
+// text's, so that they read on the fill in both appearances.
+func (v *pluginView) chip(c *ui.Context, pal *palette, n *protocol.Node) {
+	fill, fg := pal.chip, pal.textMuted
+	if n.Chip != protocol.ChipNeutral && protocol.ValidHex(n.Chip) {
+		col := ui.Hex(n.Chip)
+		alpha := float32(0.18)
+		if pal.dark {
+			alpha = 0.26
+		}
+		fill, fg = col.Alpha(alpha), col.Mix(pal.text, 0.55)
+	}
+	inner := *n
+	inner.ID, inner.Chip, inner.Hex, inner.Width, inner.Grow = "chip", "", "", 0, 0
+	if inner.Role == "" {
+		inner.Role = protocol.RoleCaption
+	}
+	inner.Color = ""
+	tinted := *pal
+	tinted.text, tinted.textMuted = fg, fg
+	row := ui.Row(c.Key(n.ID)).AlignItems(ui.Center).Padding(1, 7).Radius(9).Background(fill).MinWidth(0).Shrink(0)
+	if n.Label != "" {
+		row.Label(n.Label).Tooltip(n.Label)
+	}
+	if n.Width > 0 {
+		row.MaxWidth(float32(n.Width))
+	}
+	row.Children(func() {
+		if (inner.Icon != "" || inner.Mark != "") && !inner.Marquee {
+			v.iconText(c, &tinted, &inner)
+		} else {
+			v.text(c, &tinted, &inner, true)
+		}
+	})
+}
+
+// pluginPressShade is the fill of a pressable row or column: its card's
+// fill, or none, and a step toward the text color when the pointer is over
+// it, and another when it is held.
+func pluginPressShade(pal *palette, card bool, fill ui.Color, hovered, pressed bool) ui.Color {
+	if !card {
+		switch {
+		case pressed:
+			return pal.rowSelected
+		case hovered:
+			return pal.rowHover
+		}
+		return fill
+	}
+	switch {
+	case pressed:
+		return fill.Mix(pal.text, 0.12)
+	case hovered:
+		return fill.Mix(pal.text, 0.06)
+	}
+	return fill
 }
 
 // pluginAlign places the children of a row or a column along its main
@@ -397,14 +629,18 @@ func pluginCard(e ui.Element, pal *palette, n *protocol.Node) {
 	if n.Radius > 0 {
 		radius = float32(n.Radius)
 	}
-	fill := pal.text.Alpha(0.045)
-	if pal.dark {
-		fill = ui.RGBA(255, 255, 255, 0.06)
-	}
-	e.Background(fill).Radius(radius)
+	e.Background(pluginCardFill(pal)).Radius(radius)
 	if pal.dark {
 		e.Border(1, pal.text.Alpha(0.08))
 	}
+}
+
+// pluginCardFill is the fill of a card.
+func pluginCardFill(pal *palette) ui.Color {
+	if pal.dark {
+		return ui.RGBA(255, 255, 255, 0.06)
+	}
+	return pal.text.Alpha(0.045)
 }
 
 // pluginText is a role's size and weight, and the family it draws in, if
@@ -431,6 +667,9 @@ func pluginText(role string) (size float32, weight int, family string) {
 // pluginTextColor is a text part's color: the one it names, or its role's
 // own, which fades captions.
 func pluginTextColor(pal *palette, n *protocol.Node) ui.Color {
+	if n.Hex != "" && protocol.ValidHex(n.Hex) {
+		return ui.Hex(n.Hex)
+	}
 	switch n.Color {
 	case protocol.ColorMuted:
 		return pal.textMuted
@@ -919,6 +1158,94 @@ func (v *pluginView) segmented(c *ui.Context, pal *palette, n *protocol.Node, ho
 			v.emit(send, n.ID, protocol.KindSelect, n.Items[st.index].ID)
 		}
 	})
+}
+
+// menu draws a menu part: a pop-up button that shows its label, with the
+// chevron of a pop-up, which opens the items below it. The items that are
+// Active are checked, and choosing one sends a select that names it.
+func (v *pluginView) menu(c *ui.Context, pal *palette, n *protocol.Node, horizontal bool, send func(pluginEvent)) {
+	enabled := n.Enabled == nil || *n.Enabled
+	b := ui.ButtonBase(c.Key(n.ID)).Height(26).Padding(0, 8, 0, 9).Gap(6).Radius(7).AlignItems(ui.Center).Shrink(0).Label(n.Label)
+	v.bindFocus(b, n.ID)
+	bg := pal.control
+	switch {
+	case !enabled:
+	case b.Pressed():
+		bg = bg.Mix(ui.Hex("#000000"), 0.08)
+	case b.Hovered():
+		bg = pal.controlHover
+	}
+	face(b, pal, b.AnimateColor("bg", bg, press)).TextColor(pal.text)
+	if !horizontal {
+		b.AlignSelf(ui.Start)
+	}
+	b.Children(func() {
+		if n.Icon != "" {
+			if sym, scale := v.symbol(c, n.Icon, 13, symbolMedium); sym != nil {
+				drawSymbol(c, "symbol", sym, scale, pal.textMuted)
+			} else if svg, ok := pluginIcon(n.Icon); ok {
+				ui.Icon(c.Key("icon"), svg).Size(13, 13).TextColor(pal.textMuted).Shrink(0)
+			}
+		}
+		ui.Text(c, n.Label).FontSize(12.5).FontWeight(500).SingleLine().Ellipsis("…")
+		if sym, scale := v.symbol(c, "chevron-down", 12, symbolSemibold); sym != nil {
+			drawSymbol(c, "chevron", sym, scale, pal.textFaint)
+		} else {
+			ui.Icon(c.Key("chevron"), chevronDownIcon).Size(9, 9).TextColor(pal.textFaint).Shrink(0)
+		}
+	})
+	if !enabled {
+		b.Disabled(true).Opacity(0.45)
+		return
+	}
+	b.Menu(func(m *ui.Menu) {
+		for _, item := range n.Items {
+			it := m.Item(item.Title).Checked(item.Active)
+			if item.Enabled != nil && !*item.Enabled {
+				it.Disabled(true)
+			}
+			if it.Chosen() {
+				v.emit(send, n.ID, protocol.KindSelect, item.ID)
+			}
+		}
+	})
+}
+
+// markdownPart draws a markdown part with the app's markdown view, as the
+// Files pane reads a markdown file: images show as their descriptions. A
+// link opens in the browser if the plugin may open links, and otherwise goes
+// to the plugin as a press that carries it.
+func (v *pluginView) markdownPart(c *ui.Context, pal *palette, n *protocol.Node, send func(pluginEvent)) {
+	opts := v.markdown[n.ID]
+	if opts == nil {
+		opts = &markdown.Options{}
+		v.markdown[n.ID] = opts
+	}
+	id := n.ID
+	opts.OnLink = func(link string) {
+		if v.openLink != nil && pluginSafeLink(link) && v.openLink(link) {
+			return
+		}
+		v.emit(send, id, protocol.KindPress, link)
+	}
+	ui.Column(c.Key(n.ID)).MinWidth(0).AlignItems(ui.Stretch).Label(markdownLabel(n)).Children(func() {
+		markdown.View(c, n.Text, opts)
+	})
+}
+
+// markdownLabel names a markdown part for assistive technology: its label,
+// or its kind, never its source.
+func markdownLabel(n *protocol.Node) string {
+	if n.Label != "" {
+		return n.Label
+	}
+	return locales.PluginPartMarkdown()
+}
+
+// pluginSafeLink tells a link a plugin's markdown may open in the browser:
+// a web address with no user info, as remote issue content may open.
+func pluginSafeLink(link string) bool {
+	return linearSafeURL(link)
 }
 
 // donut draws a donut part: a track ring, a slice of it for each segment
@@ -1639,4 +1966,25 @@ var pluginIcons = map[string]*ui.SVG{
 	"dot":           icon(`<circle cx="8" cy="8" r="3.5" fill="currentColor"/>`),
 	"warning":       icon(`<path d="M8 2.5l6 10.5H2zM8 6.5v3M8 11.2v.1"/>`),
 	"info":          icon(`<circle cx="8" cy="8" r="6"/><path d="M8 7.2v3.6M8 5.2v.1"/>`),
+
+	// The SVG stand-ins of the icons the issue trackers use, drawn only
+	// where the system has no symbol (see pluginSymbols).
+	"circle":          icon(`<circle cx="8" cy="8" r="5.5"/>`),
+	"circle-dashed":   icon(`<circle cx="8" cy="8" r="5.5" stroke-dasharray="2.1 2.1"/>`),
+	"circle-half":     icon(`<circle cx="8" cy="8" r="5.5"/><path d="M8 4.5a3.5 3.5 0 0 0 0 7z" fill="currentColor"/>`),
+	"check-circle":    icon(`<circle cx="8" cy="8" r="5.5"/><path d="M5.6 8.2l1.7 1.7 3.1-3.5"/>`),
+	"xmark-circle":    icon(`<circle cx="8" cy="8" r="5.5"/><path d="M6 6l4 4M10 6l-4 4"/>`),
+	"filter":          icon(`<circle cx="8" cy="8" r="5.5"/><path d="M5.2 6.3h5.6M6.3 8.2h3.4M7.2 10.1h1.6"/>`),
+	"person":          icon(`<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="6.6" r="1.7"/><path d="M4.9 11.8c.7-1.4 1.8-2 3.1-2s2.4.6 3.1 2"/>`),
+	"tag":             icon(`<path d="M2.5 8.2V3.5a1 1 0 0 1 1-1h4.7l5.3 5.3-5.2 5.2z"/><circle cx="5.6" cy="5.6" r=".7" fill="currentColor"/>`),
+	"flag":            icon(`<path d="M4 14V2.5M4 3.2h8l-2 3 2 3H4"/>`),
+	"pin":             icon(`<path d="M6 2.5h4l-.6 4 2.1 2.2H4.5l2.1-2.2zM8 8.7V14"/>`),
+	"priority-urgent": icon(`<rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="M8 5.2v3.8M8 11v.1"/>`),
+	"priority-high":   icon(`<path d="M4 8l4-4 4 4M4 12.5l4-4 4 4"/>`),
+	"priority-medium": icon(`<path d="M4 6.5h8M4 9.5h8"/>`),
+	"priority-low":    icon(`<path d="M4 6l4 4 4-4"/>`),
+	"milestone":       glyph("f7-suit-diamond"),
+	"blocked":         icon(`<circle cx="8" cy="8" r="5.5"/><path d="M4.1 11.9l7.8-7.8"/>`),
+	"blocking":        glyph("f7-arrow-turn-down-right"),
+	"subissue":        glyph("f7-list-bullet-indent"),
 }

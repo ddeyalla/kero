@@ -83,6 +83,9 @@ type Callbacks struct {
 	// OpenURL is a link the plugin asked to open. The URL is http or
 	// https, or the one System Settings link openableURL allows.
 	OpenURL func(plugin, url string)
+	// Clipboard is text the plugin asked to put on the clipboard, at most
+	// protocol.MaxClipboard bytes. The plugin holds the clipboard permission.
+	Clipboard func(plugin, text string)
 	// WebOpen is a page of this machine the plugin asked to run in a web
 	// view with no window, which stays until WebClose. The URL is http on
 	// a loopback address with a port. An id that is open is loaded again.
@@ -137,6 +140,7 @@ type Host struct {
 	// must not end the plugin before its own delay.
 	idle    map[string]uint64
 	theme   Theme
+	focus   string // the session the app has selected
 	stopped bool
 }
 
@@ -370,6 +374,27 @@ func (h *Host) SetTheme(theme Theme) {
 	}
 }
 
+// SetFocus tells every running plugin that holds the "focus" permission
+// which session the app has selected now, "" when none is. A plugin that
+// starts later hears the current one once it is ready.
+func (h *Host) SetFocus(session string) {
+	h.mu.Lock()
+	h.focus = session
+	procs := h.procListLocked()
+	h.mu.Unlock()
+	for _, pr := range procs {
+		if pr.plugin.Manifest.Permissions.Has(protocol.PermFocus) {
+			pr.send(focusCmd{session: session})
+		}
+	}
+}
+
+func (h *Host) currentFocus() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.focus
+}
+
 // SendSettings sends a plugin the settings it may see: the values of the
 // fields its manifest declares, except the secret ones. Secrets never
 // travel in settings; a plugin asks for one with secret.get.
@@ -581,6 +606,12 @@ func (h *Host) onNotify(plugin, title, body string) {
 	}
 }
 
+func (h *Host) onClipboard(plugin, text string) {
+	if h.cbs.Clipboard != nil {
+		h.cbs.Clipboard(plugin, text)
+	}
+}
+
 func (h *Host) onOpenURL(plugin, url string) {
 	if h.cbs.OpenURL != nil {
 		h.cbs.OpenURL(plugin, url)
@@ -612,6 +643,25 @@ type proc struct {
 	enc   *protocol.Encoder
 	// webs are the ids of the web views the process runs.
 	webs map[string]bool
+	// userAt is when the host last handed the plugin something the user
+	// did: an event on a pane, or a command. Only the goroutine that
+	// handles the commands reads and sets it.
+	userAt time.Time
+}
+
+// userActionWindow is how long after a user action the plugin may write
+// the clipboard. The copy a button asks for comes at once; a plugin that
+// writes it at any other time did not get it from the user.
+const userActionWindow = time.Second
+
+// logf writes one line to the plugin's log, when it has one.
+func (p *proc) logf(format string, args ...any) {
+	p.mu.Lock()
+	w := p.log
+	p.mu.Unlock()
+	if w != nil {
+		fmt.Fprintf(w, "host: "+format+"\n", args...)
+	}
 }
 
 // setLog records the log the process writes its stderr to.
@@ -655,6 +705,9 @@ type (
 	}
 	settingsCmd struct {
 		values map[string]string
+	}
+	focusCmd struct {
+		session string
 	}
 	eventCmd struct {
 		pane, node, kind string
@@ -870,6 +923,9 @@ func (p *proc) run() {
 			theme := p.h.currentTheme()
 			p.tell(protocol.MethodTheme, protocol.ThemeParams{Dark: theme.Dark, Accent: theme.Accent})
 			p.tell(protocol.MethodSettings, protocol.SettingsParams{Values: p.h.settingsFor(p.plugin)})
+			if p.plugin.Manifest.Permissions.Has(protocol.PermFocus) {
+				p.tell(protocol.MethodFocus, protocol.FocusParams{Session: p.h.currentFocus()})
+			}
 			for _, c := range queue {
 				p.handle(c)
 			}
@@ -1013,9 +1069,13 @@ func (p *proc) handle(c any) {
 		p.tell(protocol.MethodTheme, protocol.ThemeParams{Dark: c.theme.Dark, Accent: c.theme.Accent})
 	case settingsCmd:
 		p.tell(protocol.MethodSettings, protocol.SettingsParams{Values: c.values})
+	case focusCmd:
+		p.tell(protocol.MethodFocus, protocol.FocusParams{Session: c.session})
 	case eventCmd:
+		p.userAt = time.Now()
 		p.tell(protocol.MethodEvent, protocol.EventParams{Pane: c.pane, Node: c.node, Kind: c.kind, Value: c.value})
 	case commandCmd:
+		p.userAt = time.Now()
 		p.tell(protocol.MethodCommand, protocol.CommandParams{ID: c.id})
 	case incomingCmd:
 		p.answer(c.req)
@@ -1134,6 +1194,25 @@ func (p *proc) answer(req *protocol.Request) {
 			return
 		}
 		p.h.onOpenURL(p.plugin.Manifest.ID, params.URL)
+		p.ok(req)
+	case protocol.MethodClipboard:
+		var params protocol.ClipboardWriteParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			p.fail(req.ID, protocol.CodeInvalidParams, "clipboard.write: "+err.Error())
+			return
+		}
+		if len(params.Text) > protocol.MaxClipboard {
+			p.fail(req.ID, protocol.CodeInvalidParams, fmt.Sprintf("clipboard.write: text longer than %d bytes", protocol.MaxClipboard))
+			return
+		}
+		// A copy is the answer to a click or a key. One with no user action
+		// just before it would let a plugin overwrite the clipboard at will.
+		if p.userAt.IsZero() || time.Since(p.userAt) > userActionWindow {
+			p.logf("clipboard.write dropped: no user action in the last %s", userActionWindow)
+			p.fail(req.ID, protocol.CodeInvalidParams, "clipboard.write: only right after something the user did")
+			return
+		}
+		p.h.onClipboard(p.plugin.Manifest.ID, params.Text)
 		p.ok(req)
 	case protocol.MethodWebOpen:
 		var params protocol.WebOpenParams

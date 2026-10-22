@@ -80,12 +80,14 @@ func TestAuthFailure(t *testing.T) {
 
 func TestBoardReadsTheTeam(t *testing.T) {
 	body := `{"data":{
+      "viewer":{"id":"u1","name":"Divyanshu"},
       "team":{"id":"t1","key":"BRU","name":"Brunoh",
         "states":{"nodes":[{"id":"s1","name":"Todo","type":"unstarted","position":1}]},
         "issues":{"nodes":[{"id":"i1","identifier":"BRU-25","title":"M1.16 Checks",
           "state":{"id":"s2","name":"In Progress","type":"started","position":2},
           "project":{"id":"p1","name":"Rig"},
           "projectMilestone":{"id":"m1","name":"M1 Foundation"},
+          "assignee":{"id":"u1","name":"Divyanshu"},"priority":2,"parent":{"id":"i0","identifier":"BRU-20"},
           "labels":{"nodes":[{"id":"l1","name":"Feature","color":"#BB87FC"}]},
           "relations":{"nodes":[{"type":"blocks","relatedIssue":{"identifier":"BRU-27","title":"M1.19","state":{"id":"s1","name":"Todo","type":"unstarted"}}}]},
           "updatedAt":"2026-10-20T12:34:22.603Z"}]}},
@@ -127,6 +129,12 @@ func TestBoardReadsTheTeam(t *testing.T) {
 	}
 	if snap.Issues[0].State.Type != "started" {
 		t.Fatalf("state %+v", snap.Issues[0].State)
+	}
+	if v := snap.Viewer; v == nil || v.ID != "u1" || v.Name != "Divyanshu" {
+		t.Fatalf("viewer %+v", v)
+	}
+	if i := snap.Issues[0]; i.Assignee == nil || i.Assignee.ID != "u1" || i.Priority != 2 || i.Parent == nil || i.Parent.Identifier != "BRU-20" {
+		t.Fatalf("assignee, priority and parent were dropped: %+v", i)
 	}
 	// The times are read, not left as strings.
 	if snap.Issues[0].UpdatedAt.IsZero() {

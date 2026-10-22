@@ -678,3 +678,147 @@ func TestActiveParts(t *testing.T) {
 		t.Fatalf("item = %+v", item)
 	}
 }
+
+func TestBoardPartsBuildValidTree(t *testing.T) {
+	root := Column("root",
+		Row("cols",
+			Column("card", Text("t", "Fix it")).Pressable().Label("BRU-1").Surface(protocol.SurfaceCard).Width(260),
+		).ScrollX().Gap(12),
+		Menu("assignee", "Assignee",
+			protocol.Item{ID: "me", Title: "Me", Active: true},
+			protocol.Item{ID: "anyone", Title: "Anyone"},
+		).Icon("person"),
+		Markdown("body", "# Title\n\n[link](https://example.com)"),
+	)
+	tree := root.Tree()
+	if err := tree.ValidateTree(); err != nil {
+		t.Fatalf("ValidateTree: %v", err)
+	}
+	built := root.Build()
+	cols := built.Children[0]
+	if !cols.ScrollX || cols.Pressable || !cols.Children[0].Pressable || cols.Children[0].Label != "BRU-1" {
+		t.Fatalf("cols = %+v, card = %+v", cols, cols.Children[0])
+	}
+	menu := built.Children[1]
+	if menu.Type != protocol.NodeMenu || menu.Label != "Assignee" || menu.Icon != "person" || len(menu.Items) != 2 || !menu.Items[0].Active {
+		t.Fatalf("menu = %+v", menu)
+	}
+	if md := built.Children[2]; md.Type != protocol.NodeMarkdown || !strings.HasPrefix(md.Text, "# Title") {
+		t.Fatalf("markdown = %+v", md)
+	}
+	plain := Row("r").Build()
+	if plain.Pressable || plain.ScrollX {
+		t.Fatalf("a plain row = %+v", plain)
+	}
+}
+
+// The focus call reaches the handler with the session, and without a
+// handler it is answered and ignored.
+func TestFocusReachesTheHandler(t *testing.T) {
+	h := newHost()
+	defer h.close()
+	got := make(chan string, 2)
+	errs := runPlugin(t, h, Handlers{
+		Focus: func(c *Conn, session string) { got <- session },
+	})
+	if hello := h.hello(t, protocol.Version); hello.Error != nil {
+		t.Fatalf("hello: %v", hello.Error)
+	}
+	for _, session := range []string{"s1", ""} {
+		focus, err := protocol.NewNotification(protocol.MethodFocus, protocol.FocusParams{Session: session})
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.send(t, focus)
+		select {
+		case heard := <-got:
+			if heard != session {
+				t.Fatalf("focus = %q, want %q", heard, session)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the handler heard no focus")
+		}
+	}
+	h.in.Close()
+	waitEnd(t, errs)
+
+	quiet := newHost()
+	defer quiet.close()
+	errs = runPlugin(t, quiet, Handlers{})
+	quiet.hello(t, protocol.Version)
+	req, err := protocol.NewRequest(2, protocol.MethodFocus, protocol.FocusParams{Session: "s1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	quiet.send(t, req)
+	var resp protocol.Response
+	if err := quiet.dec.Decode(&resp); err != nil || resp.Error != nil {
+		t.Fatalf("a focus with no handler: %v / %+v", err, resp.Error)
+	}
+	quiet.in.Close()
+	waitEnd(t, errs)
+}
+
+func TestClipboardCallAndNewPartsBuildValidTree(t *testing.T) {
+	menu := []protocol.Item{
+		MenuItem("open", "Open"),
+		Separator(),
+		Submenu("move", "Move to", MenuItem("mv:todo", "Todo"), MenuItem("mv:done", "Done")),
+	}
+	header := Row("head", Text("title", "Issues"))
+	body := Column("root",
+		Row("split",
+			Column("main", Column("card", Text("label", "bug").Chip("#E5484D").Hex("#2F6FED")).Pressable().Active(true).ContextMenu(menu...)).ScrollY().Grow(1),
+			Column("side", Text("d", "detail")).ScrollY().Width(420),
+		),
+	)
+	tree := body.ScrollingTreeUnder(header)
+	tree.Keys = []string{"j", "k"}
+	if err := tree.ValidateTree(); err != nil {
+		t.Fatalf("ValidateTree: %v", err)
+	}
+	if tree.Header == nil || tree.Header.ID != "head" || !tree.Scroll || len(tree.Keys) != 2 {
+		t.Fatalf("tree = %+v", tree)
+	}
+	built := body.Build()
+	main := built.Children[0].Children[0]
+	card := main.Children[0]
+	if !main.ScrollY || !card.Pressable || !card.Active || len(card.ContextMenu) != 3 || !card.ContextMenu[1].Separator || len(card.ContextMenu[2].Items) != 2 {
+		t.Fatalf("main = %+v, card = %+v", main, card)
+	}
+	if chip := card.Children[0]; chip.Chip != "#E5484D" || chip.Hex != "#2F6FED" {
+		t.Fatalf("chip = %+v", chip)
+	}
+	if body.ScrollingTreeUnder(nil).Header != nil {
+		t.Fatal("no header was given")
+	}
+
+	h := newHost()
+	defer h.close()
+	errs := runPlugin(t, h, Handlers{
+		Command: func(c *Conn, id string) {
+			if err := c.Copy("BRU-1"); err != nil {
+				t.Errorf("Copy: %v", err)
+			}
+		},
+	})
+	if resp := h.hello(t, protocol.Version); resp.Error != nil {
+		t.Fatalf("hello: %v", resp.Error)
+	}
+	cmd, err := protocol.NewNotification(protocol.MethodCommand, protocol.CommandParams{ID: "copy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.send(t, cmd)
+	req := h.request(t, 5*time.Second)
+	if req.Method != protocol.MethodClipboard {
+		t.Fatalf("method = %q, want %q", req.Method, protocol.MethodClipboard)
+	}
+	var copied protocol.ClipboardWriteParams
+	if err := json.Unmarshal(req.Params, &copied); err != nil || copied.Text != "BRU-1" {
+		t.Fatalf("clipboard.write = %+v (%v)", copied, err)
+	}
+	h.respond(t, req.ID, struct{}{})
+	h.in.Close()
+	waitEnd(t, errs)
+}

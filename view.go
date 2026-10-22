@@ -299,7 +299,7 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 		if !a.loaded {
 			return
 		}
-		a.linearNav(c, pal)
+		a.pinNav(c, pal)
 		n := 0 // the rows shown, for ⌘1–9 (Ctrl+1–9 elsewhere)
 		for gi, g := range a.groups() {
 			a.groupView(c, pal, g, gi, &n)
@@ -813,12 +813,6 @@ func arcPath(p *ui.Path, cx, cy, r, from, to float32) {
 
 func (a *App) card(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32) {
 	s := a.session(a.selected)
-	if a.show == "linear" && a.conn != connVersion && a.loaded {
-		// The workspace, in cards of its own: the board, and the issue
-		// open beside it.
-		a.linearView(c, pal, bar, shown)
-		return
-	}
 	if s != nil && a.conn != connVersion && a.loaded {
 		a.panes(c, pal, bar, shown, s)
 		return

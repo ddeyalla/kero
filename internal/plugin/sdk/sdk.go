@@ -43,6 +43,10 @@ type Handlers struct {
 	Settings func(c *Conn, values map[string]string)
 	Event    func(c *Conn, event protocol.EventParams)
 	Command  func(c *Conn, id string)
+	// Focus is the session the app has selected, "" when none is. The
+	// host sends it only to a plugin whose manifest holds the "focus"
+	// permission, once it is ready and whenever the selection changes.
+	Focus func(c *Conn, session string)
 }
 
 // Run runs the plugin on its stdin and stdout until the host goes away.
@@ -304,6 +308,16 @@ func (c *Conn) handle(req *protocol.Request) {
 		if c.handlers.Command != nil {
 			c.handlers.Command(c, p.ID)
 		}
+	case protocol.MethodFocus:
+		var p protocol.FocusParams
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			c.fail(req.ID, protocol.CodeInvalidParams, "focus without params")
+			return
+		}
+		c.reply(req.ID, struct{}{})
+		if c.handlers.Focus != nil {
+			c.handlers.Focus(c, p.Session)
+		}
 	default:
 		c.fail(req.ID, protocol.CodeNoMethod, fmt.Sprintf("unknown method %q", req.Method))
 	}
@@ -490,6 +504,13 @@ func (c *Conn) Notify(title, body string) error {
 // OpenURL opens a link in the browser.
 func (c *Conn) OpenURL(url string) error {
 	return c.call(protocol.MethodOpenURL, protocol.OpenURLParams{URL: url}, nil)
+}
+
+// Copy puts text on the clipboard: what the user asked to copy, such as an
+// issue's link. It needs the clipboard permission, and cannot read what is
+// there. The text is at most protocol.MaxClipboard bytes.
+func (c *Conn) Copy(text string) error {
+	return c.call(protocol.MethodClipboard, protocol.ClipboardWriteParams{Text: text}, nil)
 }
 
 // WebOpen runs a page of this machine in a web view with no window, for a

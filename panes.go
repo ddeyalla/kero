@@ -569,15 +569,14 @@ func (a *App) paneMenu(m *ui.Menu, s *proto.Session, p *proto.Pane) {
 		later(func(s *proto.Session) { a.splitPane(s, pid, "down") })
 	}
 	m.Submenu(locales.PaneShow(), func(m *ui.Menu) {
-		other := tasksPaneOf(s)
 		for _, k := range paneKinds {
 			view := k.view
-			taken := view == proto.PaneTasks && other != nil && other.ID != pid
-			if m.Item(paneViewName(view)).Checked(p.View == view).Disabled(taken || p.View == view).Chosen() {
+			if m.Item(paneViewName(view)).Checked(p.View == view).Disabled(p.View == view).Chosen() {
 				later(func(s *proto.Session) { a.showInPane(s, pid, view, true) })
 			}
 		}
 	})
+	a.pluginPinMenu(m, p)
 	if len(s.Panes) > 1 {
 		m.Separator()
 		if a.menuShortcut(m.Item(locales.PaneClose()), "pane.close").Chosen() {

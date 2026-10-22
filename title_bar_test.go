@@ -108,17 +108,21 @@ func TestHeaderOnTheLights(t *testing.T) {
 // rows' pills start at the close light's left edge, 12 in.
 func TestSidebarTopSpacing(t *testing.T) {
 	a, tt, label := macApp(t, false)
-	if !a.set.LinearSidebar {
-		t.Fatal("the Linear row is off; the first row is another")
-	}
+	// A pin would be the first row; the project's is meant.
+	a.prefs.Pinned = nil
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
 	buttons, _ := tt.Find(label)
-	first, ok := tt.Find(locales.LinearGroup()) // the Linear row's, 30 tall
+	first, ok := tt.Find("demo") // the first project's row, 28 tall
 	if !ok {
-		t.Fatalf("no Linear row; texts %q", tt.Texts())
+		t.Fatalf("no project row; texts %q", tt.Texts())
 	}
-	top := mid(first) - 30/2
-	if top-barMid != 30 {
-		t.Errorf("the first row starts %v below the lights' line, not 30", top-barMid)
+	// The first project's header has a margin of 2 above it, which the
+	// pin's row did not.
+	top := mid(first) - 28/2
+	if top-barMid != 32 {
+		t.Errorf("the first row starts %v below the lights' line, not 32", top-barMid)
 	}
 	if gap := top - (buttons.Y + buttons.H); gap < 16 {
 		t.Errorf("the first row is %v below the sidebar's buttons, crowded", gap)

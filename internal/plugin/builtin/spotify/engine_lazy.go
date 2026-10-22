@@ -57,6 +57,11 @@ type lazyEngine struct {
 	emit    func(transport.Snapshot)
 	onError func(error)
 	idled   func()
+	// wakeTimeout is how long a play waits for the web view it opened; it
+	// is engineWakeTimeout when the engine is made. A field, so that a play
+	// still waiting in a test that ended does not read what the next test
+	// sets.
+	wakeTimeout time.Duration
 
 	// wakeMu lets one play open the web view while the others wait.
 	wakeMu sync.Mutex
@@ -81,7 +86,7 @@ func newLazyEngine(
 	build func(emit func(transport.Snapshot), onError func(error)) playerEngine,
 	emit func(transport.Snapshot), onError func(error), idled func(),
 ) *lazyEngine {
-	return &lazyEngine{build: build, emit: emit, onError: onError, idled: idled}
+	return &lazyEngine{build: build, emit: emit, onError: onError, idled: idled, wakeTimeout: engineWakeTimeout}
 }
 
 // Start does nothing: the web view opens at the first play.
@@ -172,7 +177,7 @@ func (w *lazyEngine) wake() (playerEngine, error) {
 		w.mu.Unlock()
 		return nil, err
 	}
-	deadline := time.Now().Add(engineWakeTimeout)
+	deadline := time.Now().Add(w.wakeTimeout)
 	for {
 		_, err := inner.Read(context.Background())
 		if err == nil || time.Now().After(deadline) {

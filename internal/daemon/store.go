@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"kero/internal/plugin/protocol"
 	"kero/internal/proto"
 	"kero/internal/settings"
 )
@@ -17,6 +18,60 @@ import (
 // session's screen and scrollback in sessions/<id>.vt, so that after the
 // daemon itself ends, as when the Mac restarts, the next one starts every
 // session again where it was, with what it showed.
+
+// stateVersion is the version of state.json this daemon writes.
+//
+//   - 2: the version before Linear became a plugin.
+//   - 3: panes of the built-in Tasks view are Linear plugin panes
+//     (migrateState).
+const stateVersion = 3
+
+// linearPluginTarget is the target a Tasks pane becomes: the Linear plugin's
+// board widget, as a list of the session's project with finished issues
+// hidden. kero split --tasks makes the same target.
+func linearPluginTarget() string {
+	t, err := protocol.EncodeTarget(protocol.Target{
+		Plugin: "linear",
+		Widget: "board",
+		State:  json.RawMessage(`{"mode":"list","scope":"project","hideDone":true}`),
+	})
+	if err != nil {
+		// The target is a constant that encodes; a failure is a bug.
+		panic("linear plugin target: " + err.Error())
+	}
+	return t
+}
+
+// migrateState brings a state file read from disk to stateVersion, in
+// place. It reports whether it changed anything.
+//
+// Version 2 to 3: every pane whose View is "tasks" (the built-in Tasks
+// pane, removed with Linear's move to a plugin) becomes a pane of the
+// plugin view with the Linear board target. Everything else in the pane
+// (id, dir, task, status, size) and in the file is kept, and a pane with
+// any other view, known or not, is not touched. The migration runs only
+// on a file older than version 3 and sets the version, so a second run,
+// and a file already at 3, change nothing: a Tasks pane found in a version
+// 3 file was made on purpose and stays. A file with no version (0) is
+// treated as 2. A daemon of before reads a version 3 file without
+// complaint (it does not check the version), and shows the Linear pane as
+// a plugin pane it may not have.
+func migrateState(st *savedState) bool {
+	if st.Version >= stateVersion {
+		return false
+	}
+	target := linearPluginTarget()
+	for i := range st.Sessions {
+		for j := range st.Sessions[i].Panes {
+			p := &st.Sessions[i].Panes[j]
+			if p.View == proto.PaneTasks {
+				p.View, p.Target = proto.PanePlugins, target
+			}
+		}
+	}
+	st.Version = stateVersion
+	return true
+}
 
 type savedState struct {
 	Version  int                `json:"version"`
@@ -94,7 +149,7 @@ func (d *Daemon) saveLoop() {
 
 func (d *Daemon) saveState() {
 	d.mu.Lock()
-	st := savedState{Version: 2, Projects: d.projects, Saved: time.Now().UnixMilli(), Linear: d.linear}
+	st := savedState{Version: stateVersion, Projects: d.projects, Saved: time.Now().UnixMilli(), Linear: d.linear}
 	for _, s := range d.sessions {
 		ss := savedSession{ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed, Created: s.created, Layout: s.layout, Focus: s.focus,
 			Unlinked: slices.Sorted(maps.Keys(s.unlinked))}
@@ -162,6 +217,7 @@ func (d *Daemon) restore() {
 	if json.Unmarshal(data, &st) != nil {
 		return
 	}
+	migrateState(&st)
 	d.linear = st.Linear
 	d.tasks = st.Tasks
 	set := settings.Load()

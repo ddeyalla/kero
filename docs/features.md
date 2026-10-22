@@ -17,24 +17,32 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 > (daemon protocol 3), when agents are idle. Until then, Linear, task links
 > and the Tasks, Files and Browser panes don't work; everything else does.
 
+The next release (Unreleased) needs one more restart of the terminal service:
+it changes the daemon protocol and saved state (Tasks panes become Linear
+plugin panes), and an older build cannot open the migrated panes.
+
 ## Linear and tasks
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| Linear workspace: board or list, search, project/milestone/state filters, issue detail with relations, attachments and comments | Sidebar **Linear** row, `Cmd+Shift+L` | 2.0.7-local.1 | Shipped |
+| Linear plugin: list or board in the sections Current, Done, Todo and Backlog with nested folds; Current follows the focused session; filters for assignee, project, label, priority, search and canceled; full issue detail (Markdown, properties, status picker, runs with Resume, sub-issues, relations, activity) | The sidebar pin, the **Tasks** entry of the New Pane chooser (`Cmd+Alt+L`), `kero split --tasks` | Unreleased | Untried |
+| Sidebar pins: a plugin widget has a row in the sidebar; a click focuses its pane in the selected session or splits one in | Pane header menu, Settings › Plugins, command palette, `kero plugin pin\|unpin <plugin> [widget]` | Unreleased | Untried |
+| Linear plugin keyboard and menu: sticky search and filter header; J/K or arrows move, Enter opens, Escape goes back (only while the pane has the focus); right-click menu with Open, Open in Linear, Copy ID, Copy Link, Move To (shown at once) and Start task; label colours on cards; Canceled toggle; screen-reader labels for status and priority | Click in the Linear pane, then keys; right click an issue | Unreleased | Untried |
+| Plugin permission `clipboard`: write-only, up to 64 KB, accepted only within about 1 s of a user event the host delivered; otherwise refused and logged | Manifest `permissions`; `Conn.Copy` in the SDK | Unreleased | Untried |
+| The old built-in Linear screen (sidebar row, `Cmd+Shift+L`) and Tasks pane | Replaced by the Linear plugin | 2.0.7-local.1 | Removed in Unreleased |
 | Linear API key in the personal data directory (`0600`), or `LINEAR_API_KEY` | Settings › Agents, `kero linear auth` | 2.0.7-local.1 | Shipped |
 | Daemon keeps the workspace fresh (30 s changes, 5 min full read, last good read kept offline) | Automatic | 2.0.7-local.1 | Shipped |
 | Session linked to its task, kept across restarts; issue shows the session and its agent resume id | `kero link <session> <BRU-25>`, issue detail | 2.0.7-local.1 | Shipped |
 | Start a task: link the session, move the issue to In Progress, print its branch | `kero task start <BRU-25>` | 2.0.7-local.1 | Shipped |
-| Project mapped to its Linear project (the one named like the repository offered first) | The project's menu in the sidebar, or the Tasks pane toolbar | 2.0.7-local.1 | Shipped |
+| Project mapped to its Linear project (the one named like the repository offered first) | The project's menu in the sidebar | 2.0.7-local.1 | Shipped |
 | Linear from the CLI | `kero linear status\|board\|issue\|set-state\|comment` | 2.0.7-local.1 | Shipped |
-| Linear and Tasks empty states act: Open Settings for the key or the integration turned off, Refresh Linear when it was not reached or has no issues, Clear Filters only for a filter the user set | The empty state's button | Unreleased | Untried |
+| The Linear plugin's empty states act: Refresh Linear when it was not reached or has no issues, Clear Filters when a filter hides them | The empty state's button | Unreleased | Untried |
 
 ## Panes
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| New Pane chooser: Terminal, Tasks, Files, Browser | `Cmd+Alt+N` or the pane header's **+**, then `T`/`L`/`E`/`B` | 2.0.7-local.1 | Shipped |
+| New Pane chooser: Terminal, Tasks (the Linear plugin), Files, Browser | `Cmd+Alt+N` or the pane header's **+**, then `T`/`L`/`E`/`B` | 2.0.7-local.1 | Shipped |
 | Open the new pane below instead of beside | Hold Shift in the chooser | 2.0.7-local.1 | Shipped |
 | Open a kind of pane directly | `Cmd+Alt+T` / `L` / `E` / `B` | 2.0.7-local.1 | Shipped |
 | Turn a pane into another kind | Pane menu › **Show in This Pane** | 2.0.7-local.1 | Shipped |

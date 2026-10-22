@@ -462,7 +462,7 @@ func (a *App) reveal(st *filesState, path string) {
 
 // focusedFiles is the Files pane the user is in, nil when in none.
 func (a *App) focusedFiles(s *proto.Session) *filesState {
-	if s == nil || a.show == "linear" {
+	if s == nil {
 		return nil
 	}
 	p := s.PaneByID(a.focusOf(s))

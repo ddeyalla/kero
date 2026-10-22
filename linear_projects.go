@@ -14,7 +14,7 @@ import (
 )
 
 // A project of Shibu Code, a repository, is tracked in one Linear
-// project: the one its Tasks pane shows and its agents look in. The
+// project: the one the Linear plugin's pane shows and its agents look in. The
 // user picks it from the project's menu, where the one named as the
 // repository is offered first.
 
@@ -99,19 +99,4 @@ func squash(s string) string {
 		}
 	}
 	return b.String()
-}
-
-// projectLinear is the Linear project a project is linked to, nil none
-// (or one the workspace no longer has).
-func (a *App) projectLinear(projectID string) *proto.LinearProject {
-	p := a.project(projectID)
-	if p == nil || p.LinearProject == "" || a.st.Linear == nil {
-		return nil
-	}
-	for i := range a.st.Linear.Projects {
-		if a.st.Linear.Projects[i].ID == p.LinearProject {
-			return &a.st.Linear.Projects[i]
-		}
-	}
-	return nil
 }

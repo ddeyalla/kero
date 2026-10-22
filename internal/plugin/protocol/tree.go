@@ -25,6 +25,8 @@ const (
 	NodeDivider     = "divider"
 	NodeSegmented   = "segmented"
 	NodeDonut       = "donut"
+	NodeMenu        = "menu"
+	NodeMarkdown    = "markdown"
 )
 
 // KnownNodeTypes are the part types this protocol version knows.
@@ -32,7 +34,7 @@ var KnownNodeTypes = []string{
 	NodeRow, NodeColumn, NodeText, NodeImage, NodeButton,
 	NodeIconButton, NodeSlider, NodeProgress, NodeList,
 	NodeSearchField, NodeEmptyState, NodeSpacer, NodeDivider,
-	NodeSegmented, NodeDonut,
+	NodeSegmented, NodeDonut, NodeMenu, NodeMarkdown,
 }
 
 // The roles a text part may take. A headline is the large title of a
@@ -118,7 +120,21 @@ const (
 	KindCommit = "commit"
 	KindSelect = "select"
 	KindSubmit = "submit"
+	// KindContext is a choice in the context menu of a pressable part: the
+	// node is the part, the value the id of the menu item.
+	KindContext = "context"
+	// KindKey is a key the user pressed in a pane whose tree asked for it
+	// (Tree.Keys): the node is "keys", the value the key's name.
+	KindKey = "key"
 )
+
+// KnownKeys are the keys a tree may ask for, by the name the host sends
+// back: letters in lower case, and the named keys of the keyboard.
+var KnownKeys = []string{"j", "k", "up", "down", "left", "right", "enter", "escape"}
+
+// ChipNeutral is the chip of the app's own quiet fill, for a chip that
+// carries no color of its own.
+const ChipNeutral = "neutral"
 
 // KnownIcons are the icons a part may name. The app draws its own glyph
 // for each, in the current color.
@@ -129,6 +145,10 @@ var KnownIcons = []string{
 	"terminal", "image", "back", "forward", "preview", "source",
 	"doc", "list", "board", "shuffle", "repeat", "volume", "volume-off",
 	"flame", "dot", "warning", "info",
+	"circle", "circle-dashed", "circle-half", "check-circle", "xmark-circle",
+	"filter", "person", "tag", "flag", "pin",
+	"priority-urgent", "priority-high", "priority-medium", "priority-low",
+	"milestone", "blocked", "blocking", "subissue",
 }
 
 // The limits a tree is held to, so that a plugin cannot stall the app.
@@ -142,6 +162,15 @@ const (
 	// MinDonut and MaxDonut bound a donut's diameter in points.
 	MinDonut = 48
 	MaxDonut = 240
+	// MaxMenuItems is how many choices a menu may have.
+	MaxMenuItems = 200
+	// MaxMarkdown is the longest markdown source, in bytes.
+	MaxMarkdown = 64 << 10
+	// MaxContextItems is how many entries a context menu may have, those of
+	// its submenus included.
+	MaxContextItems = 40
+	// MaxKeys is how many keys a tree may ask for.
+	MaxKeys = 8
 )
 
 var nodeRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$`)
@@ -221,6 +250,31 @@ type Node struct {
 	// the words in its middle and Detail the caption under them. A
 	// segmented control takes its choices from Items, the chosen one Active.
 	Segments []Segment `json:"segments,omitempty"`
+
+	// Pressable makes a row or column a control: it draws hover and
+	// pressed states, takes the focus, and sends a press naming it. Its
+	// Label names it for assistive technology.
+	Pressable bool `json:"pressable,omitempty"`
+	// ScrollX makes a row scroll sideways, its children keeping their
+	// Widths, such as the columns of a board.
+	ScrollX bool `json:"scrollX,omitempty"`
+	// ScrollY makes a column scroll on its own, filling the room its parent
+	// gives it, such as one side of two panes side by side. A row that
+	// holds a column that scrolls stretches its children to its height.
+	ScrollY bool `json:"scrollY,omitempty"`
+
+	// ContextMenu is the menu a right click opens on a pressable row or
+	// column. Choosing an entry sends a context event naming the part, with
+	// the entry's id as its value. An entry may be a separator, or hold the
+	// entries of a submenu in its Items.
+	ContextMenu []Item `json:"contextMenu,omitempty"`
+
+	// Chip draws a text as a chip: its words on a soft fill, rounded, in
+	// the color "#RRGGBB" or ChipNeutral for the app's quiet fill, such as
+	// a label of an issue. Hex colors a text and its icon in "#RRGGBB"
+	// instead of a color role, such as a team's own color of a state.
+	Chip string `json:"chip,omitempty"`
+	Hex  string `json:"hex,omitempty"`
 }
 
 // Segment is one slice of a donut part: a share of the whole by its Value,
@@ -240,6 +294,11 @@ type Item struct {
 	Trailing string `json:"trailing,omitempty"`
 	Image    string `json:"image,omitempty"`
 	Enabled  *bool  `json:"enabled,omitempty"`
+	// Separator makes an entry of a context menu a line between entries.
+	// Items are the entries of a submenu, in a context menu only. Both are
+	// refused in a list, a menu and a segmented control.
+	Separator bool   `json:"separator,omitempty"`
+	Items     []Item `json:"items,omitempty"`
 	// Leading is a short text before the picture or the title, such as a
 	// track's number, in a column of its own width.
 	Leading string `json:"leading,omitempty"`
@@ -256,6 +315,14 @@ type Tree struct {
 	// its parts need, and the lists in it show all their rows, instead of
 	// each list scrolling on its own under a fixed head.
 	Scroll bool `json:"scroll,omitempty"`
+	// Header is a part that stays fixed above the scrolling root, such as
+	// the search and the filters over a long list. It needs Scroll.
+	Header *Node `json:"header,omitempty"`
+	// Keys are the keys the pane asks to hear while it has the focus, from
+	// KnownKeys. The host sends a key event for each, only while a pane of
+	// the plugin is the focused one and no field takes the typing; a key
+	// the tree does not ask for stays with the app.
+	Keys []string `json:"keys,omitempty"`
 }
 
 // ValidateTree checks a tree before the app draws it: known types,
@@ -301,7 +368,99 @@ func (t *Tree) ValidateTree() error {
 		}
 		return nil
 	}
-	return walk(t.Root, 1)
+	if t.Header != nil {
+		if !t.Scroll {
+			return fmt.Errorf("plugin tree: a header needs the pane to scroll")
+		}
+		if err := walk(t.Header, 1); err != nil {
+			return err
+		}
+	}
+	if err := walk(t.Root, 1); err != nil {
+		return err
+	}
+	return t.validateKeys()
+}
+
+// validateKeys checks the keys a tree asks for: known, and each once.
+func (t *Tree) validateKeys() error {
+	if len(t.Keys) > MaxKeys {
+		return fmt.Errorf("plugin tree: more than %d keys", MaxKeys)
+	}
+	seen := map[string]bool{}
+	for _, k := range t.Keys {
+		if !slices.Contains(KnownKeys, k) {
+			return fmt.Errorf("plugin tree: unknown key %q", k)
+		}
+		if seen[k] {
+			return fmt.Errorf("plugin tree: key %q is repeated", k)
+		}
+		seen[k] = true
+	}
+	return nil
+}
+
+var hexRe = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+
+// ValidHex tells a color written as "#RRGGBB".
+func ValidHex(s string) bool { return hexRe.MatchString(s) }
+
+// validateContextMenu checks a context menu: entries with an id of their
+// own and a title, or a separator, and one level of submenu.
+func (n *Node) validateContextMenu() error {
+	if len(n.ContextMenu) == 0 {
+		return nil
+	}
+	if !n.Pressable {
+		return fmt.Errorf("plugin tree: node %q has a context menu and is not pressable", n.ID)
+	}
+	ids := map[string]bool{}
+	total := 0
+	var walk func(items []Item, depth int) error
+	walk = func(items []Item, depth int) error {
+		for _, item := range items {
+			total++
+			if total > MaxContextItems {
+				return fmt.Errorf("plugin tree: the context menu of %q has more than %d entries", n.ID, MaxContextItems)
+			}
+			if item.Separator {
+				if item.ID != "" || item.Title != "" || len(item.Items) > 0 {
+					return fmt.Errorf("plugin tree: a separator in the context menu of %q holds more than a line", n.ID)
+				}
+				continue
+			}
+			if !nodeRe.MatchString(item.ID) {
+				return fmt.Errorf("plugin tree: the context menu of %q has item id %q that must match %s", n.ID, item.ID, nodeRe)
+			}
+			if ids[item.ID] {
+				return fmt.Errorf("plugin tree: the context menu of %q repeats item id %q", n.ID, item.ID)
+			}
+			ids[item.ID] = true
+			if item.Title == "" {
+				return fmt.Errorf("plugin tree: the context menu of %q has item %q without a title", n.ID, item.ID)
+			}
+			if len(item.Items) > 0 {
+				if depth > 0 {
+					return fmt.Errorf("plugin tree: the context menu of %q nests submenus deeper than one", n.ID)
+				}
+				if err := walk(item.Items, depth+1); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	return walk(n.ContextMenu, 0)
+}
+
+// plainItems refuses the entries only a context menu has.
+func plainItems(kind, id string, items []Item) error {
+	for _, item := range items {
+		if item.Separator || len(item.Items) > 0 {
+			return fmt.Errorf("plugin tree: %s %q has item %q with a separator or a submenu, which only a context menu takes", kind, id, item.ID)
+		}
+	}
+	return nil
 }
 
 func (n *Node) validateFields() error {
@@ -319,6 +478,27 @@ func (n *Node) validateFields() error {
 	}
 	if n.Mark != "" && n.Type != NodeText {
 		return fmt.Errorf("plugin tree: node %q of type %q has a mark", n.ID, n.Type)
+	}
+	if n.Pressable && n.Type != NodeRow && n.Type != NodeColumn {
+		return fmt.Errorf("plugin tree: node %q of type %q is pressable", n.ID, n.Type)
+	}
+	if n.ScrollX && n.Type != NodeRow {
+		return fmt.Errorf("plugin tree: node %q of type %q scrolls sideways", n.ID, n.Type)
+	}
+	if n.ScrollY && n.Type != NodeColumn {
+		return fmt.Errorf("plugin tree: node %q of type %q scrolls up and down", n.ID, n.Type)
+	}
+	if err := n.validateContextMenu(); err != nil {
+		return err
+	}
+	if (n.Chip != "" || n.Hex != "") && n.Type != NodeText {
+		return fmt.Errorf("plugin tree: node %q of type %q has a chip or a hex color", n.ID, n.Type)
+	}
+	if n.Chip != "" && n.Chip != ChipNeutral && !ValidHex(n.Chip) {
+		return fmt.Errorf("plugin tree: text %q has chip %q, not %q or #RRGGBB", n.ID, n.Chip, ChipNeutral)
+	}
+	if n.Hex != "" && !ValidHex(n.Hex) {
+		return fmt.Errorf("plugin tree: text %q has hex %q, not #RRGGBB", n.ID, n.Hex)
 	}
 	if len(n.Segments) > 0 && n.Type != NodeDonut {
 		return fmt.Errorf("plugin tree: node %q of type %q has segments", n.ID, n.Type)
@@ -398,6 +578,9 @@ func (n *Node) validateFields() error {
 		if n.Width < 0 || n.Width > 1000 {
 			return fmt.Errorf("plugin tree: list %q has a tile width outside 0 to 1000", n.ID)
 		}
+		if err := plainItems("list", n.ID, n.Items); err != nil {
+			return err
+		}
 		itemIDs := map[string]bool{}
 		for _, item := range n.Items {
 			if !nodeRe.MatchString(item.ID) {
@@ -428,6 +611,12 @@ func (n *Node) validateFields() error {
 		return n.validateSegmented()
 	case NodeDonut:
 		return n.validateDonut()
+	case NodeMenu:
+		return n.validateMenu()
+	case NodeMarkdown:
+		if len(n.Text) > MaxMarkdown {
+			return fmt.Errorf("plugin tree: markdown %q is longer than %d bytes", n.ID, MaxMarkdown)
+		}
 	}
 	return nil
 }
@@ -440,6 +629,9 @@ func (n *Node) validateSegmented() error {
 	}
 	if len(n.Items) > MaxSegmentedItems {
 		return fmt.Errorf("plugin tree: segmented %q has more than %d items", n.ID, MaxSegmentedItems)
+	}
+	if err := plainItems("segmented", n.ID, n.Items); err != nil {
+		return err
 	}
 	itemIDs := map[string]bool{}
 	active := 0
@@ -460,6 +652,40 @@ func (n *Node) validateSegmented() error {
 	}
 	if active > 1 {
 		return fmt.Errorf("plugin tree: segmented %q has %d active items, at most one", n.ID, active)
+	}
+	return nil
+}
+
+// validateMenu checks a menu: a label, an icon this version knows, and its
+// choices, each with an id of its own and a title. Several may be checked.
+func (n *Node) validateMenu() error {
+	if n.Label == "" {
+		return fmt.Errorf("plugin tree: menu %q has no label", n.ID)
+	}
+	if n.Icon != "" && !slices.Contains(KnownIcons, n.Icon) {
+		return fmt.Errorf("plugin tree: menu %q has unknown icon %q", n.ID, n.Icon)
+	}
+	if len(n.Items) == 0 {
+		return fmt.Errorf("plugin tree: menu %q has no items", n.ID)
+	}
+	if len(n.Items) > MaxMenuItems {
+		return fmt.Errorf("plugin tree: menu %q has more than %d items", n.ID, MaxMenuItems)
+	}
+	if err := plainItems("menu", n.ID, n.Items); err != nil {
+		return err
+	}
+	itemIDs := map[string]bool{}
+	for _, item := range n.Items {
+		if !nodeRe.MatchString(item.ID) {
+			return fmt.Errorf("plugin tree: menu %q has item id %q that must match %s", n.ID, item.ID, nodeRe)
+		}
+		if itemIDs[item.ID] {
+			return fmt.Errorf("plugin tree: menu %q repeats item id %q", n.ID, item.ID)
+		}
+		itemIDs[item.ID] = true
+		if item.Title == "" {
+			return fmt.Errorf("plugin tree: menu %q has item %q without a title", n.ID, item.ID)
+		}
 	}
 	return nil
 }

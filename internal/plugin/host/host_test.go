@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,17 @@ func TestFakePluginHelper(t *testing.T) {
 				text += "|" + errText(c.WebOpen("two", "http://localhost:9/"))
 				text += "|" + errText(c.WebOpen("three", "http://localhost:9/"))
 				_ = c.Render(e.Pane, textTree(text))
+			case "clipboard":
+				text := "copy:" + errText(c.Copy("ENG-1 the link"))
+				text += "|" + errText(c.Copy(strings.Repeat("x", protocol.MaxClipboard+1)))
+				_ = c.Render(e.Pane, textTree(text))
+			case "keys":
+				// A pane with a header and the keys it asks to hear.
+				tree := sdk.Column("root", sdk.Text("body", "body")).ScrollingTreeUnder(sdk.Row("head", sdk.Text("title", "head")))
+				tree.Keys = []string{"j", "escape"}
+				_ = c.Render(e.Pane, tree)
+			case "focus":
+				_ = c.Render(e.Pane, textTree("open"))
 			case "deny":
 				text := "the call was allowed"
 				if err := c.Notify("Hello", "from the fake plugin"); err != nil {
@@ -80,8 +92,26 @@ func TestFakePluginHelper(t *testing.T) {
 			}
 		},
 		Command: func(c *sdk.Conn, id string) {
-			if mode == "command" {
+			if mode == "command" || mode == "focus" {
 				_ = c.Render("p1", textTree("command:"+id))
+			}
+			if mode == "clipboard" {
+				// A copy that comes too long after the command.
+				time.Sleep(userActionWindow + 300*time.Millisecond)
+				_ = c.Render("p1", textTree("late:"+errText(c.Copy("LATE"))))
+			}
+		},
+		Focus: func(c *sdk.Conn, session string) {
+			if mode == "focus" {
+				_ = c.Render("p1", textTree("focus:"+session))
+			}
+		},
+		Event: func(c *sdk.Conn, e protocol.EventParams) {
+			if mode == "keys" {
+				_ = c.Render(e.Pane, textTree(fmt.Sprintf("event:%s/%s/%v", e.Node, e.Kind, e.Value)))
+			}
+			if mode == "clipboard" {
+				_ = c.Render(e.Pane, textTree("press:"+errText(c.Copy("ENG-2 pressed"))))
 			}
 		},
 		Settings: func(c *sdk.Conn, values map[string]string) {
@@ -246,6 +276,7 @@ type fakeCallbacks struct {
 	notify  chan [3]string
 	webOpen chan [3]string
 	webEnd  chan [2]string
+	clip    chan [2]string
 }
 
 type renderCall struct {
@@ -275,19 +306,21 @@ func newFakeCallbacks() *fakeCallbacks {
 		notify:  make(chan [3]string, 4),
 		webOpen: make(chan [3]string, 4),
 		webEnd:  make(chan [2]string, 4),
+		clip:    make(chan [2]string, 4),
 	}
 }
 
 func (f *fakeCallbacks) callbacks() Callbacks {
 	return Callbacks{
-		Ready:    func(plugin string) { f.ready <- plugin },
-		Render:   func(plugin, pane string, tree *protocol.Tree) { f.renders <- renderCall{plugin, pane, tree} },
-		State:    func(plugin, pane string, state json.RawMessage) { f.states <- stateCall{plugin, pane, state} },
-		Notify:   func(plugin, title, body string) { f.notify <- [3]string{plugin, title, body} },
-		Crash:    func(plugin, message, logPath string) { f.crashes <- crashCall{plugin, message, logPath} },
-		OpenURL:  func(plugin, url string) {},
-		WebOpen:  func(plugin, id, url string) { f.webOpen <- [3]string{plugin, id, url} },
-		WebClose: func(plugin, id string) { f.webEnd <- [2]string{plugin, id} },
+		Ready:     func(plugin string) { f.ready <- plugin },
+		Render:    func(plugin, pane string, tree *protocol.Tree) { f.renders <- renderCall{plugin, pane, tree} },
+		State:     func(plugin, pane string, state json.RawMessage) { f.states <- stateCall{plugin, pane, state} },
+		Notify:    func(plugin, title, body string) { f.notify <- [3]string{plugin, title, body} },
+		Crash:     func(plugin, message, logPath string) { f.crashes <- crashCall{plugin, message, logPath} },
+		OpenURL:   func(plugin, url string) {},
+		Clipboard: func(plugin, text string) { f.clip <- [2]string{plugin, text} },
+		WebOpen:   func(plugin, id, url string) { f.webOpen <- [3]string{plugin, id, url} },
+		WebClose:  func(plugin, id string) { f.webEnd <- [2]string{plugin, id} },
 	}
 }
 
@@ -923,5 +956,123 @@ func TestActRunsACommandWithNoPane(t *testing.T) {
 	}
 	if h.Running("fake") {
 		t.Fatal("the plugin that started for a command never stopped")
+	}
+}
+
+// A plugin that holds the focus permission hears the selected session when
+// it is ready and when it changes; one that does not hears nothing.
+func TestFocusReachesOnlyPluginsThatAskForIt(t *testing.T) {
+	manifest := fakeManifest()
+	manifest.Permissions = protocol.Permissions{protocol.PermFocus}
+	h, f := newFakeHost(t, manifest, "focus")
+	h.SetFocus("s1")
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main", Size: protocol.Size{Width: 400, Height: 300}}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, f)
+	var heard []string
+	for len(heard) < 2 {
+		heard = append(heard, textOf(waitRender(t, f).tree))
+	}
+	if !(heard[0] == "focus:s1" && heard[1] == "open") && !(heard[0] == "open" && heard[1] == "focus:s1") {
+		t.Fatalf("a ready plugin heard %v, want its open and the session s1", heard)
+	}
+	h.SetFocus("s2")
+	if got := textOf(waitRender(t, f).tree); got != "focus:s2" {
+		t.Fatalf("after a change the plugin heard %q, want focus:s2", got)
+	}
+	h.SetFocus("")
+	if got := textOf(waitRender(t, f).tree); got != "focus:" {
+		t.Fatalf("with no session the plugin heard %q, want focus:", got)
+	}
+
+	plain, g := newFakeHost(t, fakeManifest(), "focus")
+	plain.SetFocus("s1")
+	if err := plain.Open("fake", Pane{ID: "p1", Widget: "main", Size: protocol.Size{Width: 400, Height: 300}}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, g)
+	if got := textOf(waitRender(t, g).tree); got != "open" {
+		t.Fatalf("a plugin without the permission heard %q first", got)
+	}
+	plain.SetFocus("s2")
+	if err := plain.Command("p1", "ping"); err != nil {
+		t.Fatal(err)
+	}
+	if got := textOf(waitRender(t, g).tree); got != "command:ping" {
+		t.Fatalf("a plugin without the permission heard %q, want only its command", got)
+	}
+}
+
+func TestClipboardNeedsThePermissionAndIsBounded(t *testing.T) {
+	// Without the permission the copy is refused and nothing reaches the app.
+	h, f := newFakeHost(t, fakeManifest(), "clipboard")
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, f)
+	if got := textOf(waitRender(t, f).tree); strings.Count(got, "did not ask for the permission") != 2 {
+		t.Fatalf("the plugin heard %q, want both copies refused", got)
+	}
+	if len(f.clip) != 0 {
+		t.Fatal("the app copied for a plugin without the permission")
+	}
+
+	// With it, the text reaches the app, and a text past the limit does not.
+	m := fakeManifest()
+	m.Permissions = protocol.Permissions{protocol.PermClipboard}
+	h, f = newFakeHost(t, m, "clipboard")
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, f)
+	// A copy with no user action before it is dropped, and so is the long one.
+	got := textOf(waitRender(t, f).tree)
+	if !strings.HasPrefix(got, "copy:clipboard.write: only right after") || !strings.Contains(got, "longer than") {
+		t.Fatalf("the plugin heard %q, want the copy with no user action and the long one refused", got)
+	}
+	if len(f.clip) != 0 {
+		t.Fatal("the app copied with no user action")
+	}
+
+	// Right after a press the text reaches the app.
+	h.Event("p1", "button", protocol.KindPress, nil)
+	if got := textOf(waitRender(t, f).tree); got != "press:ok" {
+		t.Fatalf("the plugin heard %q, want the copy after a press taken", got)
+	}
+	select {
+	case c := <-f.clip:
+		if c != [2]string{"fake", "ENG-2 pressed"} {
+			t.Fatalf("the app was asked to copy %v", c)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the app was not asked to copy")
+	}
+
+	// Past the window after a command it is dropped again.
+	if err := h.Command("p1", "later"); err != nil {
+		t.Fatal(err)
+	}
+	if got := textOf(waitRender(t, f).tree); !strings.HasPrefix(got, "late:clipboard.write: only right after") {
+		t.Fatalf("the plugin heard %q, want the late copy refused", got)
+	}
+	if len(f.clip) != 0 {
+		t.Fatal("a late copy reached the app")
+	}
+}
+
+func TestAHeaderAndKeysReachTheAppAndAKeyReachesThePlugin(t *testing.T) {
+	h, f := newFakeHost(t, fakeManifest(), "keys")
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, f)
+	tree := waitRender(t, f).tree
+	if tree.Header == nil || tree.Header.ID != "head" || !slices.Equal(tree.Keys, []string{"j", "escape"}) {
+		t.Fatalf("the app drew a tree without its header or keys: %+v", tree)
+	}
+	h.Event("p1", "keys", protocol.KindKey, "j")
+	if got := textOf(waitRender(t, f).tree); got != "event:keys/key/j" {
+		t.Fatalf("the plugin heard %q, want the key", got)
 	}
 }

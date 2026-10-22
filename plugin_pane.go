@@ -40,6 +40,15 @@ type pluginState struct {
 	saveTarget func(pane, target string)
 
 	panes map[string]*pluginPaneState
+	// pinView draws the symbols of the sidebar's pin rows, which belong to
+	// no pane. focusSent is the session the host last heard as selected,
+	// and focusKnown tells that it heard one.
+	pinView *pluginView
+	// openPane is how a pin splits a pane in; a test sets it to watch
+	// (nil: openPluginPane).
+	openPane   func(s *proto.Session, plugin, widget string)
+	focusSent  string
+	focusKnown bool
 	// webs are the web views plugins run with no window, by plugin and id;
 	// newWeb makes one (nil: a WebKit view in the window).
 	webs   map[string]*pluginWeb
@@ -184,6 +193,11 @@ func (a *App) pluginHost() *host.Host {
 				// scheme.
 				a.pluginPost(func() { openURL(url) })
 			},
+			Clipboard: func(plugin, text string) {
+				// The text goes to the clipboard in the next frame, with
+				// the toast the app's other copies show.
+				a.pluginPost(func() { a.pluginCopy(text) })
+			},
 			Crash: func(plugin, message, logPath string) {
 				a.pluginPost(func() { a.pluginCrashed(plugin, message, logPath) })
 			},
@@ -191,7 +205,42 @@ func (a *App) pluginHost() *host.Host {
 			WebClose: webEnd,
 		},
 	})
+	a.syncPluginFocus()
 	return a.plugins.host
+}
+
+// pluginCopy puts text a plugin asked to copy on the clipboard, in the next
+// frame, as the app's own copies do.
+func (a *App) pluginCopy(text string) {
+	if text == "" {
+		return
+	}
+	a.copyText = text
+	a.invalidateMain()
+}
+
+// pluginKeysOn tells that the plugin pane p may hear the keys its tree asks
+// for: it is the focused pane of its session and has the keyboard (held,
+// the pane or something in it has the focus), and no dialog, field or
+// overlay of the app takes the keys. A terminal never loses a key to a
+// plugin, because only the focused pane hears.
+func (a *App) pluginKeysOn(s *proto.Session, p *proto.Pane, held bool) bool {
+	if !held || p.ID != a.focusOf(s) {
+		return false
+	}
+	return !(a.pal.open || a.chooser.open || a.confirm != nil || a.usage.open || a.ss.open || a.renaming != "" || a.renamingProject != "")
+}
+
+// syncPluginFocus tells the plugins that ask for it which session is
+// selected, when that is not what the host heard last. It is a comparison
+// of two strings in a frame that changed nothing.
+func (a *App) syncPluginFocus() {
+	h := a.plugins.host
+	if h == nil || a.plugins.focusKnown && a.plugins.focusSent == a.selected {
+		return
+	}
+	a.plugins.focusSent, a.plugins.focusKnown = a.selected, true
+	h.SetFocus(a.selected)
 }
 
 // pluginReady is a plugin that answered the handshake, after a start or a
@@ -372,6 +421,13 @@ func (a *App) pluginPane(c *ui.Context, pal *palette, s *proto.Session, p *proto
 	if st.view == nil {
 		st.view = newPluginView()
 	}
+	// A link of the plugin's markdown opens in the browser only if the
+	// plugin asked to open links.
+	st.view.openLink = nil
+	if plugin.Manifest.Permissions.Has(protocol.PermOpenURL) {
+		st.view.openLink = func(link string) bool { openURL(link); return true }
+	}
+	st.view.keysOn = a.pluginKeysOn(s, p, body.FocusWithin())
 	st.view.draw(c, pal, st.tree, func(ev pluginEvent) {
 		a.pluginHost().Event(p.ID, ev.Node, ev.Kind, ev.Value)
 	})
@@ -443,6 +499,7 @@ func (a *App) restartPlugin(plugin string) {
 // beginPluginFrame marks every plugin pane as not drawn, so that the end
 // of the frame can tell which ones are hidden.
 func (a *App) beginPluginFrame() {
+	a.syncPluginFocus()
 	for _, st := range a.plugins.panes {
 		st.shown = false
 	}
@@ -837,6 +894,9 @@ func (a *App) pluginCard(c *ui.Context, pal *palette, p registry.Plugin) {
 			ui.Text(c, m.Description).FontSize(12).TextColor(pal.textMuted).MaxWidth(520)
 		}
 		ui.Text(c, locales.PluginPermissionsLine(permissions)).FontSize(11.5).TextColor(pal.textFaint)
+		for _, w := range m.Widgets {
+			a.pinSetting(c, pal, m, w)
+		}
 		// The fields wait for the saved values, read off the UI goroutine.
 		if !a.plugins.pageLoaded {
 			return

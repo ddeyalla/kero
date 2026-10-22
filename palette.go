@@ -80,6 +80,7 @@ func (a *App) paletteItems() []paletteItem {
 		cmds = append(cmds, paletteItem{title: pc.title, detail: pc.name,
 			run: func() { a.run(id, map[string]string{"via": "palette"}) }})
 	}
+	cmds = append(cmds, a.pinPaletteItems()...)
 	for _, page := range settingsPages {
 		id := page.id
 		cmds = append(cmds, paletteItem{title: locales.PaletteSettingsPage(page.title()), run: func() { a.openSettings(id) }})

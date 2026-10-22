@@ -268,6 +268,17 @@ func (c *recConn) typed() string {
 	return c.got.String()
 }
 
+// waitTyped is what the terminal was sent once it holds want, or after a
+// short wait. The terminal writes to its connection on its own goroutine,
+// so a check right after a frame can come first.
+func (c *recConn) waitTyped(want string) string {
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(c.typed(), want) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return c.typed()
+}
+
 // The reveal holds the keyboard through the real start, where the state
 // selects a session and focuses its pane: a key typed during it cancels
 // it and reaches no terminal, and the pane has the keyboard after.
@@ -298,7 +309,7 @@ func TestIntroHoldsKeyboard(t *testing.T) {
 	}
 	tt.TypeKey(0, ui.KeyY, "y")
 	tt.Frame()
-	if got := conn.typed(); !strings.Contains(got, "y") {
+	if got := conn.waitTyped("y"); !strings.Contains(got, "y") {
 		t.Errorf("the terminal got %q after the reveal, want the y typed", got)
 	}
 }
@@ -342,7 +353,7 @@ func TestIntroEndsWithPaneFocused(t *testing.T) {
 	}
 	tt.TypeKey(0, ui.KeyY, "y")
 	tt.Frame()
-	if got := conn.typed(); !strings.Contains(got, "y") {
+	if got := conn.waitTyped("y"); !strings.Contains(got, "y") {
 		t.Errorf("the terminal got %q after the reveal, want the y typed", got)
 	}
 }

@@ -55,6 +55,37 @@ from replacing a live Shibu socket. Regression tests cover both legacy listeners
 and daemons using the new address lock. Every test app also isolates all five
 `KERO_HOME`, `KERO_CONFIG`, `KERO_SOCKET`, `KERO_PANE`, `KERO_SESSION` variables.
 
+## Linear as a plugin
+
+The Linear key stays in core. The daemon reads `credentials.json` or
+`LINEAR_API_KEY` and makes every request to Linear; the Linear plugin never
+reads, receives or logs the key. The plugin is a client of the daemon, over the
+same socket as the CLI: it reads the state the daemon holds and asks it to set
+an issue's state, comment, load an issue or link a session. That shared socket
+is a privilege of the plugins that ship in the binary. Withholding it from a
+third-party plugin is a policy, not a boundary: a plugin is a native
+executable that the host starts from the manifest's `run` argv
+(`internal/plugin/host/host.go`, `exec.Command`), with the user's own rights,
+so any process of the same user, a plugin included, can open the daemon's
+socket. Until plugins run in a sandbox, treat an installed plugin as trusted
+code of the user, and do not count on the socket's absence to keep it from
+the daemon or the Linear key's requests. A permission the app mediates would
+be the way to give a third-party plugin the daemon.
+
+The plugin opens links only through the `openURL` permission, and only `http`
+and `https` with a host and no username (`linearSafeURL` and the plugin's own
+`safeURL` refuse the rest, and `linearSafeURL` also guards the Files pane).
+It hears which session is selected only with the `focus` permission. Tests
+never touch real Linear data.
+
+The `clipboard` permission lets a plugin put text on the clipboard
+(`clipboard.write`, up to 64 KB). It is write-only: a plugin cannot read the
+clipboard. The host takes a write only within about one second after it
+delivered a user event to that plugin (a press, a key, a menu choice or a
+command; `userAt` and `userActionWindow` in `host.go`). A write at any other
+time is refused and logged, so a plugin cannot replace what the user copied
+in the background. The Linear plugin uses it for Copy ID and Copy Link.
+
 ## Limits
 
 Local hooks can be disabled by someone with write access to the clone. GitHub

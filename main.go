@@ -27,6 +27,7 @@ import (
 	"kero/internal/daemon"
 	// The built-in plugins are roles of this executable: importing one
 	// registers its code for plugin-run and for the panes that host it.
+	_ "kero/internal/plugin/builtin/linear"
 	_ "kero/internal/plugin/builtin/spotify"
 	_ "kero/internal/plugin/builtin/usage"
 	"kero/internal/plugin/registry"

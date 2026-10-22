@@ -7,18 +7,22 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"kero/internal/plugin/protocol"
 	"kero/internal/proto"
 )
 
-// testTasks is the session of testApp with pane b showing the tasks of
-// its project, linked to Linear's Rig.
+// testTasks is the session of testApp with pane b showing the Linear
+// plugin's board, which the Tasks entry of the chooser opens.
 func testTasks(t *testing.T) *App {
 	t.Helper()
-	a := testLinear(t)
+	a := testApp(t)
 	a.show, a.selected = "", "s1"
-	a.st.Projects[0].LinearProject = "p1"
+	target, err := protocol.EncodeTarget(protocol.Target{Plugin: "linear", Widget: "board"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	b := &a.st.Sessions[0].Panes[1]
-	b.View, b.Shell = proto.PaneTasks, ""
+	b.View, b.Shell, b.Target = proto.PanePlugins, "", target
 	return a
 }
 
@@ -29,7 +33,7 @@ func frames(tt *ui.Tester) {
 }
 
 // The chooser offers each kind of pane, with its letter and shortcut,
-// and a letter picks one: L, the session's Tasks pane, which has one.
+// and a letter picks one: L, the Linear plugin's pane of the session, which has one.
 func TestNewPaneChooser(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		a := testTasks(t)
@@ -56,7 +60,7 @@ func TestNewPaneChooser(t *testing.T) {
 		t.Fatal("the chooser stayed open after a letter")
 	}
 	if got := a.focusOf(a.session("s1")); got != "b" {
-		t.Fatalf("Tasks focused pane %q, not the session's Tasks pane", got)
+		t.Fatalf("Tasks focused pane %q, not the session's Linear pane", got)
 	}
 	a.run("pane.new", nil)
 	frames(tt)
@@ -64,57 +68,6 @@ func TestNewPaneChooser(t *testing.T) {
 	tt.Frame()
 	if a.chooser.open {
 		t.Fatal("Esc left the chooser open")
-	}
-}
-
-// The Tasks pane lists its project's open issues; what is done shows
-// when asked.
-func TestTasksPane(t *testing.T) {
-	for _, dark := range []bool{false, true} {
-		a := testTasks(t)
-		tt := ui.NewTester(a.view, 1280, 720)
-		tt.SetDark(dark)
-		frames(tt)
-		for _, want := range []string{"Tasks", "Rig", "BRU-24", "BRU-27", "BRU-33"} {
-			if !tt.HasText(want) {
-				t.Errorf("dark=%v: no %q; texts %q", dark, want, tt.Texts())
-			}
-		}
-		if tt.HasText("BRU-25") {
-			t.Errorf("dark=%v: a done issue shows", dark)
-		}
-		shot(t, tt, map[bool]string{false: "tasks-pane-light", true: "tasks-pane-dark"}[dark])
-	}
-	a := testTasks(t)
-	a.tasksState("b").hideDone = false
-	tt := ui.NewTester(a.view, 1280, 720)
-	frames(tt)
-	if !tt.HasText("BRU-25") {
-		t.Fatalf("Show Done left out a done issue; texts %q", tt.Texts())
-	}
-}
-
-// A Tasks pane keeps its own view: an issue open in it, and what it
-// leaves out, are not the tray board's, nor the board's its.
-func TestTasksPaneStateIsItsOwn(t *testing.T) {
-	a := testTasks(t)
-	a.linRoot.open, a.linRoot.view = "i1", "board"
-	st := a.tasksState("b")
-	st.open = "i3"
-	tt := ui.NewTester(a.view, 1400, 760)
-	frames(tt)
-	if a.lin != &a.linRoot {
-		t.Fatal("a pane's view stayed the app's after drawing")
-	}
-	if a.linRoot.open != "i1" || a.linRoot.view != "board" || a.linRoot.pane {
-		t.Fatalf("the board's view changed: %+v", a.linRoot)
-	}
-	if st.open != "i3" || st.view != "list" || !st.hideDone {
-		t.Fatalf("the pane's view changed: open %q view %q", st.open, st.view)
-	}
-	// The pane steps through its list, not a board's column.
-	if !tt.HasText("BRU-27") || !tt.HasText("1 / 3") {
-		t.Fatalf("the pane's issue did not open in its list; texts %q", tt.Texts())
 	}
 }
 
@@ -140,5 +93,44 @@ func TestNewPaneActionsInMenu(t *testing.T) {
 	walk(a.paneMenuItems())
 	if len(want) > 0 {
 		t.Fatalf("missing from the menus: %v", want)
+	}
+}
+
+// A new Tasks pane is the Linear plugin's, made with its board target, so
+// that a kerod which has not migrated takes it too.
+func TestNewTasksPaneIsALinearPluginPane(t *testing.T) {
+	view, target := newPaneView(proto.PaneTasks)
+	if view != proto.PanePlugins {
+		t.Fatalf("view = %q, want the plugin view", view)
+	}
+	got, err := protocol.DecodeTarget(target)
+	if err != nil || got.Plugin != "linear" || got.Widget != "board" {
+		t.Fatalf("target = %q (%v), want the Linear board", target, err)
+	}
+	if string(got.State) != `{"mode":"list","scope":"project","hideDone":true}` {
+		t.Fatalf("state = %s", got.State)
+	}
+	if v, tg := newPaneView(proto.PaneFiles); v != proto.PaneFiles || tg != "" {
+		t.Fatalf("Files became %q %q", v, tg)
+	}
+}
+
+// A Tasks pane that an older kerod kept is drawn as the Linear plugin's
+// board, not blank, and a new Tasks pane takes the focus of it.
+func TestUnmigratedTasksPaneShowsThePlugin(t *testing.T) {
+	a := testApp(t)
+	a.show = ""
+	b := &a.st.Sessions[0].Panes[1]
+	b.View, b.Shell, b.Target = proto.PaneTasks, "", ""
+	tt := ui.NewTester(a.view, 1280, 720)
+	frames(tt)
+	st := a.plugins.panes["b"]
+	if st == nil || st.plugin != "linear" || st.widget != "board" {
+		t.Fatalf("the Tasks pane did not become the Linear board: %+v", st)
+	}
+	a.setFocus(a.session("s1"), "a")
+	a.openView(a.session("s1"), "", proto.PaneTasks, false)
+	if got := a.focusOf(a.session("s1")); got != "b" {
+		t.Fatalf("Tasks focused %q, not the session's Tasks pane", got)
 	}
 }

@@ -11,12 +11,13 @@ import (
 // every issue of the team, so it asks for little: the detail view reads
 // the rest, one issue at a time.
 const issueFields = `
-        id identifier title url
+        id identifier title url priority
         createdAt updatedAt completedAt
         state { id name type position }
         project { id name }
         projectMilestone { id name }
         assignee { id name }
+        parent { id identifier }
         labels { nodes { id name color } }
         relations(first: 10) { nodes { type relatedIssue { id identifier title state { id name type } } } }
         inverseRelations(first: 10) { nodes { type relatedIssue: issue { id identifier title state { id name type } } } }`
@@ -24,6 +25,7 @@ const issueFields = `
 // boardQuery reads a team whole: its states, its projects with their
 // milestones, and its issues.
 const boardQuery = `query Board($team: String!) {
+  viewer { id name }
   team(id: $team) {
     id key name
     states(first: 250) { nodes { id name type position color } }
@@ -80,7 +82,7 @@ const issueQuery = `query Issue($id: String!) {
     comments(first: 50) { nodes { id body createdAt user { id name } } pageInfo { hasNextPage endCursor } }
     relations(first: 50) { nodes { type relatedIssue { id identifier title state { id name type } } } pageInfo { hasNextPage endCursor } }
     inverseRelations(first: 50) { nodes { type relatedIssue: issue { id identifier title state { id name type } } } pageInfo { hasNextPage endCursor } }
-    children(first: 50) { nodes { id identifier title state { id name type } } pageInfo { hasNextPage endCursor } }
+    children(first: 50) { nodes { id identifier title priority assignee { id name } state { id name type } } pageInfo { hasNextPage endCursor } }
     parent { id identifier title }
   }
 }`
@@ -148,7 +150,8 @@ func pages[T any](ctx context.Context, read func(context.Context, string) (conne
 func (c *Client) Board(ctx context.Context, team string) (*Snapshot, error) {
 	started := time.Now()
 	var meta struct {
-		Team *Team `json:"team"`
+		Team   *Team `json:"team"`
+		Viewer *User `json:"viewer"`
 	}
 	if err := c.Do(ctx, boardQuery, map[string]any{"team": team}, &meta); err != nil {
 		return nil, err
@@ -187,7 +190,7 @@ func (c *Client) Board(ctx context.Context, team string) (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Snapshot{Team: *meta.Team, Projects: projects, Issues: issues, Read: started}, nil
+	return &Snapshot{Team: *meta.Team, Projects: projects, Issues: issues, Viewer: meta.Viewer, Read: started}, nil
 }
 
 func nullableCursor(s string) any {
@@ -256,7 +259,7 @@ func (c *Client) Issue(ctx context.Context, id string) (*Issue, error) {
 	if err != nil {
 		return nil, err
 	}
-	issue.Children, err = issueItems(ctx, c, id, "children", "id identifier title state { id name type }", detail.Children)
+	issue.Children, err = issueItems(ctx, c, id, "children", "id identifier title priority assignee { id name } state { id name type }", detail.Children)
 	if err != nil {
 		return nil, err
 	}

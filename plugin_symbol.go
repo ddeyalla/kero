@@ -46,6 +46,25 @@ var pluginSymbols = map[string]string{
 	"dot":           "circle.fill",
 	"warning":       "exclamationmark.triangle.fill",
 	"info":          "info.circle",
+
+	"circle":          "circle",
+	"circle-dashed":   "circle.dashed",
+	"circle-half":     "circle.lefthalf.filled",
+	"check-circle":    "checkmark.circle.fill",
+	"xmark-circle":    "xmark.circle.fill",
+	"filter":          "line.3.horizontal.decrease.circle",
+	"person":          "person.crop.circle",
+	"tag":             "tag",
+	"flag":            "flag",
+	"pin":             "pin",
+	"priority-urgent": "exclamationmark.square.fill",
+	"priority-high":   "chevron.up.2",
+	"priority-medium": "equal",
+	"priority-low":    "chevron.down",
+	"milestone":       "diamond",
+	"blocked":         "nosign",
+	"blocking":        "arrow.turn.down.right",
+	"subissue":        "list.bullet.indent",
 }
 
 // symbolScale is how many pixels a symbol has for each point: the display

@@ -10,7 +10,53 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
+> **Restart the terminal service once.** This release changes the daemon
+> protocol (an issue's assignee, priority and parent, and the workspace's
+> viewer) and saved state: state version 3
+> turns every saved Tasks pane into a Linear plugin pane. After updating,
+> restart the terminal service when agents are idle. An older build cannot
+> open the migrated panes as Tasks: do not go back to one after the new daemon
+> has saved state.
+
 ### Added
+
+- Linear is a built-in plugin. Its pane shows the team's issues as a list or a
+  board, in the sections Current, Done, Todo and Backlog, each with nested
+  folds (section, project, parent issue, sub-issues). Current follows the
+  focused session: the issue linked to it first, then In Progress issues with a
+  live session, then the rest assigned to you. Filters: assignee, project,
+  label, priority, search and canceled issues. The issue detail has the full
+  description in Markdown, properties, a status picker, sessions with Resume,
+  sub-issues, relations and the activity feed. See
+  [Linear plugin](linear-workspace.md).
+- Sidebar pins: any plugin widget can have a row in the sidebar. A click
+  focuses the plugin's pane in the selected session or splits one in. Pin from
+  the pane header's menu, Settings › Plugins, the command palette, or
+  `kero plugin pin <plugin> [widget]` (and `unpin`). Manifest widgets have a new
+  `icon`. The old Linear row became the pin of the Linear plugin for installs
+  that had it on.
+- New plugin parts: `menu` (a pop-up button), `pressable` rows and columns with
+  hover, press and context-menu states, `scrollX` rows, `markdown`, chips,
+  and more icons (circle, circle-dashed, circle-half, check-circle,
+  xmark-circle, filter, person, tag, flag, pin, priorities, and others). A
+  plugin with the new permission `focus` hears which session is selected.
+  A tree may also have a sticky `header` and `keys` (heard only while the pane
+  holds the keyboard focus), and a pressable part a `contextMenu` with
+  submenus.
+- The Linear plugin is made to be driven from the keyboard and the mouse. The
+  search and filters stay in a sticky header. J and K or the arrow keys move
+  the selection, Enter opens the issue and Escape goes back, only while the
+  Linear pane has the focus. A right click on an issue opens a menu: Open,
+  Open in Linear, Copy ID, Copy Link, Move To (a submenu of states) and Start
+  task. Move To shows the new state at once, before Linear confirms. Cards
+  show the issue's labels in their Linear colours. Status and priority have
+  screen-reader labels. Canceled issues have their own toggle.
+- The plugin permission `clipboard` puts text on the clipboard (`clipboard.write`,
+  up to 64 KB, write-only). The host accepts it only within about one second
+  after it delivered a press, key or command to that plugin; any other write
+  is refused and logged. The Linear plugin uses it for Copy ID and Copy Link.
+- Links with a username (`https://user@host`) are refused in plugin views and
+  the Files pane, as only plain `http` and `https` links open.
 
 - The Spotify widget plays music itself, with no Spotify app open: after one
   sign-in with a Premium account, Shibu Code is a Spotify device of its own,
@@ -238,8 +284,30 @@ builds only. What each feature is and where it stands is tracked in the
   and a `label` on icon-only text. Plugin text uses tabular digits, so numbers
   do not jump.
 
+### Changed
+
+- The Tasks entry of the New Pane chooser, `Cmd+Alt+L` and `kero split
+  --tasks` open the Linear plugin pane. The daemon still accepts the view
+  `tasks` in create, split and replace, and makes the Linear plugin pane of it,
+  so older clients and scripts work.
+- The settings for the sidebar row, empty columns and card density left the
+  Linear page of Settings. Empty columns and density are settings of the
+  plugin, in Settings › Plugins. The key and the refresh interval stay.
+
+### Removed
+
+- The built-in Linear screen, its sidebar row, the `Cmd+Shift+L` shortcut and
+  the Tasks pane. A saved window that showed the Linear screen opens the
+  selected session.
+
 ### Fixed
 
+- An old Tasks pane that was not migrated yet now shows the Linear plugin even
+  before the terminal service restarts, and a new Tasks pane opens as a Linear
+  plugin pane directly.
+- The first-run intro tests no longer fail now and then.
+- A data race in the tests of the Spotify plugin's lazy engine is gone: the
+  wake timeout is a field of the engine, not a package variable.
 - Dragging the Spotify seek bar no longer breaks playback. The slider of the
   plugin parts now commits once, when you let go, even if the pointer left
   the thin track, and the Spotify engine runs its commands one at a time and
@@ -298,6 +366,9 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Documentation
 
+- Rewrote [Linear plugin and session links](linear-workspace.md) around the
+  plugin, and updated the plugin guide (new parts, the `focus` permission,
+  widget icons and pins), the security notes and the feature tracker.
 - Added the [feature tracker](features.md): every Shibu feature, the release
   that shipped it, how to reach it and its status.
 - Noted the one-time service restart for 2.0.7-local.1 and the Files Find

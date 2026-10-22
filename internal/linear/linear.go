@@ -189,7 +189,9 @@ type Snapshot struct {
 	Team     Team          `json:"team"`
 	Projects list[Project] `json:"projects"`
 	Issues   list[Issue]   `json:"issues"`
-	Read     time.Time     `json:"read"`
+	// Viewer is the person the key belongs to.
+	Viewer *User     `json:"viewer,omitempty"`
+	Read   time.Time `json:"read"`
 }
 
 // Client reads and writes a Linear workspace.

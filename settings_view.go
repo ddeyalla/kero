@@ -1070,9 +1070,6 @@ func (a *App) linearPage(c *ui.Context, pal *palette) {
 		}
 	})
 	settingsGroup(c, pal, locales.SetLinearBoard(), "", func() {
-		settingRow(c, pal, locales.SetLinearSidebar(), locales.SetLinearSidebarDetail(), func() {
-			toggle(c.Key("linear-sidebar"), &s.LinearSidebar, pal)
-		})
 		settingRow(c, pal, locales.SetLinearRefresh(), locales.SetLinearRefreshDetail(), func() {
 			intervals := []int{15, 30, 60, 300}
 			if !slices.Contains(intervals, s.LinearRefresh) {
@@ -1080,19 +1077,6 @@ func (a *App) linearPage(c *ui.Context, pal *palette) {
 				slices.Sort(intervals)
 			}
 			popup(c, "linear-refresh", &s.LinearRefresh, intervals, linearIntervalName, 140, pal)
-		})
-		settingRow(c, pal, locales.SetLinearEmptyColumns(), locales.SetLinearEmptyColumnsDetail(), func() {
-			popup(c, "linear-empty", &s.LinearEmptyColumns, []string{"collapsed", "shown", "hidden"}, func(id string) string {
-				return map[string]string{
-					"collapsed": locales.SetLinearEmptyCollapsed(),
-					"shown":     locales.SetLinearEmptyShown(),
-					"hidden":    locales.SetLinearEmptyHidden(),
-				}[id]
-			}, 140, pal)
-		})
-		settingRow(c, pal, locales.SetLinearDensity(), locales.SetLinearDensityDetail(), func() {
-			segmented(c, "linear-density", &s.LinearDensity, []string{"comfortable", "compact"},
-				[]string{locales.SetLinearComfortable(), locales.SetLinearCompact()}, pal)
 		})
 	})
 }

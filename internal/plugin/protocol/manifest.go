@@ -17,10 +17,14 @@ const (
 	PermOpenURL = "openURL" // open a link in the browser
 	PermWeb     = "web"     // run a page of this machine, with no window
 	PermAmbient = "ambient" // lend the pane's tint to the app's colors
+	PermFocus   = "focus"   // be told which session the app has selected
+	// PermClipboard puts text on the clipboard. It asks for text the user
+	// chose to copy, never reads the clipboard.
+	PermClipboard = "clipboard"
 )
 
 // KnownPermissions are the permissions a manifest may ask for.
-var KnownPermissions = []string{PermSecrets, PermNotify, PermOpenURL, PermWeb, PermAmbient}
+var KnownPermissions = []string{PermSecrets, PermNotify, PermOpenURL, PermWeb, PermAmbient, PermFocus, PermClipboard}
 
 // The kinds of setting a manifest may declare.
 const (
@@ -62,8 +66,11 @@ func (p Permissions) Has(permission string) bool { return slices.Contains(p, per
 
 // Widget is one pane a plugin gives.
 type Widget struct {
-	Name      string `json:"name"`
-	Title     string `json:"title"`
+	Name  string `json:"name"`
+	Title string `json:"title"`
+	// Icon is one of the protocol's icons (KnownIcons), which the sidebar
+	// draws before the plugin's name when the widget is pinned.
+	Icon      string `json:"icon,omitempty"`
 	MinWidth  int    `json:"minWidth,omitempty"`
 	MinHeight int    `json:"minHeight,omitempty"`
 	// Compact is the widget's shape in a plugin slot (BRU-165), which
@@ -135,6 +142,9 @@ func (m *Manifest) Validate() error {
 		widgets[w.Name] = true
 		if strings.TrimSpace(w.Title) == "" {
 			return fmt.Errorf("plugin manifest %s: widget %q needs a title", m.ID, w.Name)
+		}
+		if w.Icon != "" && !slices.Contains(KnownIcons, w.Icon) {
+			return fmt.Errorf("plugin manifest %s: widget %q has unknown icon %q", m.ID, w.Name, w.Icon)
 		}
 		if w.MinWidth < 0 || w.MinHeight < 0 {
 			return fmt.Errorf("plugin manifest %s: widget %q has a negative least size", m.ID, w.Name)

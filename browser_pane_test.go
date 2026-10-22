@@ -119,16 +119,15 @@ func TestBrowserTargetIsMadeAURL(t *testing.T) {
 func TestSweepViews(t *testing.T) {
 	a := testBrowser(t)
 	a.browserStateOf(&a.st.Sessions[0].Panes[1])
-	a.tasksState("b")
 	a.files = map[string]*filesState{"b": {}, "gone": {}}
 	a.browsers["gone"] = &browserState{}
 	a.sweepViews()
-	if a.browsers["gone"] != nil || a.files["gone"] != nil || a.browsers["b"] == nil || a.files["b"] == nil || a.tasks["b"] == nil {
+	if a.browsers["gone"] != nil || a.files["gone"] != nil || a.browsers["b"] == nil || a.files["b"] == nil {
 		t.Fatal("swept the wrong views")
 	}
 	a.st.Sessions[0].Panes = a.st.Sessions[0].Panes[:1]
 	a.sweepViews()
-	if len(a.browsers)+len(a.files)+len(a.tasks) != 0 {
+	if len(a.browsers)+len(a.files) != 0 {
 		t.Fatal("a closed pane's view stayed")
 	}
 }

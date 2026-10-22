@@ -3,58 +3,121 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
-## Linear workspace
+## Linear plugin
 
-The completed v1 scope, setup and activation limits are recorded in
-[Linear board and session links](linear-workspace.md). Secret guards and their
-verification are documented in [Security checks](security.md). Home/composer
-work remains separate. The installed app is not restarted by this feature's
-test or build workflow.
+The scope, setup and limits are recorded in
+[Linear plugin and session links](linear-workspace.md). Secret guards and
+their verification are documented in [Security checks](security.md). Home and
+composer work remains separate. The installed app is not restarted by this
+feature's test or build workflow.
 
-The app shows a Linear workspace: the issues of the team, as a board or a
-list, with the issue open beside them. The sidebar has a **Linear** row that
-opens it, and `Cmd+Shift+L` does the same from anywhere.
+Linear is a built-in plugin, a role of the app's binary
+(`kero plugin-run linear`), with the widget `board`. It replaced the
+built-in Linear screen and the Tasks pane, which were app code. The plugin
+draws the issues in sections, **Current**, **Done**, **Todo** and **Backlog**,
+as a list or a board, with filters and a full issue detail. It is a client of
+the daemon, as the CLI is: it connects without starting a daemon, subscribes
+to state, and reads the Linear workspace and the sessions from it. It
+fingerprints what it shows (the workspace, the issues' update times, the
+sessions' task and project) and redraws only when that changes and only while
+its pane is visible. Its own saves of the pane target do not redraw it. It
+writes through the daemon's RPCs (`linear.setState`, `linear.issue`,
+`session.link`, a session started with a task) and opens links through the
+`openURL` permission. It never reads or logs the key. The shared socket is a
+privilege of built-in plugins for now; a third-party plugin would get a
+host-mediated permission later.
 
-The board's columns are the team's workflow states, in the order the team
-puts them in — a state is data, not a constant, so a team that renames or
-reorders its states is followed. The list is the same issues, one under
-another. Both are narrowed by a search, a project, a milestone and a state;
-the filters are kept between runs.
+**The pane follows the focused session.** The plugin has the permission
+`focus`: the host sends `focus {session}` when the plugin starts and whenever
+the selected session changes. Current puts the issue linked to that session
+first.
 
-An issue opens beside the board with its description, its properties, its
-relations and its comments. The description and the comments are rendered as
-markdown, with a line break read as a break, as Linear's editor reads it.
-The attachments are listed: a task prompt is a link to the file in the
-repository.
+**The sidebar row is a pin.** `prefs.Pinned` (the app's `app.json`) holds
+`{plugin, widget}` pairs; the sidebar draws a row for each, with the plugin's
+name and the widget's `icon`. A click focuses the plugin's pane in the
+selected session or splits one in. Pin and unpin are in the pane header's
+menu, Settings › Plugins, the command palette and `kero plugin pin|unpin`.
+Once, the setting `linear-sidebar` (on by default) seeds the pin of the
+Linear board (`migratePins`), and `prefs.PinsSeeded` records that. A saved
+`show: "linear"` is ignored: the app opens the selected session.
 
-**A session and the task it works on are one thing.** `kero link <session>
-<BRU-25>` binds a session to an issue; the link is kept with the session
-across restarts. A bound issue shows the session's name on its card, and its
-detail shows the session, the agent's own session id — the one that resumes
-it — with a button that copies it, and a button that opens the session. The
-sidebar's Linear row counts the issues a session is working on.
+**The Tasks view is the plugin.** The New Pane chooser keeps its **Tasks**
+entry (`L`); it focuses the session's Linear pane, or splits one in. The
+daemon accepts the view `tasks` in `create`, `split` and `pane.replace`, and
+maps it where a pane starts (`startPane`) to a plugin pane with the Linear
+target (`linearPluginTarget`), so older clients and scripts work. `kero split
+--tasks` sends the same target. State version 3 (`migrateState`) turns saved
+Tasks panes into the same panes once.
 
-The daemon reads the workspace, so the app and the CLI see the same one.
-Linear's webhooks want a public address, which a desktop app does not have,
-so the daemon polls: every thirty seconds it asks what changed, and every
-five minutes it reads the projects and the milestones whole. A request is
-bounded at two seconds, and a workspace that cannot be read is a state the
-app shows, never a failure the daemon dies of. The last good read is kept.
+**Keys, menu and clipboard.** A plugin tree may set `Header` (fixed above
+the scrolling page), `Keys` (up to 8 names from `KnownKeys`) and, on a
+pressable part, a `ContextMenu` with one level of submenus. The host sends a
+`key` event (`KindKey`) only while a pane of the plugin has the keyboard focus
+and no field takes the typing, and a `context` event (`KindContext`) for a
+menu choice. The Linear plugin asks for different keys in the list
+(`listKeys`) and in the detail (`detailKeys`). Copy ID and Copy Link call
+`Conn.Copy`, which sends `clipboard.write`; the host records `userAt` each
+time it hands the plugin an event or command, and takes a write only within
+`userActionWindow` (one second) of it, else refuses and logs. A move from the
+Move To menu is optimistic: `withMoves` shows the snapshot with the pending
+moves applied until the daemon's state agrees. `pruneFoldsLocked` drops the
+fold keys of issues and groups that no longer exist (only on a real snapshot
+with issues), so the pane's target does not grow without end. `fingerprint`
+(`model.go`) is the hash the plugin compares to skip a redraw.
+
+**Panes that start as Tasks.** `newPaneView` (`pane_chooser.go`) maps the
+chooser's Tasks entry to the plugin pane with `linearPluginTarget`
+(`pane_views.go`), so a new Tasks pane is a Linear plugin pane at once. A pane
+still saved as Tasks, before the terminal service restarts and migrates it,
+is shown as the Linear plugin as well. Links in plugin views must be plain
+`http` or `https` without a username (`safeURL` in the plugin,
+`linearSafeURL` in the app).
+
+**What stayed in core.** The daemon's poller and its saved Linear read, the
+`linear.*`, `session.link` and `project.linear` RPCs, branch auto-linking,
+`internal/linear`, the key and the Linear page of Settings (key, refresh
+interval), the project menu's Linear project (`projectLinearMenu`), and the
+CLI.
+
+The daemon protocol gained an issue's assignee, priority and parent, and the
+workspace's viewer.
+
+The workspace itself, unchanged: **a session and the task it works on are one
+thing.** `kero link <session> <BRU-25>` binds a session to an issue; the link
+is kept with the session across restarts. The daemon reads the workspace, so
+the app, the plugin and the CLI see the same one. Linear's webhooks want a
+public address, which a desktop app does not have, so the daemon polls: every
+thirty seconds it asks what changed, and every five minutes it reads the
+projects and the milestones whole. A request is bounded at two seconds, and a
+workspace that cannot be read is a state shown, never a failure the daemon
+dies of. The last good read is kept.
 
 The key is a Linear personal API key, kept at mode `0600` in the personal
 data directory, and read from `LINEAR_API_KEY` when that is set. It is read
 per request, so replacing it takes effect at once, which is what rotating a
-key is. Set it in Settings › Agents, or with `kero linear auth <key>`.
+key is. Set it in Settings › Linear, or with `kero linear auth <key>`.
 
-Code: [`linear_view.go`](../linear_view.go),
+Code: [`internal/plugin/builtin/linear/`](../internal/plugin/builtin/linear/),
+its manifest
+[`internal/plugin/registry/manifests/linear.json`](../internal/plugin/registry/manifests/linear.json),
+[`plugin_pins.go`](../plugin_pins.go),
 [`internal/linear/`](../internal/linear/),
-[`internal/daemon/linear.go`](../internal/daemon/linear.go).
-Automation: `kero linear status|board|issue|set-state|comment`, `kero link`.
+[`internal/daemon/linear.go`](../internal/daemon/linear.go), `migrateState`
+in [`internal/daemon/store.go`](../internal/daemon/store.go).
+Automation: `kero linear status|board|issue|set-state|comment`, `kero link`,
+`kero plugin pin|unpin`, `kero split --tasks`.
+
+**Removed:** `linear_view.go`, `linear_board.go`, `linear_detail.go`,
+`linear_marks.go`, `tasks_pane.go` (and their tests), the sidebar row
+`linearNav`, the `linear.open` action and `Cmd+Shift+L`, the `show: "linear"`
+state of the card, `prefs.Linear`, and the settings rows for the sidebar row,
+empty columns and card density. `linearSafeURL` moved to
+[`safe_url.go`](../safe_url.go).
 
 ## Panes that show anything
 
-A pane is a terminal or a view: **Tasks** (the project's Linear issues, one
-per session), **Files** (the folder as a tree, with files read beside it) or
+A pane is a terminal or a view: **Tasks** (the Linear plugin's board; see
+[Linear plugin](#linear-plugin)), **Files** (the folder as a tree, with files read beside it) or
 **Browser** (a web page in the system's web view, most often the dev
 server). `Cmd+Alt+N` or the pane header's **+** opens a chooser; `T`, `L`,
 `E` and `B` pick, and Shift with any of them opens the pane below rather than
@@ -81,7 +144,7 @@ views with `kero split --browser 5173`, `--files --open docs/plan.md` or
 
 Code: [`pane_chooser.go`](../pane_chooser.go),
 [`pane_views.go`](../pane_views.go), [`files_pane.go`](../files_pane.go),
-[`browser_pane.go`](../browser_pane.go), [`tasks_pane.go`](../tasks_pane.go),
+[`browser_pane.go`](../browser_pane.go),
 [`panes.go`](../panes.go).
 
 ## Agent-reported status
@@ -199,8 +262,7 @@ throttled rate.
 
 Code: [`loading_ui.go`](../loading_ui.go), and the call sites in
 [`view.go`](../view.go), [`panes.go`](../panes.go),
-[`files_pane.go`](../files_pane.go) and
-[`linear_detail.go`](../linear_detail.go). Test: `loading_ui_test.go`
+[`files_pane.go`](../files_pane.go). Test: `loading_ui_test.go`
 (the ring's steps, Reduce Motion, and no frames once it has gone).
 
 ## Account usage
@@ -525,27 +587,15 @@ hover chrome for 80 ms after the pointer leaves it, tracked per project in
 `App.hoverSeen`/`hoverUntil` and woken by `Context.After`. The chevron and
 the add button read that one answer, so they leave together.
 
-**Empty states that teach.** `linearNothingAction`
-([`linear_view.go`](../linear_view.go)) adds the one action to the Tasks
-and Linear empty states, by the kind of state it is (`linearEmpty`). A
-workspace not read (`linearUnread`) offers **Open Settings** for a missing
-or refused key or the integration turned off, and **Refresh Linear**
-otherwise; never **Clear Filters**, which from a Tasks pane, outside
-`withLin`, would clear the Linear page's filters. A workspace read with no
-issue to show (`linearNoIssues`) offers **Clear Filters** when a filter the
-user set narrows it (`linearFiltered`: a Tasks pane's project is its
-link's, forced every frame, and not one), **Show Done** in a Tasks pane
-whose issues are all done and so hidden (`linearModel.doneHidden`), and
-**Refresh Linear** otherwise, under a detail that no longer says a filter hides the issues
-when none does. A workspace not read says why: how to set a key when
-there is none, else its status (`linearUnreadDetail`), which now has a
-line for the integration turned off. The same button is used from the board, the list and a
-Tasks pane. The error copy around them says what went wrong and, where
-there is one, the next step: the Linear key goes to Settings › Linear, the
-browser asks for the address again, a file or folder that cannot be read
-checks that it still exists and may be opened, settings that cannot be
-saved check that the configuration folder is writable, and a failed CLI
-install gives its error, on every platform.
+**Empty states that teach.** Replaced: the built-in Linear screen and Tasks
+pane, which had these empty states, left the app. The Linear plugin draws its
+own empty states (not read, no issue in the scope, filtered to nothing), with
+the actions Refresh Linear and Clear Filters. The error copy around
+them says what went wrong and, where there is one, the next step: the Linear
+key goes to Settings › Linear, the browser asks for the address again, a file
+or folder that cannot be read checks that it still exists and may be opened,
+settings that cannot be saved check that the configuration folder is writable,
+and a failed CLI install gives its error, on every platform.
 
 **The first run.** [`intro.go`](../intro.go) holds the reveal, on a
 first run: there was no `app.json` when the app opened. From the window's

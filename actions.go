@@ -85,8 +85,8 @@ func (a *App) run(id string, args map[string]string) {
 		a.openUsage()
 	case "usage.refresh":
 		a.refreshUsage()
-	case "linear.open":
-		a.openLinear()
+	case "plugin.pin", "plugin.unpin":
+		a.pinCommand(args, id == "plugin.pin")
 	case "linear.refresh":
 		a.call("linear.refresh", nil, nil)
 	case "cli.install":
@@ -295,7 +295,7 @@ func (a *App) paneMenuItems() []*mygo.MenuItem {
 }
 
 func (a *App) viewMenuItems() []*mygo.MenuItem {
-	return append(a.items("View", []string{"sidebar.toggle", "linear.open", "linear.refresh", "usage.open", "usage.refresh"}, []string{"text.bigger", "text.smaller", "text.reset"}),
+	return append(a.items("View", []string{"sidebar.toggle", "linear.refresh", "usage.open", "usage.refresh"}, []string{"text.bigger", "text.smaller", "text.reset"}),
 		mygo.Separator(), &mygo.MenuItem{Role: mygo.RoleToggleFullScreen}, &mygo.MenuItem{Role: mygo.RoleToggleDevTools})
 }
 

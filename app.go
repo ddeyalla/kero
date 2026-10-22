@@ -47,26 +47,19 @@ type prefs struct {
 	SidebarHidden bool            `json:"sidebarHidden,omitempty"`
 	Collapsed     map[string]bool `json:"collapsed,omitempty"`
 	FontSize      float32         `json:"fontSize,omitempty"`
-	// Show is what the main card showed last: a session's panes, or
-	// the Linear workspace.
+	// Show is what the main card showed last. It was "linear" for the
+	// built-in Linear screen, which is gone: any saved value now falls back
+	// to the selected session.
 	Show string `json:"show,omitempty"`
-	// Linear is the Linear view's own state: what it showed, and the
-	// filters it showed it with.
-	Linear linearPrefs `json:"linear,omitempty"`
 	// Files are the folders Files panes unfolded, relative to theirs, by
 	// pane.
 	Files map[string][]string `json:"files,omitempty"`
-}
-
-// linearPrefs is what the Linear view keeps between runs.
-type linearPrefs struct {
-	View      string `json:"view,omitempty"`
-	Project   string `json:"project,omitempty"`
-	Milestone string `json:"milestone,omitempty"`
-	State     string `json:"state,omitempty"`
-	// DetailWidth is the width of the issue's card, as the divider was
-	// dragged to; 0 for the default.
-	DetailWidth float32 `json:"detailWidth,omitempty"`
+	// Pinned are the widgets of plugins that have a row in the sidebar,
+	// in the order they were pinned. PinsSeeded says that the pins were
+	// made once from the settings of the sidebar rows before pins (see
+	// migratePins).
+	Pinned     []pinRef `json:"pinned,omitempty"`
+	PinsSeeded bool     `json:"pinsSeeded,omitempty"`
 }
 
 const (
@@ -127,17 +120,8 @@ type App struct {
 	renameFrames int
 	chrome       chrome // where the sidebar's animation puts things
 
-	// show is what the main card shows: a session's panes, or the
-	// Linear workspace.
+	// show is what the main card shows: a session's panes.
 	show string
-	// lin is the Linear view's own state: the filters, the issue open
-	// beside the board, and what was read of it.
-	// lin is the Linear view being built: the root's (linRoot), or a
-	// Tasks pane's while that pane builds (withLin).
-	lin     *linearState
-	linRoot linearState
-	// tasks are the Tasks panes' own views, by pane.
-	tasks map[string]*linearState
 	// files are the Files panes' states, by pane.
 	files map[string]*filesState
 	// browsers are the Browser panes' states, with their web views.
@@ -204,24 +188,13 @@ func newApp() *App {
 	a := &App{terms: map[string]*termEntry{}, statuses: map[string]proto.Status{}, active: true, focused: true,
 		refs: map[string]*ui.Handle{}, focus: map[string]string{}, arrived: map[string]bool{},
 		hoverSeen: map[string]bool{}, hoverUntil: map[string]time.Time{}, opening: map[string]int{}}
-	a.lin = &a.linRoot
 	a.loadPrefs()
 	a.set = settings.Load()
 	a.ss.problems = settings.Problems()
 	a.applied = a.set.Clone()
 	a.selected = a.prefs.Selected
-	a.show = a.prefs.Show
-	if a.show == "" {
-		a.show = "session"
-	}
-	a.lin.view = a.prefs.Linear.View
-	if a.lin.view == "" {
-		a.lin.view = "board"
-	}
-	a.lin.project = a.prefs.Linear.Project
-	a.lin.milestone = a.prefs.Linear.Milestone
-	a.lin.state = a.prefs.Linear.State
-	a.lin.detailW = a.prefs.Linear.DetailWidth
+	a.show = "session"
+	a.migratePins()
 	return a
 }
 
@@ -250,7 +223,6 @@ func (a *App) loadPrefs() {
 func (a *App) savePrefs() {
 	a.prefs.Selected = a.selected
 	a.prefs.Show = a.show
-	a.prefs.Linear = a.linearPrefs()
 	b, err := json.MarshalIndent(a.prefs, "", "  ")
 	if err != nil {
 		return
@@ -381,17 +353,16 @@ func (a *App) setState(st proto.State) {
 	a.updateTitle()
 }
 
-// reconcileSelection keeps a background state update from navigating away
-// from the Linear workspace.
+// reconcileSelection picks a session when the selected one is gone.
 func (a *App) reconcileSelection(first bool) {
-	if a.show != "linear" && a.session(a.selected) == nil {
+	if a.session(a.selected) == nil {
 		ids := a.visibleOrder()
 		if len(ids) == 0 {
 			a.selected = ""
 		} else {
 			a.selectSession(ids[0])
 		}
-	} else if first && a.show != "linear" {
+	} else if first {
 		a.selectSession(a.selected)
 	}
 }

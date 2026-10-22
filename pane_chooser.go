@@ -92,14 +92,25 @@ func (a *App) openChooser(at string) {
 }
 
 // openView opens a pane showing view beside the pane at, the focused one
-// when "": at its right, or below it. A session has one Tasks pane, which
-// a second asking focuses.
+// when "": at its right, or below it. The Tasks view is the Linear plugin's
+// board, which a second asking focuses.
 func (a *App) openView(s *proto.Session, at, view string, below bool) {
 	if s == nil {
 		return
 	}
 	if view == proto.PaneTasks {
-		if p := tasksPaneOf(s); p != nil {
+		// Tasks is the Linear plugin's board: a pane of it that the session
+		// has takes the focus, an unmigrated Tasks pane of an older kerod
+		// too. Else the pane is made as a plugin pane, with the board's
+		// target, which an older kerod also takes (it has no Tasks pane
+		// to make for the new app, and refuses a second one).
+		p := pinPaneOf(s, pinRef{"linear", "board"})
+		for i := range s.Panes {
+			if p == nil && s.Panes[i].View == proto.PaneTasks {
+				p = &s.Panes[i]
+			}
+		}
+		if p != nil {
 			a.setFocus(s, p.ID)
 			a.paneRef(p.ID).Focus()
 			return
@@ -109,17 +120,18 @@ func (a *App) openView(s *proto.Session, at, view string, below bool) {
 	if below {
 		direction = "down"
 	}
-	a.splitView(s, at, direction, view)
+	view, target := newPaneView(view)
+	a.splitTarget(s, at, direction, view, target)
 }
 
-// tasksPaneOf is a session's Tasks pane, nil none.
-func tasksPaneOf(s *proto.Session) *proto.Pane {
-	for i := range s.Panes {
-		if s.Panes[i].View == proto.PaneTasks {
-			return &s.Panes[i]
-		}
+// newPaneView is the view and target a new pane of the kind is made with.
+// Tasks is made as the Linear plugin's pane, never as a Tasks view: a kerod
+// that has not migrated would make another blank pane of it, or refuse it.
+func newPaneView(view string) (string, string) {
+	if view == proto.PaneTasks {
+		return proto.PanePlugins, linearPluginTarget()
 	}
-	return nil
+	return view, ""
 }
 
 // showInPane turns a pane into one showing view, a terminal when "". What
@@ -156,7 +168,6 @@ func (a *App) showInPane(s *proto.Session, pane, view string, ask bool) {
 				return
 			}
 			a.dropTerm(pane)
-			delete(a.tasks, pane)
 			a.focusNew(ns)
 		})
 	}()

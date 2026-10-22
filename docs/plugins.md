@@ -21,7 +21,7 @@ A plugin ships a `kero-plugin.json` next to it:
   "description": "What it does.",
   "run": ["example-plugin"],
   "widgets": [
-    { "name": "main", "title": "Example", "minWidth": 280, "minHeight": 150 }
+    { "name": "main", "title": "Example", "icon": "pin", "minWidth": 280, "minHeight": 150 }
   ],
   "commands": [{ "id": "refresh", "title": "Refresh Example" }],
   "permissions": ["secrets", "openURL"],
@@ -41,9 +41,9 @@ A plugin ships a `kero-plugin.json` next to it:
 | `id` | The plugin's id: lowercase letters, digits and dashes, 2 to 41 characters, starting with a letter or digit. It names the plugin's code folder and its data folder. |
 | `name`, `version`, `description` | What Settings › Plugins shows. |
 | `run` | The argv that starts the plugin process. A built-in plugin's run is the app's own executable with `plugin-run <id>`. |
-| `widgets` | Each widget has a `name` (unique), a `title` and a least size. |
+| `widgets` | Each widget has a `name` (unique), a `title`, a least size, and optionally an `icon` (a name from the icon set below), which the sidebar draws before the plugin's name when the widget is pinned. |
 | `commands` | Ids and titles the app sends with `command`. Ids are unique. Each command is an item of the command palette, titled as the manifest says, and the `kero do plugin.<id>.<command>` action, which `kero actions` lists. |
-| `permissions` | `secrets` (read and write its own secrets), `notify` (post a notification) and `openURL` (open an http or https URL in the browser, or System Settings' Privacy & Security, `x-apple.systempreferences:com.apple.preference.security` with an optional `?` anchor; any other scheme is refused), `web` (run a page of this machine in a web view with no window; see `web.open`) and `ambient` (lend the pane's tint to the app's colors; see below). A call without its permission is refused. |
+| `permissions` | `secrets` (read and write its own secrets), `notify` (post a notification) and `openURL` (open an http or https URL in the browser, or System Settings' Privacy & Security, `x-apple.systempreferences:com.apple.preference.security` with an optional `?` anchor; any other scheme is refused), `web` (run a page of this machine in a web view with no window; see `web.open`), `ambient` (lend the pane's tint to the app's colors; see below), `focus` (be told which session the app has selected; see the protocol) and `clipboard` (put text the user chose to copy on the clipboard; a plugin cannot read it). A call without its permission is refused. |
 | `settings` | Optional fields shown in Settings › Plugins: `key`, `label`, `kind` (`text`, or `action`: a button whose `key` is the id of one of the plugin's commands, which it runs; it holds no value, so it is neither `secret` nor linked), `secret`, `help` (the line under the label) and `link` (an http or https page, opened by the field's **Open Link** button). The page draws only what the manifests declare. |
 
 Built-in plugins are roles of the app's binary: `kero plugin-run <id>`. An
@@ -92,6 +92,7 @@ The app sends `hello {protocol, host}` first, and the plugin answers
 | `settings {values}` | The plugin starts or its settings change; secret values are never sent. |
 | `event {pane, node, kind, value}` | A part was pressed, changed, committed, selected or submitted. |
 | `command {id}` | The user ran one of the manifest's commands, from the palette or `kero do`. |
+| `focus {session}` | Only to a plugin with the `focus` permission: the id of the session the app has selected (empty for none), once when the plugin is ready and whenever the selection changes. The SDK has `Handlers.Focus`. |
 
 | The plugin sends | The app answers with |
 | --- | --- |
@@ -101,6 +102,7 @@ The app sends `hello {protocol, host}` first, and the plugin answers
 | `secret.set {key, value}` | `{}`. |
 | `notify {title, body}` | `{}`, if the plugin has `notify`. |
 | `openURL {url}` | `{}`, if the plugin has `openURL`. |
+| `clipboard.write {text}` | `{}`, if the plugin has `clipboard`. Up to 64 KB; the plugin cannot read the clipboard. Taken only within about a second of an event or command the host delivered (`userAt` in the host); a later write is refused and logged. The SDK has `Conn.Copy(text)`. |
 | `web.open {id, url}` | `{}`, if the plugin has `web`. The app loads the page in a web view with no window, which plays audio but draws nothing. The URL must be `http` on a loopback address with a port (`127.0.0.1`, `localhost` or `::1`), so the page is one the plugin serves itself. The `id` is lowercase letters, digits and `-`; a plugin has at most two, and opening an id again loads the new URL. |
 | `web.close {id}` | `{}`. The app also closes every web view of a plugin when its process ends. |
 
@@ -127,7 +129,29 @@ app's palette, fonts and motion.
 | `list` | `rows` of `image`, `title`, `subtitle`, `trailing`, `leading`, `active` (the row is highlighted); `variant: "grid"` draws the rows as square tiles `width` wide, which wrap with 12 points between them | `select` |
 | `searchField` | `placeholder`, optional `text` (the query to show, such as one saved before a restart; the app puts it in the field when the field first shows and when the plugin sends another one, and ignores an echo of what the field last sent) | `change` after a short pause, `submit` |
 | `emptyState` | `title`, `detail`, one action | the action's `press` |
+| `menu` | `label`, optional `icon`, `items` (up to 200; an item with `active` is checked, and several may be) | `select` with the item's id |
+| `markdown` | `text`, GitHub-flavoured Markdown up to 64 KB, in the app's own look (headings, lists, code, tables, links; an image shows as its description). A link opens in the browser if the plugin has `openURL`, and otherwise sends `press` with the URL as the value | `press` (links without `openURL`) |
 | `spacer`, `divider` | — | — |
+
+A `row` or `column` may be `pressable`: it draws hover and pressed states,
+takes the focus, is named for assistive technology by its `label`, and sends
+`press` with its `id`. A pressable part may have a `contextMenu` (entries with
+an id and a title, separators, and one level of submenu), which a right click
+opens and which sends `context` with the entry's id as the value. A `row` may
+set `scrollX` to scroll sideways with its children keeping their widths, such
+as the columns of a board, and a `column` may set `scrollY` to scroll on its
+own. A `text` may be a `chip` (its words on a soft fill, in a `#RRGGBB` color
+or `neutral`) or set `hex` to color it and its icon. A tree may have a
+`header` (a part fixed above the scrolling page; it needs `scroll`) and `keys`
+(up to 8 of `j`, `k`, `up`, `down`, `left`, `right`, `enter`, `escape`, heard
+while a pane of the plugin has the focus and no field takes the typing; each
+sends `key`). In the SDK, `(*Node).ScrollingTreeUnder(header)` builds a scrolling
+tree with a `Header`, `Tree.Keys` holds the keys, and `Handlers.Event` gets them as
+events of the kind `key` (`protocol.KindKey`; the value is the key's name). A
+context-menu choice is the kind `context` (`protocol.KindContext`). Build the
+menu with `(*Node).ContextMenu(...)`, `sdk.MenuItem`, `sdk.Separator` and
+`sdk.Submenu`; style with `(*Node).Pressable`, `ScrollX`, `ScrollY`, `Chip`
+(`protocol.ChipNeutral` for the quiet fill) and `Hex`.
 
 The fields `surface`, `marker`, `mark` and `segments` are valid only on their own node types (row and column, progress, text and donut); a tree that sets one elsewhere is refused. Plugin text is drawn with tabular digits.
 
@@ -152,7 +176,14 @@ from the last one it sent for that pane. The mapping:
 | `volume` | `speaker.wave.2.fill` | `volume-off` | `speaker.slash.fill` |
 | `copy` | `doc.on.doc` | `flame` | `flame.fill` |
 | `dot` | `circle.fill` | `warning` | `exclamationmark.triangle.fill` |
-| `info` | `info.circle` | | |
+| `info` | `info.circle` | `circle` | `circle` |
+| `circle-dashed` | `circle.dashed` | `circle-half` | `circle.lefthalf.filled` |
+| `check-circle` | `checkmark.circle.fill` | `xmark-circle` | `xmark.circle.fill` |
+| `filter` | `line.3.horizontal.decrease.circle` | `person` | `person.crop.circle` |
+| `tag` | `tag` | `flag` | `flag` |
+| `pin` | `pin` | `priority-urgent` | `exclamationmark.square.fill` |
+| `milestone` | `diamond` | `blocked` | `nosign` |
+| `blocking` | `arrow.turn.down.right` | `subissue` | `list.bullet.indent` |
 
 The table lists a part of the set; `plugin_symbol.go` has all of it.
 
@@ -187,13 +218,14 @@ of the plugin, found at the click.
 
 ## Built-in plugins
 
-Two plugins ship in the binary, and both use everything on this page:
+Three plugins ship in the binary, and all use everything on this page:
 `kero plugin-run <id>` starts them, and the app opens their widget like any
 plugin pane.
 
 | Plugin | Widget | Permissions | What it shows |
 | --- | --- | --- | --- |
 | `spotify` | `player` | `secrets`, `openURL`, `web`, `ambient` | A Spotify player that plays in the app, with no Spotify app open (Premium). A compact player (two rows from 440 points wide) over the library as a grid of covers; a playlist or album opens its track list, and an Up next tab shows the queue. Its album colour tints the app while a track plays. Set the Client ID in Settings › Plugins; **Sign Out** is next to it. |
+| `linear` | `board` | `openURL`, `focus`, `clipboard` | The issues of the team as a list or a board, in the sections Current, Done, Todo and Backlog, with filters and a full issue detail. It is a client of the daemon, which holds the Linear key; see [Linear plugin](linear-workspace.md). Pin it to the sidebar with `kero plugin pin linear`. |
 | `usage` | `usage` | none | A Cost card (donut and legend over Today, Yesterday or 30 Days, from local logs) and a section per provider with its mark, name, plan and each window's bar, pace tick, "% left", reset time and a "Limit in …" flame; a chevron opens Today and Last 30 Days in dollars and tokens. Small panes get a compact form. Accounts refresh only while it is visible, at most every two minutes unless you press refresh; cost reads every 5 minutes. |
 
 `openURL` opens the sign-in page, the Spotify developer dashboard and the
@@ -205,8 +237,28 @@ lends the album colour to the app. Neither
 plugin is installed from a folder: the app embeds their manifests and starts
 them as roles of its own binary.
 
+## Pins
+
+A widget can have a row in the sidebar: a pin. The app keeps the pins in its
+preferences (`pinned`, a list of plugin and widget), and the row shows the
+plugin's name and the widget's `icon`. A click focuses a pane of that widget in
+the selected session, or splits one in beside the terminals. Pin and unpin from
+the pane header's menu, Settings › Plugins, the command palette (**Pin X to
+Sidebar**), or
+
+```sh
+kero plugin pin <plugin> [widget]
+kero plugin unpin <plugin> [widget]
+```
+
+A plugin does not pin itself. A widget without `icon` has a row with no mark.
+
 ## Not here yet
 
 Installing a plugin from a folder or a git URL, updating and removing it, the
-public SDK, the plugin index, and the sidebar plugin slot are later rounds
-(BRU-206, BRU-207, BRU-165). This page will grow with them.
+public SDK, and the plugin index are later rounds (BRU-206, BRU-207, BRU-165).
+This page will grow with them. A built-in plugin may use the daemon's socket
+as the Linear plugin does. A third-party plugin is not given it, but that is a
+policy and not a boundary: a plugin is a native executable with the user's
+rights, and until plugins run in a sandbox it can open the socket (see
+[Security checks](security.md)).

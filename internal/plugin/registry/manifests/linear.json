@@ -1,0 +1,18 @@
+{
+  "id": "linear",
+  "name": "Linear",
+  "version": "1.0.0",
+  "description": "The issues of the team, as a list or a board, with the session working on each.",
+  "run": ["kero", "plugin-run", "linear"],
+  "widgets": [
+    {"name": "board", "title": "Linear", "icon": "board", "minWidth": 320, "minHeight": 240}
+  ],
+  "commands": [
+    {"id": "refresh", "title": "Refresh Linear"}
+  ],
+  "permissions": ["openURL", "focus", "clipboard"],
+  "settings": [
+    {"key": "empty-columns", "label": "Empty board columns (show or hide)", "kind": "text", "help": "Type hide to leave out the board columns that have no issue. Anything else shows them."},
+    {"key": "density", "label": "Density (comfortable or compact)", "kind": "text", "help": "Type compact for rows and cards with less on them. Anything else is comfortable."}
+  ]
+}

@@ -51,6 +51,7 @@ const (
 	MethodSettings = "settings"
 	MethodEvent    = "event"
 	MethodCommand  = "command"
+	MethodFocus    = "focus"
 )
 
 // The methods a plugin calls on its host.
@@ -63,6 +64,7 @@ const (
 	MethodOpenURL   = "openURL"
 	MethodWebOpen   = "web.open"
 	MethodWebClose  = "web.close"
+	MethodClipboard = "clipboard.write"
 )
 
 // The error codes of JSON-RPC 2.0.
@@ -249,6 +251,7 @@ var MethodPermission = map[string]string{
 	MethodOpenURL:   PermOpenURL,
 	MethodWebOpen:   PermWeb,
 	MethodWebClose:  PermWeb,
+	MethodClipboard: PermClipboard,
 }
 
 // Allows tells whether a plugin that asked for these permissions may

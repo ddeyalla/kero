@@ -14,6 +14,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,7 @@ import (
 
 	"kero/internal/plugin/protocol"
 	"kero/internal/plugin/sdk"
+	"kero/internal/proto"
 )
 
 // pluginHarness draws plugin trees in a tester window with the pane's
@@ -1770,5 +1772,588 @@ func TestPluginDonutSectorPath(t *testing.T) {
 	b := v.ring.Bounds()
 	if b.X < 49.9 || b.X+b.W > 90.1 || b.Y < 9.9 || b.Y+b.H > 50.1 {
 		t.Errorf("a quarter sector at the top right is %+v", b)
+	}
+}
+
+// boardTree is a pane of the parts a board is made of: pressable cards in
+// columns that scroll sideways, a menu and a markdown block.
+func boardTree(active string) *protocol.Tree {
+	card := func(id, title string) *sdk.Node {
+		return sdk.Column(id,
+			sdk.Text(id+"-id", id).Role(protocol.RoleCaption),
+			sdk.Text(id+"-title", title).Role(protocol.RoleStrong),
+		).Pressable().Label(title).Surface(protocol.SurfaceCard).Padding(10).Gap(4)
+	}
+	column := func(id, title string, cards ...*sdk.Node) *sdk.Node {
+		return sdk.Column(id, append([]*sdk.Node{sdk.Text(id+"-head", title).Role(protocol.RoleStrong)}, cards...)...).Width(260).Gap(8)
+	}
+	return pluginTree(sdk.Column("root",
+		sdk.Menu("who", "Assignee",
+			protocol.Item{ID: "me", Title: "Me", Active: active == "me"},
+			protocol.Item{ID: "anyone", Title: "Anyone", Active: active == "anyone"},
+		).Icon("person"),
+		sdk.Row("cols",
+			column("todo", "Todo", card("BRU-1", "Fix the pane"), card("BRU-2", "Write the docs")),
+			column("doing", "In Progress", card("BRU-3", "Ship the board")),
+			column("done", "Done"),
+			column("late", "Later"),
+		).ScrollX().Gap(12).Padding(8).Size(0, 160),
+		sdk.Markdown("body", "# Heading one\n\nSome **bold** words and a [link](https://example.com/page).\n\n- first item\n- second item\n"),
+	))
+}
+
+// A pressable card sends a press that names it, and a menu sends a select
+// with the item chosen.
+func TestPluginPressableAndMenuSendEvents(t *testing.T) {
+	var mu sync.Mutex
+	var got []pluginEvent
+	h := newPluginHarness(t, boardTree("me"), func(ev pluginEvent) {
+		mu.Lock()
+		got = append(got, ev)
+		mu.Unlock()
+	})
+	if err := h.tt.Click("Fix the pane"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	pressed := hasPluginEvent(got, "BRU-1", protocol.KindPress, nil)
+	mu.Unlock()
+	if !pressed {
+		t.Fatalf("no press for the card: %v", got)
+	}
+	if _, ok := h.tt.Find("Fix the pane"); !ok {
+		t.Fatal("the card is not labeled")
+	}
+
+	if err := h.tt.Click("Assignee"); err != nil {
+		t.Fatal(err)
+	}
+	items := h.tt.Menu()
+	if !slices.Contains(items, "Me") || !slices.Contains(items, "Anyone") {
+		t.Fatalf("the menu shows %q, want Me and Anyone", items)
+	}
+	if err := h.tt.ChooseMenuItem("Anyone"); err != nil {
+		t.Fatal(err)
+	}
+	h.frames()
+	mu.Lock()
+	chosen := hasPluginEvent(got, "who", protocol.KindSelect, "anyone")
+	mu.Unlock()
+	if !chosen {
+		t.Fatalf("no select for the menu item: %v", got)
+	}
+}
+
+// A row that scrolls sideways lets the columns keep their widths and
+// scrolls to the ones past its edge; its position is kept by its id.
+func TestPluginRowScrollsSideways(t *testing.T) {
+	h := newPluginHarness(t, boardTree("me"), nil)
+	st := h.view.scroll["cols"]
+	if st == nil || st.MaxX <= 0 {
+		t.Fatalf("scroll = %+v, want content wider than the row", st)
+	}
+	r, ok := h.tt.Find("Todo")
+	if !ok {
+		t.Fatal("no first column")
+	}
+	h.tt.Wheel(r.X+10, r.Y+10, 400, 0)
+	h.frames()
+	if st.X <= 0 {
+		t.Fatalf("X = %v after a wheel, want the row scrolled", st.X)
+	}
+	moved := st.X
+	h.show(boardTree("anyone"))
+	if h.view.scroll["cols"] != st || st.X != moved {
+		t.Fatalf("the row lost its place on a render: X = %v, want %v", st.X, moved)
+	}
+}
+
+// A markdown part shows headings, text and lists, and a link opens in the
+// browser through the pane when the plugin may open links, else it goes to
+// the plugin as a press with the link as its value.
+func TestPluginMarkdownRendersAndLinks(t *testing.T) {
+	var mu sync.Mutex
+	var got []pluginEvent
+	h := newPluginHarness(t, boardTree("me"), func(ev pluginEvent) {
+		mu.Lock()
+		got = append(got, ev)
+		mu.Unlock()
+	})
+	for _, text := range []string{"Heading one", "bold", "link", "first item", "second item"} {
+		if !h.tt.HasText(text) {
+			t.Fatalf("the markdown does not show %q; it shows %q", text, h.tt.Texts())
+		}
+	}
+	if _, ok := h.tt.Find("Formatted text"); !ok {
+		t.Fatal("the markdown part has no label")
+	}
+
+	// Without the permission the click goes to the plugin.
+	if err := h.tt.Click("link"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	sent := hasPluginEvent(got, "body", protocol.KindPress, "https://example.com/page")
+	mu.Unlock()
+	if !sent {
+		t.Fatalf("no press carrying the link: %v", got)
+	}
+
+	// With it the pane opens the link and the plugin hears nothing.
+	var opened []string
+	h.view.openLink = func(link string) bool { opened = append(opened, link); return true }
+	got = nil
+	if err := h.tt.Click("link"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(opened, []string{"https://example.com/page"}) {
+		t.Fatalf("opened %v, want the link", opened)
+	}
+	mu.Lock()
+	n := len(got)
+	mu.Unlock()
+	if n != 0 {
+		t.Fatalf("the plugin heard %v for a link the pane opened", got)
+	}
+
+	// A link that is not a web address is never opened by the pane.
+	for _, link := range []string{"file:///etc/passwd", "javascript:alert(1)", "#section", "mailto:a@b.c", "https://", "https://user@example.com/x", "https://user:pw@example.com/"} {
+		if pluginSafeLink(link) {
+			t.Errorf("%q is a safe link", link)
+		}
+	}
+	if !pluginSafeLink("http://example.com/x") {
+		t.Error("an http link is not safe")
+	}
+	// A markdown part that goes away takes its options with it.
+	h.show(pluginTree(sdk.Column("root", sdk.Text("t", "gone"))))
+	if len(h.view.markdown) != 0 {
+		t.Fatalf("markdown = %v, want a removed part's state dropped", h.view.markdown)
+	}
+}
+
+// TestPluginBoardPartShots writes shots of a pressable card, a menu and a
+// markdown block, in both appearances, into the directory
+// PLUGIN_SHOT_DIR names, as linear-parts-<part>-<appearance>.png.
+func TestPluginBoardPartShots(t *testing.T) {
+	dir := os.Getenv("PLUGIN_SHOT_DIR")
+	if dir == "" {
+		t.Skip("PLUGIN_SHOT_DIR is not set")
+	}
+	write := func(name string, img image.Image) {
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, img); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), buf.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, dark := range []bool{false, true} {
+		pal, suffix := lightPalette, "light"
+		if dark {
+			pal, suffix = darkPalette, "dark"
+		}
+		shoot := func(part string, w, h int, tree *protocol.Tree, act func(*pluginHarness)) {
+			ph := newPluginHarness(t, tree, nil)
+			ph.pal = pal
+			ph.tt = ui.NewTester(func(c *ui.Context) {
+				ui.Column(c.Key("shot")).Fill().Background(pal.card).Padding(12).Children(func() {
+					drawPluginTree(c, ph.view, &pal, ph.tree, nil)
+				})
+			}, w, h)
+			ph.tt.SetDark(dark)
+			ph.frames()
+			if act != nil {
+				act(ph)
+			}
+			write("linear-parts-"+part+"-"+suffix+".png", ph.tt.Image())
+		}
+		// A pressable card, with the pointer over a second one.
+		cards := pluginTree(sdk.Column("root",
+			sdk.Column("c1", sdk.Text("c1-id", "BRU-12").Role(protocol.RoleCaption),
+				sdk.Text("c1-title", "Show the board's cards in a pane").Role(protocol.RoleStrong),
+				sdk.Text("c1-sub", "In Progress · High").Role(protocol.RoleCaption).Color(protocol.ColorMuted),
+			).Pressable().Label("card one").Surface(protocol.SurfaceCard).Padding(12).Gap(4),
+			sdk.Column("c2", sdk.Text("c2-id", "BRU-13").Role(protocol.RoleCaption),
+				sdk.Text("c2-title", "Hovered card").Role(protocol.RoleStrong),
+			).Pressable().Label("card two").Surface(protocol.SurfaceCard).Padding(12).Gap(4),
+		).Gap(8))
+		shoot("card", 320, 190, cards, func(ph *pluginHarness) {
+			if r, ok := ph.tt.Find("card two"); ok {
+				ph.tt.Move(r.X+r.W/2, r.Y+r.H/2)
+				ph.frames()
+			}
+		})
+		shoot("menu", 320, 190, boardTree("me"), func(ph *pluginHarness) {
+			if err := ph.tt.Click("Assignee"); err == nil {
+				ph.frames()
+			}
+		})
+		shoot("markdown", 360, 260, pluginTree(sdk.Column("root", sdk.Markdown("body",
+			"# Heading one\n\nSome **bold** words, `code` and a [link](https://example.com).\n\n## A list\n\n- first item\n- second item\n\n> A quote\n"))), nil)
+	}
+}
+
+// --- the parts a plugin needs to match a built-in view: a header that stays,
+// a menu on a right click, keys, chips, and sides that scroll alone ---
+
+func pluginScrollTree(header, root *sdk.Node, keys ...string) *protocol.Tree {
+	tree := root.ScrollingTreeUnder(header)
+	tree.Keys = keys
+	return &tree
+}
+
+func pluginManyRows(prefix string, n int) []*sdk.Node {
+	var rows []*sdk.Node
+	for i := 0; i < n; i++ {
+		rows = append(rows, sdk.Text(fmt.Sprintf("%s%d", prefix, i), fmt.Sprintf("%s row %d", prefix, i)))
+	}
+	return rows
+}
+
+func TestPluginHeaderStaysWhenTheBodyScrolls(t *testing.T) {
+	tree := pluginScrollTree(
+		sdk.Row("head", sdk.Text("head-t", "Sticky header")).Padding(8),
+		sdk.Column("root", pluginManyRows("a", 120)...),
+	)
+	if err := tree.ValidateTree(); err != nil {
+		t.Fatal(err)
+	}
+	h := newPluginHarness(t, tree, nil)
+	head, ok := h.tt.Find("Sticky header")
+	if !ok {
+		t.Fatal("the header is not drawn")
+	}
+	first, ok := h.tt.Find("a row 0")
+	if !ok {
+		t.Fatal("the first row is not drawn")
+	}
+	if first.Y <= head.Y {
+		t.Fatalf("the body (%v) starts above the header (%v)", first.Y, head.Y)
+	}
+	far, _ := h.tt.Find("a row 40")
+	h.tt.Scroll(300, 400, 0, 600)
+	h.frames()
+	again, ok := h.tt.Find("Sticky header")
+	if !ok || again.Y != head.Y {
+		t.Fatalf("the header moved with the scroll: %v then %v", head.Y, again.Y)
+	}
+	if moved, ok := h.tt.Find("a row 40"); !ok || moved.Y >= far.Y {
+		t.Fatalf("the body did not scroll: %v then %v", far.Y, moved.Y)
+	}
+}
+
+func TestPluginRightClickOpensTheContextMenu(t *testing.T) {
+	var got []pluginEvent
+	card := sdk.Column("card", sdk.Text("card-t", "BRU-1 Fix it")).Pressable().Label("card one").Surface(protocol.SurfaceCard).Padding(10).
+		ContextMenu(
+			sdk.MenuItem("open", "Open"),
+			protocol.Item{ID: "ext", Title: "Open in Linear", Enabled: boolPtr(false)},
+			sdk.Separator(),
+			sdk.Submenu("move", "Move to",
+				protocol.Item{ID: "mv:todo", Title: "Todo", Active: true, Enabled: boolPtr(false)},
+				sdk.MenuItem("mv:done", "Done"),
+			),
+		)
+	tree := pluginTree(sdk.Column("root", card))
+	if err := tree.ValidateTree(); err != nil {
+		t.Fatal(err)
+	}
+	h := newPluginHarness(t, tree, func(ev pluginEvent) { got = append(got, ev) })
+	if err := h.tt.RightClick("card one"); err != nil {
+		t.Fatal(err)
+	}
+	h.frames()
+	menu := h.tt.Menu()
+	if !slices.Contains(menu, "Open") || !slices.Contains(menu, "Move to") {
+		t.Fatalf("menu = %v", menu)
+	}
+	if err := h.tt.ChooseMenuItem("Move to", "Done"); err != nil {
+		t.Fatal(err)
+	}
+	h.frames()
+	if len(got) != 1 || got[0] != (pluginEvent{Node: "card", Kind: protocol.KindContext, Value: "mv:done"}) {
+		t.Fatalf("events = %+v, want one context event naming the card and the entry", got)
+	}
+
+	// An entry a plugin turned off sends nothing.
+	got = nil
+	if err := h.tt.RightClick("card one"); err != nil {
+		t.Fatal(err)
+	}
+	h.frames()
+	_ = h.tt.ChooseMenuItem("Open in Linear")
+	h.frames()
+	if len(got) != 0 {
+		t.Fatalf("a disabled entry sent %+v", got)
+	}
+	h.tt.CloseMenu()
+
+	// A plain press still presses.
+	if err := h.tt.Click("card one"); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Kind != protocol.KindPress {
+		t.Fatalf("a click sent %+v, want a press", got)
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+func TestPluginKeysAreHeardOnlyWhenAskedAndAllowed(t *testing.T) {
+	var got []pluginEvent
+	tree := pluginScrollTree(
+		sdk.Row("head", sdk.SearchField("q", "Search issues")),
+		sdk.Column("root", sdk.Text("t", "body")),
+		"j", "escape",
+	)
+	h := newPluginHarness(t, tree, func(ev pluginEvent) { got = append(got, ev) })
+	keys := func() []string {
+		var out []string
+		for _, ev := range got {
+			if ev.Kind == protocol.KindKey {
+				out = append(out, fmt.Sprint(ev.Value))
+			}
+		}
+		return out
+	}
+
+	// The pane is not the focused one: no key is read.
+	h.view.keysOn = false
+	h.tt.Key(0, ui.KeyJ)
+	h.frames()
+	if len(keys()) != 0 {
+		t.Fatalf("an unfocused pane heard %v", keys())
+	}
+
+	h.view.keysOn = true
+	h.tt.Key(0, ui.KeyJ)
+	h.frames()
+	if !slices.Equal(keys(), []string{"j"}) {
+		t.Fatalf("heard %v, want j", keys())
+	}
+	if got[0].Node != "keys" {
+		t.Fatalf("the key came from %q", got[0].Node)
+	}
+	// A key the tree did not ask for stays with the app.
+	got = nil
+	h.tt.Key(0, ui.KeyK)
+	h.tt.Key(0, ui.KeyDown)
+	h.tt.Key(0, ui.KeyEnter)
+	h.frames()
+	if len(keys()) != 0 {
+		t.Fatalf("heard %v, which the tree did not ask for", keys())
+	}
+	h.tt.Key(0, ui.KeyEscape)
+	h.frames()
+	if !slices.Equal(keys(), []string{"escape"}) {
+		t.Fatalf("heard %v, want escape", keys())
+	}
+
+	// A field that takes the typing keeps its letters.
+	got = nil
+	if err := h.tt.Click("Search issues"); err != nil {
+		t.Fatal(err)
+	}
+	h.frames()
+	h.tt.Type("j")
+	h.tt.Key(0, ui.KeyJ)
+	h.frames()
+	if len(keys()) != 0 {
+		t.Fatalf("a search field's J reached the plugin as a key: %v", keys())
+	}
+}
+
+func TestPluginPaneKeysFollowTheFocusedPane(t *testing.T) {
+	a := testApp(t)
+	s := &proto.Session{ID: "s9", Panes: []proto.Pane{{ID: "term"}, {ID: "plug"}}, Focus: "term"}
+	if a.pluginKeysOn(s, &s.Panes[1], true) {
+		t.Fatal("a plugin pane next to the focused terminal heard keys")
+	}
+	if a.pluginKeysOn(s, &s.Panes[0], true) != true {
+		t.Fatal("the focused pane hears keys")
+	}
+	s.Focus = "plug"
+	if !a.pluginKeysOn(s, &s.Panes[1], true) || a.pluginKeysOn(s, &s.Panes[0], true) {
+		t.Fatal("the keys follow the focus")
+	}
+	if a.pluginKeysOn(s, &s.Panes[1], false) {
+		t.Fatal("a pane without the keyboard heard keys")
+	}
+	a.renaming = "s9"
+	if a.pluginKeysOn(s, &s.Panes[1], true) {
+		t.Fatal("a rename field takes the keys")
+	}
+}
+
+func TestPluginCopyReachesTheNextFrame(t *testing.T) {
+	a := &App{}
+	a.pluginCopy("")
+	if a.copyText != "" {
+		t.Fatal("an empty text was queued")
+	}
+	a.pluginCopy("BRU-1")
+	if a.copyText != "BRU-1" {
+		t.Fatalf("copyText = %q", a.copyText)
+	}
+}
+
+func TestPluginChipsHexAndSidesThatScroll(t *testing.T) {
+	left := sdk.Column("main", append(pluginManyRows("m", 80),
+		sdk.Text("chip", "bug").Chip("#E5484D").Lines(1),
+		sdk.Text("chip2", "2").Icon("blocked").Chip(protocol.ChipNeutral),
+		sdk.Text("hex", "In Progress").Icon("circle-half").Hex("#F2C94C"),
+	)...).ScrollY().Grow(1)
+	right := sdk.Column("side", pluginManyRows("s", 80)...).ScrollY().Width(240)
+	tree := pluginTree(sdk.Row("root", left, right).Grow(1).Gap(10))
+	if err := tree.ValidateTree(); err != nil {
+		t.Fatal(err)
+	}
+	h := newPluginHarness(t, tree, nil)
+	for _, dark := range []bool{false, true} {
+		h.tt.SetDark(dark)
+		if dark {
+			h.pal = darkPalette
+		}
+		h.frames()
+		if !h.tt.HasText("m row 0") || !h.tt.HasText("s row 0") {
+			t.Fatalf("dark=%v: both sides draw", dark)
+		}
+	}
+	m0, _ := h.tt.Find("m row 0")
+	s0, _ := h.tt.Find("s row 0")
+	if s0.X <= m0.X+m0.W {
+		t.Fatalf("the sides stand side by side: %v and %v", m0, s0)
+	}
+	// Scrolling the right side leaves the left where it was.
+	sFar, _ := h.tt.Find("s row 40")
+	mFar, _ := h.tt.Find("m row 40")
+	h.tt.Scroll(s0.X+10, s0.Y+10, 0, 500)
+	h.frames()
+	if m1, _ := h.tt.Find("m row 40"); m1.Y != mFar.Y {
+		t.Fatalf("the left side moved with the right: %v then %v", mFar.Y, m1.Y)
+	}
+	if s1, ok := h.tt.Find("s row 40"); !ok || s1.Y >= sFar.Y {
+		t.Fatalf("the right side did not scroll: %v then %v", sFar.Y, s1.Y)
+	}
+}
+
+func TestPluginChipFillsItsWordsAndAColorTintsIt(t *testing.T) {
+	// A chip is a soft fill under its words: the pixels under it differ
+	// from the pane's, and a hex color shows in the text.
+	shot := func(node *sdk.Node) *image.RGBA {
+		h := newPluginHarness(t, pluginTree(sdk.Column("root", node).Padding(20)), nil)
+		return h.tt.Image()
+	}
+	plain := shot(sdk.Text("t", "bug"))
+	chip := shot(sdk.Text("t", "bug").Chip("#E5484D"))
+	if reflect.DeepEqual(plain.Pix, chip.Pix) {
+		t.Fatal("a chip draws like plain text")
+	}
+	// The chip's fill is red-ish at the left edge of its words.
+	h := newPluginHarness(t, pluginTree(sdk.Column("root", sdk.Text("t", "bug").Chip("#E5484D")).Padding(20)), nil)
+	r, ok := h.tt.Find("bug")
+	if !ok {
+		t.Fatal("no chip text")
+	}
+	img := h.tt.Image()
+	px := img.RGBAAt(int(r.X)-4, int(r.Y+r.H/2))
+	if px.R <= px.B {
+		t.Fatalf("the chip's fill is %v, want it red-tinted", px)
+	}
+}
+
+func TestPluginSelectedRowScrollsIntoViewOnce(t *testing.T) {
+	rows := func(selected int) *protocol.Tree {
+		var kids []*sdk.Node
+		for i := 0; i < 100; i++ {
+			kids = append(kids, sdk.Row(fmt.Sprintf("r%d", i), sdk.Text(fmt.Sprintf("r%d-t", i), fmt.Sprintf("issue %d", i))).
+				Pressable().Label(fmt.Sprintf("row %d", i)).Active(i == selected).Padding(4))
+		}
+		return pluginTree(sdk.Column("root", kids...))
+	}
+	h := newPluginHarness(t, pluginScrollTree(sdk.Row("head", sdk.Text("ht", "head")), sdk.Column("root", pluginManyRows("q", 1)...)), nil)
+	h.show(func() *protocol.Tree { t := rows(-1).Root; return &protocol.Tree{Root: t, Scroll: true} }())
+	if r, _ := h.tt.Find("issue 70"); r.W == 0 {
+		// Off screen, as the test needs it.
+	} else {
+		t.Fatalf("issue 70 is on screen at the start: %v", r)
+	}
+	h.show(func() *protocol.Tree { t := rows(70).Root; return &protocol.Tree{Root: t, Scroll: true} }())
+	r, ok := h.tt.Find("issue 70")
+	if !ok || r.W == 0 {
+		t.Fatalf("the selected row did not scroll into view: %v", r)
+	}
+}
+
+// TestLinearParityShots draws the trees the Linear plugin sends (written by
+// its TestWriteParityTrees into LINEAR_TREE_DIR) in the tester, in both
+// appearances, into PLUGIN_SHOT_DIR as linear-parity-<shot>-<appearance>.png:
+// the list with a selected row and one under the pointer, the board with the
+// chips on its cards, and the wide pane with the issue beside the issues.
+func TestLinearParityShots(t *testing.T) {
+	dir, trees := os.Getenv("PLUGIN_SHOT_DIR"), os.Getenv("LINEAR_TREE_DIR")
+	if dir == "" || trees == "" {
+		t.Skip("PLUGIN_SHOT_DIR and LINEAR_TREE_DIR are not both set")
+	}
+	load := func(name string) *protocol.Tree {
+		raw, err := os.ReadFile(filepath.Join(trees, name+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var tree protocol.Tree
+		if err := json.Unmarshal(raw, &tree); err != nil {
+			t.Fatal(err)
+		}
+		if err := tree.ValidateTree(); err != nil {
+			t.Fatal(err)
+		}
+		return &tree
+	}
+	for _, dark := range []bool{false, true} {
+		pal, suffix := lightPalette, "light"
+		if dark {
+			pal, suffix = darkPalette, "dark"
+		}
+		shoot := func(name string, w, h int, act func(*pluginHarness)) {
+			ph := newPluginHarness(t, load(name), nil)
+			ph.pal = pal
+			ph.view.keysOn = true
+			ph.tt = ui.NewTester(func(c *ui.Context) {
+				ui.Column(c.Key("shot")).Fill().Background(pal.card).Children(func() {
+					drawPluginTree(c, ph.view, &pal, ph.tree, nil)
+				})
+			}, w, h)
+			ph.tt.SetDark(dark)
+			ph.frames()
+			if act != nil {
+				act(ph)
+			}
+			var buf bytes.Buffer
+			if err := png.Encode(&buf, ph.tt.Image()); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "linear-parity-"+name+"-"+suffix+".png"), buf.Bytes(), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		shoot("list", 560, 520, func(ph *pluginHarness) {
+			// The pointer over a row that has the issue menu.
+			if r, ok := ph.tt.Find("BRU-4 Issue number 4"); ok {
+				ph.tt.Move(r.X+r.W/2, r.Y+r.H/2)
+				ph.frames()
+				if err := ph.tt.RightClick("BRU-4 Issue number 4"); err != nil {
+					t.Fatal(err)
+				}
+				ph.frames()
+				if menu := ph.tt.Menu(); !slices.Contains(menu, "Open Issue") || !slices.Contains(menu, "Move To") {
+					t.Fatalf("the row's menu = %v", menu)
+				}
+				ph.tt.CloseMenu()
+			}
+		})
+		shoot("board", 600, 560, nil)
+		shoot("wide", 1000, 620, nil)
 	}
 }

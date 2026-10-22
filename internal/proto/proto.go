@@ -155,8 +155,27 @@ type LinearState struct {
 	States   []LinearWorkflowState `json:"states,omitempty"`
 	Projects []LinearProject       `json:"projects,omitempty"`
 	Issues   []LinearIssue         `json:"issues,omitempty"`
+	// LabelColors are the colors of the labels the issues carry, by label
+	// name, as "#f2c94c", so that a board card shows them without an issue
+	// being opened. Empty from a daemon that predates it.
+	LabelColors map[string]string `json:"labelColors,omitempty"`
 	// FetchedAt is when the workspace was read (unix ms).
 	FetchedAt int64 `json:"fetchedAt,omitempty"`
+	// Viewer is the person the API key belongs to, so that a client can
+	// tell the issues assigned to them. Nil from a daemon that predates it.
+	Viewer *LinearUser `json:"viewer,omitempty"`
+}
+
+// LinearUser is a person of the workspace.
+type LinearUser struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// LinearLabel is a label with its color, as "#f2c94c".
+type LinearLabel struct {
+	Name  string `json:"name"`
+	Color string `json:"color,omitempty"`
 }
 
 // LinearWorkflowState is a state of a team's workflow: Todo, In
@@ -195,20 +214,29 @@ type LinearRelation struct {
 	Identifier string `json:"identifier"`
 	Title      string `json:"title"`
 	State      string `json:"state"`
+	StateType  string `json:"stateType,omitempty"`
 }
 
 // LinearIssue is an issue, as the board shows it.
 type LinearIssue struct {
-	ID         string           `json:"id"`
-	Identifier string           `json:"identifier"`
-	Title      string           `json:"title"`
-	URL        string           `json:"url,omitempty"`
-	State      string           `json:"state"`
-	StateType  string           `json:"stateType,omitempty"`
-	Project    string           `json:"project,omitempty"`
-	Milestone  string           `json:"milestone,omitempty"`
-	Labels     []string         `json:"labels,omitempty"`
-	Relations  []LinearRelation `json:"relations,omitempty"`
+	ID         string   `json:"id"`
+	Identifier string   `json:"identifier"`
+	Title      string   `json:"title"`
+	URL        string   `json:"url,omitempty"`
+	State      string   `json:"state"`
+	StateType  string   `json:"stateType,omitempty"`
+	Project    string   `json:"project,omitempty"`
+	Milestone  string   `json:"milestone,omitempty"`
+	Labels     []string `json:"labels,omitempty"`
+	// Assignee is the name of the person the issue is assigned to, and
+	// AssigneeID their id; both empty when it is unassigned.
+	Assignee   string `json:"assignee,omitempty"`
+	AssigneeID string `json:"assigneeId,omitempty"`
+	// Priority is Linear's: 0 none, 1 urgent, 2 high, 3 medium, 4 low.
+	Priority int `json:"priority,omitempty"`
+	// Parent is the identifier of the parent issue, when there is one.
+	Parent    string           `json:"parent,omitempty"`
+	Relations []LinearRelation `json:"relations,omitempty"`
 	// Blocked and Blocking count the relations of each way, which the
 	// card shows as two numbers.
 	Blocked  int `json:"blocked,omitempty"`
@@ -253,13 +281,17 @@ type LinearComment struct {
 // it, and the comments under it.
 type LinearIssueDetail struct {
 	LinearIssue
-	Description string             `json:"description,omitempty"`
-	BranchName  string             `json:"branchName,omitempty"`
-	Assignee    string             `json:"assignee,omitempty"`
-	Creator     string             `json:"creator,omitempty"`
+	Description string `json:"description,omitempty"`
+	BranchName  string `json:"branchName,omitempty"`
+	Creator     string `json:"creator,omitempty"`
+	// ParentTitle is the title of the parent issue (LinearIssue.Parent
+	// is its identifier).
+	ParentTitle string `json:"parentTitle,omitempty"`
+	// LabelColors are the issue's labels with their colors, in the order
+	// of LinearIssue.Labels.
+	LabelColors []LinearLabel      `json:"labelColors,omitempty"`
 	Attachments []LinearAttachment `json:"attachments,omitempty"`
 	Comments    []LinearComment    `json:"comments,omitempty"`
-	Parent      string             `json:"parent,omitempty"`
 	SubIssues   []LinearIssue      `json:"subIssues,omitempty"`
 	// Runs are the conversations that worked on the issue, the latest
 	// first: what resumes each.

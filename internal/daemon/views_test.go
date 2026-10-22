@@ -18,7 +18,7 @@ func TestViewPanes(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := d.panes[s.Panes[0].ID]
-	if p.proc != nil || !p.isView() || s.Panes[0].View != proto.PaneTasks || s.Panes[0].Dir != dir {
+	if p.proc != nil || !p.isView() || s.Panes[0].View != proto.PanePlugins || s.Panes[0].Dir != dir {
 		t.Fatalf("a view started something: %+v", s.Panes[0])
 	}
 	if _, err := d.findTermPane(s.ID); err == nil || !strings.Contains(err.Error(), "not a terminal") {
@@ -31,13 +31,9 @@ func TestViewPanes(t *testing.T) {
 		t.Fatal("an unknown view was made")
 	}
 
-	// A session has one Tasks pane, which a pane may become only when it
-	// is that one.
-	if _, err := d.split(proto.CreateParams{Split: p.info.ID, View: proto.PaneTasks}); err == nil {
-		t.Fatal("a second Tasks pane was made")
-	}
+	// The Tasks view is a plugin now; the daemon no longer limits it.
 	if _, err := d.replacePane(proto.CreateParams{Split: p.info.ID, View: proto.PaneTasks}); err != nil {
-		t.Fatalf("the Tasks pane could not be itself again: %v", err)
+		t.Fatalf("the Tasks pane could not be replaced: %v", err)
 	}
 	p = d.panes[d.sessions[0].panes[0].info.ID]
 

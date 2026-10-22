@@ -33,6 +33,7 @@ func TestRequestRoundTrip(t *testing.T) {
 		{"secret.set", MethodSecretSet, SecretSetParams{Key: "token", Value: "v"}},
 		{"notify", MethodNotify, NotifyParams{Title: "Saved", Body: "Done"}},
 		{"openURL", MethodOpenURL, OpenURLParams{URL: "https://example.com"}},
+		{"clipboard.write", MethodClipboard, ClipboardWriteParams{Text: "ENG-1"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -182,6 +183,12 @@ func TestManifestValidate(t *testing.T) {
 	if good.WidgetByName("player") == nil {
 		t.Fatal("WidgetByName(player) = nil")
 	}
+	withIcon := good
+	withIcon.Widgets = []Widget{{Name: "board", Title: "Board", Icon: "board"}}
+	withIcon.Permissions = Permissions{PermFocus, PermOpenURL}
+	if err := withIcon.Validate(); err != nil {
+		t.Fatalf("a widget icon and the focus permission: %v", err)
+	}
 	if !good.Permissions.Has(PermSecrets) || good.Permissions.Has(PermNotify) {
 		t.Fatal("Permissions.Has is wrong")
 	}
@@ -199,6 +206,7 @@ func TestManifestValidate(t *testing.T) {
 		{"repeated widget", func(m *Manifest) { m.Widgets = append(m.Widgets, m.Widgets[0]) }},
 		{"widget without title", func(m *Manifest) { m.Widgets[0].Title = "" }},
 		{"repeated command", func(m *Manifest) { m.Commands = append(m.Commands, m.Commands[0]) }},
+		{"unknown widget icon", func(m *Manifest) { m.Widgets[0].Icon = "rocket" }},
 		{"unknown permission", func(m *Manifest) { m.Permissions = Permissions{"network"} }},
 		{"unknown setting kind", func(m *Manifest) { m.Settings[0].Kind = "number" }},
 		{"repeated setting", func(m *Manifest) { m.Settings = append(m.Settings, m.Settings[0]) }},
@@ -348,7 +356,7 @@ func TestMethodPermission(t *testing.T) {
 	if p.Allows("secret.steal") {
 		t.Fatal("an unknown method is refused")
 	}
-	for _, method := range []string{MethodRender, MethodStateSave, MethodSecretGet, MethodSecretSet, MethodNotify, MethodOpenURL} {
+	for _, method := range []string{MethodRender, MethodStateSave, MethodSecretGet, MethodSecretSet, MethodNotify, MethodOpenURL, MethodClipboard} {
 		if _, ok := MethodPermission[method]; !ok {
 			t.Fatalf("no permission listed for %q", method)
 		}
@@ -386,4 +394,18 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(digits[i:])
+}
+
+func TestClipboardNeedsItsPermission(t *testing.T) {
+	if (Permissions{PermOpenURL, PermNotify}).Allows(MethodClipboard) {
+		t.Fatal("a plugin without the clipboard permission may not copy")
+	}
+	if !(Permissions{PermClipboard}).Allows(MethodClipboard) {
+		t.Fatal("a plugin with the clipboard permission may copy")
+	}
+	m := Manifest{ID: "linear", Name: "Linear", Version: "1", Run: []string{"x"},
+		Widgets: []Widget{{Name: "main", Title: "Main"}}, Permissions: Permissions{PermClipboard}}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("the clipboard permission is known: %v", err)
+	}
 }

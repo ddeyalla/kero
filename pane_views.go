@@ -1,15 +1,18 @@
 package main
 
 import (
+	"encoding/json"
+
 	"github.com/egoist/mygo/ui"
 
+	"kero/internal/plugin/protocol"
 	"kero/internal/proto"
 
 	"kero/locales"
 )
 
-// A pane shows a terminal, or a view of the app's: the project's Linear
-// tasks, its files, a web page. A view runs nothing in kerod, which only
+// A pane shows a terminal, or a view of the app's: its files, a web page,
+// or a plugin's widget (the Linear tasks are the Linear plugin's). A view runs nothing in kerod, which only
 // keeps where it is in the layout and what it shows (Target); the app
 // draws it, and keeps what it holds while it shows: an issue open, a
 // folder unfolded, a page.
@@ -57,16 +60,36 @@ func (a *App) viewPane(c *ui.Context, pal *palette, s *proto.Session, p *proto.P
 	}
 	body.Children(func() {
 		switch p.View {
-		case proto.PaneTasks:
-			a.tasksPane(c, pal, s, p, body)
 		case proto.PaneFiles:
 			a.filesPane(c, pal, s, p, body)
 		case proto.PaneBrowser:
 			a.browserPane(c, pal, s, p, body)
 		case proto.PanePlugins:
 			a.pluginPane(c, pal, s, p, body)
+		case proto.PaneTasks:
+			// A Tasks pane that an older kerod kept, not migrated: the
+			// Linear plugin's board draws it.
+			linear := *p
+			linear.View, linear.Target = proto.PanePlugins, linearPluginTarget()
+			a.pluginPane(c, pal, s, &linear, body)
 		}
 	})
+}
+
+// linearPluginTarget is the target of the Linear plugin's board, as a list
+// of the session's project with finished issues hidden. It is the one
+// kerod's migration gives a Tasks pane (internal/daemon/store.go).
+func linearPluginTarget() string {
+	t, err := protocol.EncodeTarget(protocol.Target{
+		Plugin: "linear",
+		Widget: "board",
+		State:  json.RawMessage(`{"mode":"list","scope":"project","hideDone":true}`),
+	})
+	if err != nil {
+		// The target is a constant that encodes; a failure is a bug.
+		panic("linear plugin target: " + err.Error())
+	}
+	return t
 }
 
 // paneOf is the pane with the id, of any session, nil none.
@@ -90,10 +113,6 @@ func (a *App) isViewPane(id string) bool {
 // project of the tasks, the file or folder of the files, the page.
 func (a *App) viewSubtitle(s *proto.Session, p *proto.Pane) string {
 	switch p.View {
-	case proto.PaneTasks:
-		if lp := a.projectLinear(s.Project); lp != nil {
-			return lp.Name
-		}
 	case proto.PaneFiles:
 		// The folder: the file read names itself in the pane.
 		if st := a.files[p.ID]; st != nil {

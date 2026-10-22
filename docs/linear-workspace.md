@@ -1,26 +1,62 @@
-# Linear board and session links
+# Linear plugin and session links
 
-This v1 finishes the existing Linear board and local session links. The Home
-composer, task creation, milestone worktrees and queued writes remain separate
-work, as requested. This feature is developed on `feat/linear-workspace-v1`;
-the daily app is not restarted or replaced during verification.
+Linear is a built-in plugin, not a screen of the app. The plugin draws the
+issues of the team in a pane, as a list or a board, beside terminals and
+agents. The daemon still reads Linear and keeps the key; the plugin is a client
+of the daemon that shows what the daemon holds. This page covers the plugin,
+session links, the key, and the limits. The plugin contract is in
+[Plugins](plugins.md).
+
+## Open it
+
+- **Sidebar pin.** The Linear row of the sidebar is a pin of the plugin. It
+  was the old Linear row, and an install that had the row on keeps a pin for
+  it. Click it to show the plugin beside the terminals of the selected session:
+  if that session has a Linear pane the click focuses it, else it splits a new
+  one in. Right-click the row to unpin it.
+- **Pin or unpin** from the pane header's menu, Settings › Plugins, the command
+  palette (**Pin Linear to Sidebar**), or `kero plugin pin linear` and
+  `kero plugin unpin linear`.
+- **New Pane chooser.** The **Tasks** entry (`L`, `Cmd+Alt+L`) opens the same
+  plugin pane, so it stays reachable without a pin.
+- **From agents and scripts.** `kero split --tasks` opens it beside the
+  terminal. An older client or script that asks the daemon for the view
+  `tasks` gets the same pane.
 
 ## Use it
 
-Open **Linear** in the sidebar or press **Cmd+Shift+L**. Choose Board or List,
-search by issue identifier/title, and filter by project, milestone and state.
-The view and filters survive window relaunch. Removed projects or milestones
-fall back to their parent with an explanation.
+The pane has two views, **List** and **Board**, and keeps its own state (view,
+filters, search, folds, the issue open) in its target, so it comes back after a
+restart.
 
-Click an issue for its description, activity, attachments and related issues.
-On narrow windows, detail uses the main card; Close returns to the board.
-Web links open in the browser. Remote issue content cannot open local files or
-custom command URL schemes; Markdown images do not fetch automatically.
+- **Sections**, in this order: **Current** (started), **Done** (completed; the
+  20 most recent, then **Show more**), **Todo** (unstarted) and **Backlog**
+  (backlog and triage). Canceled issues are hidden; a filter shows them.
+- **Folds.** Each section folds. Inside a section the issues group by project,
+  and an issue with sub-issues folds over them. Folds are kept per pane.
+- **Current follows the focused session.** The issue linked to the session you
+  are in comes first, then In Progress issues that have a live linked session,
+  then the rest assigned to you, by last update.
+- **Filters:** Assignee (Me, Anyone or a person), Project, Label, Priority, a
+  text search over the identifier and title, and a toggle for canceled issues.
+  Scope is **All** or the **Project** of the pane's session (the Linear project
+  its Shibu project is linked to; with none, the pane offers **Show all** or
+  says to link one in the project's menu).
+- **Board.** The four sections are columns that scroll sideways; cards press
+  to open the issue. A column shows about 250 cards, then "N more".
+- **Issue detail** has the full description (Markdown), properties, a status
+  picker, the sessions that worked on it with **Resume**, sub-issues, relations
+  (blocking and blocked by), attachments and the activity feed. Web links open
+  in the browser. Remote issue content cannot open local files or custom
+  command URL schemes; Markdown images do not fetch automatically.
+- **Settings** of the plugin, in Settings › Plugins: empty board columns, and
+  density (comfortable or compact). The refresh interval and the key stay on
+  the Linear page of Settings, because the daemon reads Linear.
 
-Choose an existing session in the issue detail and click **Link session**.
-The detail can open that session, copy its resume ID when known, or unlink it.
-This changes local Shibu metadata; it does not change the issue in Linear.
-Explicit links survive daemon restarts alongside the agent resume metadata.
+Choose a session in the issue detail and click **Link session**. The detail
+can open that session, copy its resume ID when known, or unlink it. This
+changes local Shibu metadata; it does not change the issue in Linear. Explicit
+links survive daemon restarts alongside the agent resume metadata.
 
 Agents can report their task without deriving it from the branch:
 
@@ -34,9 +70,22 @@ OSC reports are live associations. Clearing a report removes that association;
 removing an explicit link does not clear a separate report still emitted by an
 agent. An issue's badge shows the linked session and reported progress.
 
+## What changed from the built-in screen
+
+- The Linear screen, its sidebar row, the `Cmd+Shift+L` shortcut and the
+  **Tasks** pane of the app are gone. A saved state that was showing the screen
+  opens the selected session.
+- Saved Tasks panes become Linear plugin panes once, when the daemon reads
+  state that is older than version 3, as a list of the session's project with
+  finished issues hidden. Panes with other views are untouched.
+- Settings for the sidebar row, empty columns and card density left the Linear
+  page. The old `linear-sidebar` setting is read once to decide whether to pin
+  the plugin; `linear-empty-columns` and `linear-card-density` are still read
+  from the configuration file but no longer have rows in Settings.
+
 ## Connect and rotate a key
 
-In Settings → Agents, enter a Linear personal API key in the masked field,
+In Settings › Linear, enter a Linear personal API key in the masked field,
 save it, or use **Remove Linear key**. The input clears after saving and when
 Settings closes. The key stays in `credentials.json` under the
 personal app data directory, written atomically with file mode `0600`.
@@ -74,18 +123,27 @@ locally. Secret scanning cannot revoke a credential or erase a transcript.
 - An open issue refreshes after ten seconds following a successful read. Failed
   reads stop that loop and show Retry. Late responses cannot replace a different
   issue or reopen a closed detail pane.
+- The plugin draws again only when the data it shows changes and only while its
+  pane is visible; the daemon's own saves of the pane target do not redraw it.
+  A tree has at most 2000 parts: folded groups send nothing, and a board shows
+  about 250 cards.
 - Board cards summarize up to ten relations in each direction. Open detail for
-  the complete dependency list. A badge currently shows one associated session;
-  a list of multiple sessions on the same issue is future work.
+  the complete dependency list.
 - The existing explicit CLI `set-state` and `comment` commands perform one
   request. They are not automatically queued/replayed after an uncertain result.
   No real Linear mutation is sent during verification.
 
-The wire additions are optional fields on protocol 2 and state schema 2. An old
-daemon can keep existing terminals running but cannot serve the new Linear RPCs.
-Activating this feature in the daily app requires a planned daemon restart;
-restarting shells is not a seamless live handoff. Build/test success alone never
-authorizes ending the user's active work.
+The plugin adds fields to the daemon protocol (an issue's assignee, priority
+and parent, and the viewer) and moves saved state to version 3. Activating it
+requires one planned restart of the terminal service; restarting shells is not
+a seamless live handoff. Build/test success alone never authorizes ending the
+user's active work. A build from before this change can read a migrated state
+file but cannot open the migrated panes as Tasks: it shows plugin panes it may
+not have. Do not roll back after the daemon saved state at version 3.
+
+The plugin never reads or logs the key. It is a client of the daemon: it
+subscribes to state, and asks the daemon to set a state, comment, load an
+issue or link a session. The key stays in the daemon.
 
 ## Verification
 

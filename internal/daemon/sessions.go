@@ -405,6 +405,12 @@ func (d *Daemon) cleanDir(dir string) (string, error) {
 
 // startPane makes a pane and starts its shell; a view's runs nothing.
 func (d *Daemon) startPane(sid string, p proto.CreateParams, dir string) (*pane, error) {
+	// The built-in Tasks view is gone: an older client or script that asks
+	// for one gets the Linear plugin's pane, as the saved panes of the view
+	// became (migrateState).
+	if p.View == proto.PaneTasks {
+		p.View, p.Target = proto.PanePlugins, linearPluginTarget()
+	}
 	if p.View != "" && !slices.Contains(proto.PaneViews, p.View) {
 		return nil, fmt.Errorf("no view %q", p.View)
 	}
@@ -498,10 +504,6 @@ func (d *Daemon) split(p proto.CreateParams) (proto.Session, error) {
 		d.mu.Unlock()
 		return proto.Session{}, fmt.Errorf("no session or pane %q", p.Split)
 	}
-	if err := s.oneTasksPane(p.View, ""); err != nil {
-		d.mu.Unlock()
-		return proto.Session{}, err
-	}
 	dir := at.info.Dir
 	if p.View != "" && at.info.ProcessDir != "" {
 		// A view of the files the agent beside it works on, in its
@@ -569,10 +571,6 @@ func (d *Daemon) replacePane(p proto.CreateParams) (proto.Session, error) {
 		d.mu.Unlock()
 		return proto.Session{}, fmt.Errorf("no pane %q", p.Split)
 	}
-	if err := s.oneTasksPane(p.View, at.info.ID); err != nil {
-		d.mu.Unlock()
-		return proto.Session{}, err
-	}
 	at.mu.Lock()
 	dir, task := at.info.Dir, at.info.TaskID
 	if at.info.ProcessDir != "" {
@@ -619,21 +617,6 @@ func (d *Daemon) replacePane(p proto.CreateParams) (proto.Session, error) {
 	d.changed()
 	d.log.Printf("pane %s replaced by %s", atID, pn.info.ID)
 	return info, nil
-}
-
-// oneTasksPane refuses a second Tasks pane in a session: view is what a
-// pane is to show, but the pane except, which it replaces. d.mu is held;
-// a pane's view is set as it starts, and stays.
-func (s *session) oneTasksPane(view, except string) error {
-	if view != proto.PaneTasks {
-		return nil
-	}
-	for _, o := range s.panes {
-		if o.info.View == proto.PaneTasks && o.info.ID != except {
-			return fmt.Errorf("the session has a Tasks pane already: %s", o.info.ID)
-		}
-	}
-	return nil
 }
 
 // removePane closes a pane; its session goes with its last pane.

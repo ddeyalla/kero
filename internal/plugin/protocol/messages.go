@@ -71,6 +71,13 @@ type CommandParams struct {
 	ID string `json:"id"`
 }
 
+// FocusParams tells a plugin that holds the "focus" permission which
+// session the app has selected now, "" when none is. The host sends it
+// once the plugin is ready and whenever the selection changes.
+type FocusParams struct {
+	Session string `json:"session"`
+}
+
 // RenderParams replaces what a pane draws.
 type RenderParams struct {
 	Pane string `json:"pane"`
@@ -125,4 +132,15 @@ type WebOpenParams struct {
 // web view of a plugin whose process stops.
 type WebCloseParams struct {
 	ID string `json:"id"`
+}
+
+// MaxClipboard is the longest text a plugin may put on the clipboard, in
+// bytes.
+const MaxClipboard = 64 << 10
+
+// ClipboardWriteParams is text for the clipboard: the plugin copies what
+// the user asked it to, such as an issue's link. It cannot read the
+// clipboard.
+type ClipboardWriteParams struct {
+	Text string `json:"text"`
 }
