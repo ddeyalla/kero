@@ -115,6 +115,10 @@ builds only. What each feature is and where it stands is tracked in the
   (`ScrollingTree()`) for a pane that scrolls as one page. A horizontal
   slider with a `Width` keeps that width, and one without grows.
 - Plugin icon buttons draw real SF Symbols.
+- Optional memory diagnostics visit every terminal twice, stream all panes,
+  and preserve app/daemon footprint, Go heaps and native VM accounting.
+  `PERF_MEMORY=1 PERF_KEEP=1 sh scripts/perf.sh N`; add `PERF_LAYOUT=split`
+  for N panes in one selected session. See [Performance](perf.md) (BRU-333).
 - `scripts/perf.sh N` measures Shibu Code with N panes against the
   performance budgets: kerod's and the app's footprint, idle CPU, idle
   wakeups and idle frames over 60 s, and frame build and paint times

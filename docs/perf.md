@@ -74,6 +74,58 @@ present of each frame, logged with `MYGO_FRAME_STATS=all`.
 Shorter `PERF_IDLE` and `PERF_SETTLE` are for checking the script itself.
 The numbers below use the defaults.
 
+### Memory after visiting every terminal
+
+```sh
+PERF_MEMORY=1 PERF_KEEP=1 sh scripts/perf.sh 25
+PERF_MEMORY=1 PERF_KEEP=1 PERF_LAYOUT=split sh scripts/perf.sh 25
+```
+
+The optional memory workload starts the same app with no sessions and verifies
+that it has no selection or attached terminals before taking its baseline. It
+then feeds every fixture, visits each terminal twice, streams every fixture,
+and waits 15 seconds after output stops. `PERF_LAYOUT=split` keeps all panes in
+one selected session instead of separate sessions. It uses the real `pane.next`
+and `pane.zoom` actions to visit every pane zoomed, then expands the layout
+before streaming. Minimum pane sizes clip part of a 25-tile layout in the
+1180 × 760 window; this is not a claim that all 25 tiles were exposed at once.
+The selected session is exempt from the eight-terminal cache limit, so this
+case measures retained terminals that the ordinary one-shown-pane workload
+misses.
+
+`scripts/perf_memory.py` adds diagnostics through a temporary Go build overlay;
+normal builds have no new listener or hook. A visit requires the requested
+selection, a positive grid, a fresh pane-specific `DrawOver` callback with
+positive geometry, the fixture's final `PERF-READY` marker in its bounded text
+tail, and a newer completed frame. This proves paint traversal and that the
+terminal consumed the fixture, not independent compositor presentation or
+physical window exposure. Focus and activation come from the app's callbacks,
+separately from frame counts.
+
+Every stage preserves process counters, Go `MemStats` and a post-GC heap
+profile. The first-shown, completed-sweep and settled stages additionally
+capture a `vmmap` summary and individual mappings, and `footprint` JSON. Files
+live under `memory/` in the temporary directory printed at exit;
+`PERF_KEEP=1` keeps them.
+Native tools have their own timestamps and totals, with process samples before
+and after each tool. A category from one snapshot must not be subtracted from
+a process total taken at another time. IOSurface region counts are mappings,
+not a count of unique surfaces.
+
+Sizes in this section use MiB (2^20 bytes), called MB by the harness. The
+aggregate app target at 25 panes is 750 MiB. The report keeps that total
+separate from the empty-app baseline and `(total - baseline) / distinct panes
+confirmed so far`; the denominator is zero before any visit. These within-run
+deltas can become negative as native graphics allocations change, and do not
+measure a terminal's individual allocation. The ordinary harness's existing
+30 MB row compares the whole app with a per-pane budget without an empty-app
+baseline; it is not the aggregate 25-pane acceptance check.
+
+Forced GC, bounded text-tail reads and native profiling perturb these runs.
+Their CPU and frame rates are diagnostic data, not idle or streaming latency
+acceptance. `GOMEMLIMIT`, `GOGC` and `GODEBUG`, when inherited, are recorded; this
+mode sets none of them.
+
 ## Profiling kerod
 
 With `KERO_PPROF` set to a loopback address, kerod serves Go's profiles
@@ -344,16 +396,76 @@ The pinned MyGo regression test, `TestBlinkPaintsOnly`, was rerun on
 after focus returned. This proves the terminal timer behavior, separately
 from the whole app's native wakeups and meter rebuilds.
 
+### Visited-terminal measurements (BRU-333)
+
+Measured on the same M4 Pro on 2026-10-23, with 16 MiB fed per fixture,
+10 seconds of output and 15 seconds settling after output. Baseline
+`1368b83` pins MyGo `81afe923`; candidate `aa6f9a5` pins `43944857`.
+The 1- and 8-session references use `724fddc`, which adds usage-test
+synchronization without changing production code from `aa6f9a5`. All visit snapshots
+reported the app active and focused. No `GOMEMLIMIT`, `GOGC` or `GODEBUG` was
+set. These are instrumented memory workloads, not idle-budget measurements.
+
+App physical footprint and Go heap are in MiB:
+
+| Workload / code | Empty app | First shown | Sweep 1 | Sweep 2 | Streaming | Settled | Settled live Go heap | Retained terminals |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 session (`724fddc`) | 231.5 | 253.7 | 253.8 | 248.1 | 258.7 | 209.5 | 14.2 | 1 |
+| 8 sessions (`724fddc`) | 106.9 | 269.0 | 298.2 | 296.0 | 324.6 | 252.2 | 26.4 | 8 |
+| 25 sessions, before (`1368b83`) | 106.4 | 271.8 | 294.9 | 293.7 | 307.5 | 281.3 | 14.3 | 8 |
+| 25 sessions, after (`aa6f9a5`) | 231.6 | 272.5 | 293.7 | 293.0 | 305.1 | 155.6 | 14.1 | 8 |
+| 25 panes, one session (`aa6f9a5`) | 106.2 | 403.0 | 418.1 | 427.1 | 431.7 | 409.6 | 38.3 | 25 |
+
+Both 25-session runs and the selected 25-pane run completed 51 confirmed
+visits each: one first visit and two complete sweeps of 25 distinct panes.
+Separate sessions retained eight terminals after each sweep; the selected
+multi-pane session retained all 25, including after output stopped. The
+1- and 8-session references completed 3 and 17 confirmed visits respectively.
+The split workload visited every pane zoomed; the expanded streaming layout
+had clipped tiles, so it does not prove all 25 were exposed simultaneously.
+
+The 25-pane aggregate criterion is met in these synthetic runs: their stage
+samples and native-tool totals stayed below 750 MiB. This is not an all-budget
+pass. The ordinary whole-app 30 MiB row is still over with one pane; the
+8-session reference also exceeds 240 MiB in these samples. The references
+characterize fixed overhead and retention, not a redefinition of those budgets.
+
+There is no demonstrated causal memory reduction from BRU-331: the two
+25-session sweep samples are essentially equal. Empty-app footprint changed
+from 106.4 to 231.6 MiB between runs, and the candidate settled sample is lower
+than its own empty baseline. Its signed within-run delta is -3.04 MiB per
+visited pane; that is unstable subtraction, not a negative terminal allocation
+or an optimization saving.
+
+Native accounting drifts too. The split settled process sample was 409.6 MiB;
+its later `footprint` snapshot at 01:34:06 IST reported 298.1 MiB. That native
+snapshot labeled about 103 MiB `App-Specific Tag 1`, 98 MiB `Untagged`, and
+13.7 MiB `IOSurface`. These labels do not establish allocator ownership or
+unique surface counts. They must not be combined with the earlier 409.6 MiB
+total as a precise breakdown. The separate-session settled native snapshot
+reported 155.2 MiB, with 48.8 MiB untagged and 31.5 MiB app-specific.
+
+The split post-GC heap was 38.3 MiB; `Sys - HeapReleased`, a Go-runtime estimate
+rather than OS accounting, was 87.8 MiB. Its sampled heap profile mainly
+identified text shaping (`ui.Shape` about 18.6 MiB and terminal `shapeRun` about
+3.5 MiB), with about 2 MiB in the terminal LRU. These bounded samples do not
+show Go heap dominance or an unbounded cache. No memory limit or new cache
+policy was added.
+
+BRU-333 remains open for the historical 1.22 GB daily-app observation: this
+synthetic workload did not reproduce or fully attribute it. The daily app's memory was
+not inspected, and the app was not restarted. Unknown native/untagged memory remains unknown;
+it is not assigned to libghostty by subtracting Go heap from footprint.
+
 ## Limits
 
 - **Key press → paint** is not measured: it needs keys sent to the app's
   window, which the harness does not do. The transport part, from a key
   sent to kerod to the frame it sends back, is what
   `scripts/measure-terminal-latency.py` measures.
-- **The app's footprint** is measured with one pane shown. The app keeps
-  only the terminals of panes it showed (`maxTerms`), so its footprint with
-  N panes is close to its footprint with one, and the per-pane budget
-  applies to the panes shown. A run that visits every pane is not done yet.
+- **The ordinary app workload** shows one pane. Use the opt-in visited-terminal
+  workload above for retained terminals, with its separate baseline and
+  profiling limits. It does not reproduce every workload of the daily app.
 - **The app's window** opens behind or in front of the user's windows, as
   macOS places it. Frames of a hidden window may cost less than those of a
   shown one.

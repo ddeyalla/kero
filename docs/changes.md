@@ -1775,3 +1775,23 @@ terminals streamed before the change, and 10 afterward. The latter sample
 lost focus partway through, so it is supporting evidence rather than a
 focused idle-budget comparison. Visible output still produced frames and
 revealing a terminal showed its current text. The installed app was not tested.
+
+## Visited-terminal memory diagnostics (BRU-333)
+
+`PERF_MEMORY=1 PERF_KEEP=1 sh scripts/perf.sh N` uses `scripts/perf_memory.py`
+and a temporary build overlay to capture an empty-app baseline, two complete
+sweeps of every terminal, all-fixture output and settled memory. `PERF_LAYOUT=split`
+keeps N panes in one selected session; real pane actions visit each one zoomed
+before expanding the layout. A visit needs a fresh pane paint and the fixture's
+initial-feed `PERF-READY` marker in its bounded text tail. Normal app builds gain no diagnostic
+listener or hook. `scripts/test_perf_memory.py` covers routing isolation,
+accounting, paint readiness, traversal bounds and overlay seams.
+
+The 25-session and selected 25-pane synthetic workloads met the 750 MiB
+aggregate target, retaining eight and 25 terminals respectively. The largest
+primary stage sample was 431.7 MiB in the split workload; its settled live Go
+heap was 38.3 MiB. Baselines and native snapshots varied, so these results do
+not establish a memory reduction or full allocator ownership. The historical
+1.22 GB daily-app observation and the ordinary small-pane budget remain open.
+No production memory policy changed. See [Performance](perf.md) for the full
+matrix, profiling effects and remaining limits.
