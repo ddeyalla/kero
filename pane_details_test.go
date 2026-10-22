@@ -234,6 +234,7 @@ func TestFilesRememberFolders(t *testing.T) {
 	if got := a.prefs.Files["b"]; len(got) != 1 || got[0] != "docs" {
 		t.Fatalf("kept %q", got)
 	}
+	a.flushPrefs()
 	again := newApp()
 	again.st = a.st
 	st := again.filesStateOf(again.session("s1"), &again.st.Sessions[0].Panes[1])
@@ -243,6 +244,7 @@ func TestFilesRememberFolders(t *testing.T) {
 	again.loaded = true
 	again.st.Sessions[0].Panes = again.st.Sessions[0].Panes[:1]
 	again.sweepViews()
+	again.flushPrefs()
 	if len(newApp().prefs.Files) != 0 {
 		t.Fatal("a closed pane's folders stayed")
 	}

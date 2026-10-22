@@ -42,6 +42,19 @@ const (
 	peekMinW = 150
 )
 
+// peekLook is the link an image hover looked at last, and what it found at
+// the disk: the frames of one hover stat the file once, and a link that
+// does not change is not asked again.
+type peekLook struct {
+	pane, link string
+	path       string
+	mod        time.Time
+	ok         bool
+	// stats counts the stats the link cost, across the app's run: a test
+	// reads it to see that a hover asks the disk once.
+	stats int
+}
+
 // imagePeek shows the image a path names, which Command hovers in a pane's
 // terminal at at, in the terminal's coordinates, in a flyout below the
 // path, or above it where the screen has no room below. term is the
@@ -50,18 +63,24 @@ func (a *App) imagePeek(paneID, link string, at, term ui.Rect) {
 	if !peekable[strings.ToLower(filepath.Ext(lineSuffix.ReplaceAllString(link, "")))] {
 		return
 	}
-	path := a.resolvePath(paneID, link)
-	if path == "" {
+	l := &a.peekLook
+	if l.pane != paneID || l.link != link {
+		// Another link, as the pointer moved: find its file, once.
+		*l = peekLook{pane: paneID, link: link, path: a.pathFor(paneID, link)}
+		fi, err := os.Stat(l.path)
+		l.stats++
+		l.ok = err == nil && !fi.IsDir() && fi.Size() <= maxPeekBytes
+		if l.ok {
+			l.mod = fi.ModTime()
+		}
+	}
+	if !l.ok {
 		return
 	}
-	fi, err := os.Stat(path)
-	if err != nil || fi.IsDir() || fi.Size() > maxPeekBytes {
-		return
-	}
-	if a.peek.path != path || !a.peek.mod.Equal(fi.ModTime()) {
+	if a.peek.path != l.path || !a.peek.mod.Equal(l.mod) {
 		a.closePeek()
-		a.peek = peek{path: path, mod: fi.ModTime()}
-		mod := fi.ModTime()
+		a.peek = peek{path: l.path, mod: l.mod}
+		path, mod := l.path, l.mod
 		go func() {
 			data, err := os.ReadFile(path)
 			if err != nil {

@@ -575,6 +575,57 @@ Code: [`resources.go`](../resources.go), `agoTick` in
 compares; the window builds about twice in two idle minutes for the
 sidebar, never with it hidden, and the Attention pane still ticks).
 
+## Prefs and settings written off the main thread
+
+A busy disk, as twenty-five agents building on one machine, made ordinary
+actions wait: switching sessions, dragging the sidebar's edge or collapsing
+a project wrote `app.json` on the main thread, and Settings wrote the
+configuration there too. Both now write in the background (BRU-335).
+
+`writeBack[T]` ([`write_back.go`](../write_back.go)) is one value's writer,
+by type: `Set` keeps the newest value and returns, and one goroutine writes
+it after `writeDelay`, 500 ms. A burst of changes, as a drag makes, costs
+one write of the last value; a value that is what the disk holds is not
+written at all. `Flush` writes a waiting value before it returns. It holds
+no file of its own: a caller gives it a `save` func.
+
+- **Prefs.** `(*App).savePrefs` copies the prefs with maps of their own
+  (`snapshotPrefs`, `clonePrefs`), so nothing mutable leaves the main
+  thread, and hands the copy to `a.prefsOut`, whose `writePrefs` marshals
+  and writes as the file always was: `app.json.tmp`, then a rename. When
+  `loadPrefs` read the file, it seeds the writer with those prefs (`Seed`),
+  so a session switch that changes nothing writes nothing.
+- **Settings.** `(*App).apply` hands a clone to `a.setOut`, which calls
+  `settings.SaveAt` on its goroutine. The path is taken in `newApp`
+  (`settings.Path()`), not by the writer, so a write does not depend on the
+  environment at the time it runs. A failed save still shows the toast, from
+  `a.update`. `ensureConfig`, which writes the file before the editor opens
+  it, saves and flushes for the same reason.
+- **Quitting.** `mygo.App.OnBeforeQuit` calls `(*App).beforeQuit`, which
+  saves the prefs, then flushes the prefs and the settings: a change made in
+  the last half second is on disk before the app goes.
+- **Image peeks.** `imagePeek` resolved the path (`os.Stat`) and stat'ed it
+  again on every frame a hover showed, so a resting pointer asked the disk
+  every frame. `peekLook` ([`peek.go`](../peek.go)) keeps the hovered pane
+  and link with the path and file it found, so one hover stats once.
+  `resolvePath` keeps the stat for a click (`openLink`); `pathFor` is the
+  name without it. One hover no longer notices a file that changed under
+  the pointer: the link has to change, or the pointer leave and come back to
+  it, for the preview to read the file again.
+
+Measured on a warm cache with a probe of 200 calls (not committed), on the
+calling thread: `savePrefs` 135 µs → 53 ns, `applySettings` 155 µs → 0.8–2.3
+µs. Ten `savePrefs` in a row: 10 writes → 1. A save of unchanged prefs: 1
+write → none. A hover read the file 2 stats a frame → 1 stat for the hover.
+
+Code: [`app.go`](../app.go) (`savePrefs`, `snapshotPrefs`, `saveSettings`,
+`beforeQuit`), [`write_back.go`](../write_back.go),
+[`peek.go`](../peek.go), `SaveAt` in
+[`internal/settings/settings.go`](../internal/settings/settings.go). Tests:
+`prefs_test.go` (a burst writes once, holding the last value; unchanged
+prefs write nothing; a quit writes what waits), `TestImagePeekStatsOncePerHover`
+in [`view_test.go`](../view_test.go).
+
 ## Terminal responsiveness and attachments
 
 The local build targets the host architecture: Apple Silicon is `arm64`;

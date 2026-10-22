@@ -229,33 +229,42 @@ func migrate() {
 
 // Save writes the settings into the configuration, keeping what the user
 // wrote around them (see format).
-func Save(s Settings) error {
+func Save(s Settings) error { return SaveAt(Path(), s) }
+
+// SaveAt writes the settings into the file at path, which Save names, for a
+// caller that writes on another thread, after this process's environment
+// may have said another file.
+func SaveAt(path string, s Settings) error {
 	mu.Lock()
 	defer mu.Unlock()
 	s.normalize()
-	if err := write(s); err != nil {
+	if err := writeAt(path, s); err != nil {
 		return err
 	}
 	c := clone(s)
 	cache, problems = &c, nil
-	if st, err := os.Stat(Path()); err == nil {
+	if st, err := os.Stat(path); err == nil {
 		mtime = st.ModTime().UnixNano()
 	}
 	return nil
 }
 
 // write writes the configuration; mu is held.
-func write(s Settings) error {
-	old, _ := os.ReadFile(Path())
+func write(s Settings) error { return writeAt(Path(), s) }
+
+// writeAt writes the configuration at path, keeping what the user wrote
+// around the settings; mu is held.
+func writeAt(path string, s Settings) error {
+	old, _ := os.ReadFile(path)
 	data := format(s, string(old))
-	if err := os.MkdirAll(filepath.Dir(Path()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := Path() + ".tmp"
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(data), 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, Path())
+	return os.Rename(tmp, path)
 }
 
 // Clone returns a copy that shares nothing with s.

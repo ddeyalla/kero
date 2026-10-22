@@ -100,8 +100,10 @@ type App struct {
 	loaded    bool // a state came
 
 	prefs       prefs
-	set         settings.Settings // the user's settings: Settings' controls edit it
-	applied     settings.Settings // set, as last applied and saved
+	prefsOut    *writeBack[prefs]             // writes the prefs, off the main thread
+	set         settings.Settings             // the user's settings: Settings' controls edit it
+	setOut      *writeBack[settings.Settings] // writes the settings, off the main thread
+	applied     settings.Settings             // set, as last applied and saved
 	ss          settingsState
 	selected    string
 	terms       map[string]*termEntry
@@ -178,7 +180,8 @@ type App struct {
 	usage        usageState
 	resources    resourceState
 	maintenance  maintenanceState
-	peek         peek // the image a path Command hovers shows
+	peek         peek     // the image a path Command hovers shows
+	peekLook     peekLook // the link that hover resolved, and what it found
 	intro        introState
 
 	// growing are the panes just made, which grow from their edge;
@@ -207,11 +210,24 @@ func newApp() *App {
 	a := &App{terms: map[string]*termEntry{}, active: true, focused: true,
 		refs: map[string]*ui.Handle{}, focus: map[string]string{}, arrived: map[string]bool{},
 		hoverSeen: map[string]bool{}, hoverUntil: map[string]time.Time{}, opening: map[string]int{}}
+	// The writers name their files now: they write on another thread, by
+	// which time the environment may say another, as a test's does.
+	prefsFile := prefsPath()
+	a.prefsOut = newWriteBack(writeDelay, func(p prefs) error { return writePrefs(prefsFile, p) })
+	conf := settings.Path()
+	a.setOut = newWriteBack(writeDelay, func(s settings.Settings) error {
+		if err := settings.SaveAt(conf, s); err != nil {
+			a.update(func() { a.toast(locales.ToastSaveSettingsFailed(err.Error())) })
+			return err
+		}
+		return nil
+	})
 	a.watch = newAttentionWatch()
 	a.deliver = a.showNotification
 	a.lin = &a.linRoot
 	a.loadPrefs()
 	a.set = settings.Load()
+	a.setOut.Seed(a.set.Clone())
 	a.ss.problems = settings.Problems()
 	a.applied = a.set.Clone()
 	a.selected = a.prefs.Selected
@@ -234,7 +250,8 @@ func prefsPath() string { return filepath.Join(proto.Dir(), "app.json") }
 
 func (a *App) loadPrefs() {
 	b, err := os.ReadFile(prefsPath())
-	if err == nil {
+	read := err == nil
+	if read {
 		json.Unmarshal(b, &a.prefs)
 	}
 	if os.IsNotExist(err) {
@@ -250,21 +267,58 @@ func (a *App) loadPrefs() {
 	if a.prefs.Collapsed == nil {
 		a.prefs.Collapsed = map[string]bool{}
 	}
+	if read {
+		// The file holds these: a save of them writes nothing, as a
+		// session switch that changes nothing makes.
+		a.prefsOut.Seed(clonePrefs(a.prefs))
+	}
 }
 
-func (a *App) savePrefs() {
+// savePrefs remembers the prefs between runs. It copies them here, and
+// leaves the write to the background (writeBack), so a session switch or a
+// drag of the sidebar does not wait for the disk.
+func (a *App) savePrefs() { a.prefsOut.Set(a.snapshotPrefs()) }
+
+// flushPrefs writes a prefs change that waits, as quitting does.
+func (a *App) flushPrefs() { a.prefsOut.Flush() }
+
+// snapshotPrefs is the prefs as they now are, with maps of their own: the
+// writer takes it to another thread while the app changes its own.
+func (a *App) snapshotPrefs() prefs {
 	a.prefs.Selected = a.selected
 	a.prefs.Show = a.show
 	a.prefs.Linear = a.linearPrefs()
-	b, err := json.MarshalIndent(a.prefs, "", "  ")
+	return clonePrefs(a.prefs)
+}
+
+// clonePrefs is p with maps of its own.
+func clonePrefs(p prefs) prefs {
+	p.Collapsed = maps.Clone(p.Collapsed)
+	if p.Files != nil {
+		files := make(map[string][]string, len(p.Files))
+		for id, dirs := range p.Files {
+			files[id] = slices.Clone(dirs)
+		}
+		p.Files = files
+	}
+	return p
+}
+
+// writePrefs writes the prefs as JSON: a temp file renamed over app.json, as
+// the file always was.
+func writePrefs(path string, p prefs) error {
+	b, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	os.MkdirAll(proto.Dir(), 0o700)
-	tmp := prefsPath() + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) == nil {
-		os.Rename(tmp, prefsPath())
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
 	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // update runs fn on the main thread, and draws.
@@ -894,15 +948,31 @@ func (a *App) zoom(steps int, reset bool) {
 // terminal takes.
 func (a *App) applySettings(s settings.Settings) { a.apply(s, true) }
 
+// saveSettings writes the settings in the background (writeBack): a font
+// size stepped through waits for the next step rather than writing each.
+func (a *App) saveSettings(s settings.Settings) { a.setOut.Set(s.Clone()) }
+
+// flushSettings writes a settings change that waits, as quitting does.
+func (a *App) flushSettings() { a.setOut.Flush() }
+
+// beforeQuit writes what waits for the disk, and stops what reads behind the
+// view, as the window closes last.
+func (a *App) beforeQuit() {
+	a.savePrefs()
+	a.flushPrefs()
+	a.flushSettings()
+	if a.usage.cancel != nil {
+		a.usage.cancel()
+	}
+}
+
 // apply makes settings the app's, saving them to the configuration when
 // they come from the app rather than from the file.
 func (a *App) apply(s settings.Settings, save bool) {
 	old := a.applied
 	a.set, a.applied = s, s.Clone()
 	if save {
-		if err := settings.Save(s); err != nil {
-			a.toast(locales.ToastSaveSettingsFailed(err.Error()))
-		}
+		a.saveSettings(s)
 	}
 	font := old.FontFamily != s.FontFamily || old.FontSize != s.FontSize || old.FontWeight != s.FontWeight ||
 		old.LineHeight != s.LineHeight || old.Ligatures != s.Ligatures || old.Thicken != s.Thicken
@@ -1028,6 +1098,16 @@ func (a *App) openLink(id, link string) bool {
 // the directory of the program that printed it, or "" for no such file.
 // id is a pane's, or a session's for its pane in front.
 func (a *App) resolvePath(id, link string) string {
+	path := a.pathFor(id, link)
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+// pathFor returns the file a path printed in a pane names, without asking
+// the disk whether it is there.
+func (a *App) pathFor(id, link string) string {
 	path := lineSuffix.ReplaceAllString(link, "")
 	if strings.HasPrefix(path, "~/") || runtime.GOOS == "windows" && strings.HasPrefix(path, `~`) {
 		path = filepath.Join(proto.Home(), path[2:])
@@ -1036,9 +1116,6 @@ func (a *App) resolvePath(id, link string) string {
 		if dir := a.workDir(id); dir != "" {
 			path = filepath.Join(dir, path)
 		}
-	}
-	if _, err := os.Stat(path); err != nil {
-		return ""
 	}
 	return path
 }

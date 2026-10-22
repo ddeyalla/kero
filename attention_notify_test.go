@@ -240,6 +240,7 @@ func TestSilencedSessionStaysQuiet(t *testing.T) {
 	if !a.silenced("s2") {
 		t.Fatal("s2 is not silenced")
 	}
+	a.flushSettings()
 	if saved := settings.Load(); len(saved.SilencedSessions) != 1 || saved.SilencedSessions[0] != "s2" {
 		t.Fatalf("saved silence %q", saved.SilencedSessions)
 	}
