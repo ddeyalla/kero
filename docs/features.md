@@ -138,6 +138,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | Faster redraws after a synchronized frame (55.9 ms → 16.9 ms transport median) | Automatic | 2.0.5-local.2 | Shipped |
 | Native ARM64 build, no constant status animation | Automatic | 2.0.5-local.1 | Shipped |
 | Status detection reads the last rows, not the whole scrollback (0.75 ms → 10 µs a look at 4 MB) | Automatic | Unreleased | Untried |
+| Startup: immediate connection, sessions restored in the background, four at a time | Automatic, after a restart of the terminal service | Unreleased | Untried |
 | Scrollback budget: the app's terminals keep the Scrollback setting (not 10 MB), 8 stay attached (every pane of the shown session kept), the 10 s history save writes the last 256 KB | Settings › Shell › Scrollback; automatic | Unreleased | Untried |
 
 ## Window

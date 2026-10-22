@@ -274,7 +274,9 @@ func (d *Daemon) scanPass(now time.Time) {
 	}
 	d.mu.Unlock()
 	for _, p := range panes {
+		p.mu.Lock()
 		p.scanTranscript(now)
+		p.mu.Unlock()
 	}
 }
 

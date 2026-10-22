@@ -44,6 +44,6 @@ func TestProjectRenameKeepsEmoji(t *testing.T) {
 	d2.dir = d.dir
 	d2.viewed.Store(&none)
 	d2.sessions, d2.panes = nil, map[string]*pane{}
-	d2.restore()
+	restoreAll(t, d2)
 	check("restored", d2.state().Projects)
 }

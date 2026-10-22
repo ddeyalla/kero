@@ -270,6 +270,7 @@ func TestResumeLeavesOneRun(t *testing.T) {
 // After a restart that resumes no agent, nothing shows as running.
 func TestRestoreEndsRunsOfAgentsNotResumed(t *testing.T) {
 	d := linearTestDaemon(t)
+	d.projects = []proto.Project{{ID: "project", Name: "Kept"}}
 	d.taskStart("uuid", proto.TaskRun{Agent: "claude", ID: "c1", Session: "s", Pane: "p"})
 	d.taskStart("uuid", proto.TaskRun{Session: "s2", Via: "link"})
 	d.saveState()
@@ -278,7 +279,10 @@ func TestRestoreEndsRunsOfAgentsNotResumed(t *testing.T) {
 	d2.sessions, d2.panes = nil, map[string]*pane{}
 	t.Setenv("KERO_CONFIG", filepath.Join(t.TempDir(), "config.toml"))
 	os.WriteFile(os.Getenv("KERO_CONFIG"), []byte("restore-sessions = false\n"), 0o600)
-	d2.restore()
+	restoreAll(t, d2)
+	if len(d2.sessions) != 0 || len(d2.projects) != 1 || d2.projects[0].ID != "project" {
+		t.Fatalf("restore disabled: sessions %v, projects %v", d2.sessions, d2.projects)
+	}
 	for _, r := range d2.taskRuns("uuid", "", nil) {
 		if r.Ended == 0 {
 			t.Fatalf("a run still open after a restart without sessions: %+v", r)

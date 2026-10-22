@@ -107,7 +107,7 @@ func TestRestoreKeepsStatus(t *testing.T) {
 	d2 := linearTestDaemon(t)
 	d2.dir = d.dir
 	d2.sessions, d2.panes = nil, map[string]*pane{}
-	d2.restore()
+	restoreAll(t, d2)
 	if len(d2.sessions) != 1 || len(d2.sessions[0].panes) != 1 {
 		t.Fatalf("restored: %+v", d2.sessions)
 	}
@@ -124,7 +124,7 @@ func TestRestoreKeepsStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := time.Now().UnixMilli()
-	d3.restore()
+	restoreAll(t, d3)
 	if len(d3.sessions) != 1 || len(d3.sessions[0].panes) != 1 {
 		t.Fatalf("an old state file did not load: %+v", d3.sessions)
 	}
@@ -160,7 +160,7 @@ func TestRestoreKeepsSummary(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(d.dir, "state.json"), []byte(saved), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	d.restore()
+	restoreAll(t, d)
 	if len(d.sessions) != 1 || len(d.sessions[0].panes) != 1 {
 		t.Fatalf("the restore made no pane: %+v", d.sessions)
 	}
@@ -206,7 +206,7 @@ func TestRestoreKeepsSummary(t *testing.T) {
 	d2 := linearTestDaemon(t)
 	d2.dir = d.dir
 	d2.sessions, d2.panes = nil, map[string]*pane{}
-	d2.restore()
+	restoreAll(t, d2)
 	if len(d2.sessions) != 1 || len(d2.sessions[0].panes) != 1 {
 		t.Fatalf("the second restore made no pane: %+v", d2.sessions)
 	}

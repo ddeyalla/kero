@@ -48,7 +48,7 @@ func TestViewPanes(t *testing.T) {
 	d2 := linearTestDaemon(t)
 	d2.dir = d.dir
 	d2.sessions, d2.panes = nil, map[string]*pane{}
-	d2.restore()
+	restoreAll(t, d2)
 	if len(d2.sessions) != 1 || len(d2.sessions[0].panes) != 2 {
 		t.Fatalf("restored: %+v", d2.sessions)
 	}
