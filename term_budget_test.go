@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"kero/internal/proto"
+	"kero/internal/settings"
 )
 
 // The app keeps no more than maxTerms terminals attached: the panes of
@@ -51,6 +52,15 @@ func TestTermBudget(t *testing.T) {
 	}
 	if a.terms["a"] != nil || a.terms["b"] != nil {
 		t.Error("the panes of a session not shown stayed past the limit")
+	}
+}
+
+// The app's terminals keep the image budget, as kerod's do: MyGo's default
+// of 320 MB for every pane's images is not what 25 panes can pay.
+func TestTermImageLimit(t *testing.T) {
+	a := testApp(t)
+	if got := a.termOptions("a", nil).ImageLimit; got != settings.ImageLimitBytes {
+		t.Errorf("the app's terminal keeps %d bytes of images, want %d", got, settings.ImageLimitBytes)
 	}
 }
 
