@@ -17,6 +17,12 @@
 #      PERF_BUSY seconds (10), for the frame times of MYGO_FRAME_STATS;
 #   4. prints the table, and stops everything it started.
 #
+# PERF_MEMORY=1 visits every terminal twice, streams all of them, then
+# collects settled footprint, Go heaps and native VM accounting. It uses
+# a temporary diagnostics build overlay; PERF_KEEP=1 preserves evidence.
+# PERF_LAYOUT=split uses N panes in one session instead of N sessions.
+# Memory runs include forced diagnostic GC and are not idle/CPU benchmarks.
+#
 # PERF_PPROF=127.0.0.1:6060 has that kerod serve its profiles there
 # (KERO_PPROF, internal/daemon/pprof.go) while the run lasts.
 #
@@ -35,6 +41,12 @@ case $panes in
 '' | *[!0-9]*) echo "usage: sh scripts/perf.sh N   (N panes, 1 or more)" >&2; exit 2 ;;
 esac
 [ "$panes" -ge 1 ] || { echo "perf.sh: N must be 1 or more" >&2; exit 2; }
+case ${PERF_MEMORY:-0} in 0|1) ;; *) echo "perf.sh: PERF_MEMORY must be 0 or 1" >&2; exit 2 ;; esac
+case ${PERF_LAYOUT:-sessions} in
+sessions) ;;
+split) [ "${PERF_MEMORY:-0}" = 1 ] || { echo "perf.sh: PERF_LAYOUT=split requires PERF_MEMORY=1" >&2; exit 2; } ;;
+*) echo "perf.sh: PERF_LAYOUT must be sessions or split" >&2; exit 2 ;;
+esac
 feed_mb=${PERF_FEED_MB:-16}
 settle=${PERF_SETTLE:-15}
 idle=${PERF_IDLE:-60}
@@ -82,7 +94,12 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 echo "perf.sh: building $(git rev-parse --short HEAD)$(git diff --quiet HEAD -- . ':!docs' || echo '+changes')" >&2
-CGO_ENABLED=0 go build -o "$bin" .
+if [ "${PERF_MEMORY:-0}" = 1 ]; then
+	overlay=$(python3 -I scripts/perf_memory.py prepare "$root" "$tmp/diagnostics")
+	CGO_ENABLED=0 go build -overlay "$overlay" -o "$bin" .
+else
+	CGO_ENABLED=0 go build -o "$bin" .
+fi
 
 mkdir -p "$tmp/home"
 : >"$tmp/app.log"
@@ -109,17 +126,67 @@ done
 sleep 1
 $probe sample "$kerod_pid" >"$tmp/base.json"
 
+app_reason=
+start_app() {
+	if [ "${PERF_APP:-1}" = 0 ]; then
+		app_reason="PERF_APP=0"
+	else
+		mkdir -p "$tmp/apptmp"
+		SHIBU_PERF_DIAGNOSTICS="$tmp/diagnostics" TMPDIR="$tmp/apptmp/" MYGO_FRAME_STATS=all "$bin" </dev/null >"$tmp/app.log" 2>&1 &
+		app_pid=$!
+		sleep 5
+		if ! kill -0 "$app_pid" 2>/dev/null; then
+			app_reason="it exited at start: $(tail -n 1 "$tmp/app.log" 2>/dev/null)"
+			app_pid=
+		fi
+	fi
+}
+
+# Capture the same app before it has attached any terminal. This baseline
+# is separate from the first-shown stage, which already contains replay.
+if [ "${PERF_MEMORY:-0}" = 1 ]; then
+	: >"$tmp/sessions"
+	: >"$tmp/targets"
+	start_app
+	[ -n "$app_pid" ] || { echo "perf.sh: memory workload requires app" >&2; exit 1; }
+	TMPDIR="$tmp/apptmp/" python3 -I scripts/perf_memory.py baseline "$tmp" "$app_pid" "$kerod_pid" "$panes" "$busy"
+fi
+
 # Each pane prints the feed, then waits for a line, which only the first
 # is sent: then it streams output for PERF_BUSY seconds.
 pane_program="cat '$tmp/feed.txt'; echo PERF-READY; read go
 end=\$((\$(date +%s) + $busy)); while [ \$(date +%s) -lt \$end ]; do head -c 65536 '$tmp/feed.txt'; done
 echo PERF-STREAMED; sleep 86400"
 : >"$tmp/sessions"
+: >"$tmp/targets"
+split_batch=1
+split_pos=1
+direction=--right
 for i in $(seq "$panes"); do
-	"$bin" new -n "perf-$i" -d "$tmp" -- /bin/sh -c "$pane_program" >>"$tmp/sessions"
+	if [ "${PERF_LAYOUT:-sessions}" = split ] && [ "$i" -gt 1 ]; then
+		target=$(sed -n "${split_pos}p" "$tmp/targets")
+		"$bin" split "$target" "$direction" -d "$tmp" -- /bin/sh -c "$pane_program" >>"$tmp/targets"
+		# Split each leaf once before alternating axes for the next level.
+		split_pos=$((split_pos + 1))
+		if [ "$split_pos" -gt "$split_batch" ]; then
+			split_batch=$((split_batch * 2))
+			split_pos=1
+			if [ "$direction" = --right ]; then direction=--down; else direction=--right; fi
+		fi
+	else
+		id=$("$bin" new -n "perf-$i" -d "$tmp" -- /bin/sh -c "$pane_program")
+		printf '%s\n' "$id" >>"$tmp/sessions"
+		if [ "${PERF_LAYOUT:-sessions}" = split ]; then
+			# Session targets follow the focused pane; save this pane's
+			# own ID so later splits cannot move the fixture's target.
+			"$bin" ls --json | python3 -I -c 'import json,sys; print(next(s["focus"] for s in json.load(sys.stdin) if s["id"] == sys.argv[1]))' "$id" >>"$tmp/targets"
+		else
+			printf '%s\n' "$id" >>"$tmp/targets"
+		fi
+	fi
 done
 echo "perf.sh: $panes pane(s), $((fed >> 20)) MB each; waiting for them to take it" >&2
-for id in $(cat "$tmp/sessions"); do
+for id in $(cat "$tmp/targets"); do
 	for _ in $(seq 600); do
 		"$bin" read "$id" 2>/dev/null | grep -q PERF-READY && break
 		sleep 0.2
@@ -127,18 +194,14 @@ for id in $(cat "$tmp/sessions"); do
 	"$bin" read "$id" 2>/dev/null | grep -q PERF-READY || { echo "perf.sh: pane $id did not finish its output" >&2; exit 1; }
 done
 
-app_reason=
-if [ "${PERF_APP:-1}" = 0 ]; then
-	app_reason="PERF_APP=0"
-else
-	mkdir -p "$tmp/apptmp"
-	TMPDIR="$tmp/apptmp/" MYGO_FRAME_STATS=all "$bin" </dev/null >"$tmp/app.log" 2>&1 &
-	app_pid=$!
-	sleep 5
-	if ! kill -0 "$app_pid" 2>/dev/null; then
-		app_reason="it exited at start: $(tail -n 1 "$tmp/app.log" 2>/dev/null)"
-		app_pid=
-	fi
+if [ "${PERF_MEMORY:-0}" != 1 ]; then
+	start_app
+fi
+
+if [ "${PERF_MEMORY:-0}" = 1 ]; then
+	[ -n "$app_pid" ] || { echo "perf.sh: memory workload requires app" >&2; exit 1; }
+	TMPDIR="$tmp/apptmp/" python3 -I scripts/perf_memory.py run "$tmp" "$app_pid" "$kerod_pid" "$panes" "$busy"
+	exit
 fi
 
 echo "perf.sh: settling ${settle}s, then ${idle}s of idle" >&2
