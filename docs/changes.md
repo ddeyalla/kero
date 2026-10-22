@@ -376,17 +376,23 @@ Symbol that the app derives each frame from the state it already has and
 never writes into the name (`titleMark` in
 [`title_marks.go`](../title_marks.go)). The set is closed, in this order:
 
-1. `exclamationmark.circle`, in the attention amber: the session is
+1. `hand.raised`, in the attention amber: the session is
    `waiting` on the user.
 2. `ladybug`: the session's `TaskID` is an issue of the Linear workspace the
    app has (`State.Linear.Issues`) with a label named Bug. Linear has no issue
    type but its labels. A bug outranks working and done, since it is what the
    task is, but not needs you.
-3. `hourglass`: the session is `working`.
+3. `arrow.triangle.2.circlepath`: the session is `working`.
 4. `checkmark.circle`, faint: the session is idle and read, and its work
    ended — kerod's attention fold says `done`, a program left a message, or
-   its status changed since its pane began (an agent whose turn kerod saw on
-   the screen leaves no message behind).
+   an agent's status changed since its pane began (an agent whose turn kerod
+   saw on the screen leaves no message behind). A plain shell back at its
+   prompt after a command keeps no mark.
+
+The symbols are the Attention pane's for the same states (`attentionSymbol`
+in [`attention_pane.go`](../attention_pane.go)), so a state reads the same
+in the sidebar, the palette and the Attention pane, as Apple's guidance asks
+of a symbol that means one thing.
 
 A plain shell, a turn ended but unseen (its bold title and filled check say
 so), a failure and an exit have no mark. The mark has its own 12-point slot

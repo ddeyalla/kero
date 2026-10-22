@@ -131,11 +131,12 @@ builds only. What each feature is and where it stands is tracked in the
   turns only while it shows, at 15 frames a second.
 
 - Session titles carry a mark at their head that follows the work, an SF
-  Symbol the app derives and never stores in the name: `exclamationmark.circle`
+  Symbol the app derives and never stores in the name: `hand.raised`
   (amber) when the session needs you, `ladybug` when its linked Linear task
-  is labeled Bug, `hourglass` while it works, and `checkmark.circle` once its
-  work has ended and you have seen it. Needs you comes first, then the bug,
-  then work, then done; a plain shell, a turn ended unseen, a failure or an
+  is labeled Bug, `arrow.triangle.2.circlepath` while it works, and
+  `checkmark.circle` once an agent's work has ended and you have seen it —
+  the Attention pane's symbols for the same states. Needs you comes first, then the bug,
+  then work, then done; a plain shell back at its prompt, a turn ended unseen, a failure or an
   exit have none. The title truncates, not the mark, and the time and the
   status glyph keep their places. The sidebar rows and the command palette's
   session rows show it. It reads what the app already receives, so it needs

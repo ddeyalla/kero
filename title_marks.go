@@ -18,10 +18,13 @@ import (
 //
 // The set is closed, and small:
 //
-//	exclamationmark.circle  the program waits on the user
-//	ladybug                 the linked task is a bug
-//	hourglass               the agent or the program is at work
-//	checkmark.circle        the work ended, and the user has seen it
+//	hand.raised                  the program waits on the user
+//	ladybug                      the linked task is a bug
+//	arrow.triangle.2.circlepath  the agent or the program is at work
+//	checkmark.circle             the work ended, and the user has seen it
+//
+// They are the Attention pane's symbols for the same states
+// (attentionSymbol), so that a state reads the same wherever it shows.
 //
 // Other sessions have no mark: a shell at rest, a turn ended unseen (its
 // bold title and filled check say so), a failure or an exit (the status
@@ -29,9 +32,9 @@ import (
 
 // The marks a title can carry.
 const (
-	markNeedsYou = "exclamationmark.circle"
+	markNeedsYou = "hand.raised"
 	markBug      = "ladybug"
-	markWorking  = "hourglass"
+	markWorking  = "arrow.triangle.2.circlepath"
 	markDone     = "checkmark.circle"
 )
 
@@ -59,14 +62,15 @@ func titleMark(s *proto.Session, lin *proto.LinearState) string {
 
 // turnEnded tells a session at rest whose work ended, rather than a shell
 // that never started any: kerod's fold says "done" of one that a program
-// reported on, and one whose status changed since its pane began has been
-// at work and back, as an agent whose turn kerod saw on its screen (which
-// leaves no words behind).
+// reported on, and an agent whose status changed since its pane began has
+// been at work and back, as one whose turn kerod saw on its screen (which
+// leaves no words behind). A plain shell back at its prompt after a
+// command has ended no work the user waits on, and keeps no mark.
 func turnEnded(s *proto.Session) bool {
 	if s.Attention != nil && s.Attention.State == proto.AttentionDone {
 		return true
 	}
-	return s.Message != "" || s.Created != 0 && s.Since > s.Created
+	return s.Message != "" || s.Agent != "" && s.Created != 0 && s.Since > s.Created
 }
 
 // bugTask tells a Linear task that is a bug: an issue of the workspace by

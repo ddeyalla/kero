@@ -36,7 +36,8 @@ func TestTitleMark(t *testing.T) {
 		{"a task that is no bug", proto.Session{Pane: proto.Pane{Status: proto.Working, TaskID: "BRU-3"}}, markWorking},
 		{"a task the workspace has not", proto.Session{Pane: proto.Pane{Status: proto.Working, TaskID: "BRU-9"}}, markWorking},
 		{"done and seen, folded", proto.Session{Pane: proto.Pane{Status: proto.Idle}, Attention: done}, markDone},
-		{"done and seen, on screen", proto.Session{Pane: proto.Pane{Status: proto.Idle, Created: 1, Since: 2}, Attention: idle}, markDone},
+		{"done and seen, on screen", proto.Session{Pane: proto.Pane{Status: proto.Idle, Agent: "claude", Created: 1, Since: 2}, Attention: idle}, markDone},
+		{"a shell back at its prompt", proto.Session{Pane: proto.Pane{Status: proto.Idle, Created: 1, Since: 2}, Attention: idle}, ""},
 		{"done and seen, reported", proto.Session{Pane: proto.Pane{Status: proto.Idle, Message: "Tests pass"}}, markDone},
 		{"done, unseen", proto.Session{Pane: proto.Pane{Status: proto.Idle, Unread: true, Created: 1, Since: 2}}, ""},
 		{"a shell never at work", proto.Session{Pane: proto.Pane{Status: proto.Idle, Created: 1, Since: 1}, Attention: idle}, ""},
@@ -101,7 +102,9 @@ func sidebarApp(t *testing.T) *App {
 	bug.TaskID = "BRU-176"
 	add("p1", "s2", "sidebar spacing", bug)
 	add("p1", "s3", "builds", pane(proto.Working, false, ms(4*time.Minute)))
-	add("p2", "s4", "landing page", pane(proto.Idle, false, ms(6*time.Minute)))
+	landing := pane(proto.Idle, false, ms(6*time.Minute))
+	landing.Agent = "claude"
+	add("p2", "s4", "landing page", landing)
 	add("p2", "s5", "turn ended", pane(proto.Idle, true, ms(7*time.Minute)))
 	add("p2", "s6", "shell", pane(proto.Idle, false, created))
 	add("p3", "s7", "a very long title that runs on past the edge of the sidebar and is cut short", pane(proto.Working, false, ms(3*time.Minute)))
