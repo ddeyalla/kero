@@ -446,9 +446,41 @@ func (s *pane) look(now time.Time) bool {
 // screen returns the text of the screen: the last rows of the terminal's
 // text; s.mu is held.
 func (s *pane) screen() string {
-	text := strings.TrimRight(s.term.Text(), "\n")
-	lines := strings.Split(text, "\n")
-	return strings.Join(lines[max(0, len(lines)-s.info.Rows):], "\n") + "\n"
+	return s.tail(s.info.Rows, "\n") + "\n"
+}
+
+// tail returns the last n lines of the terminal's text with what of cutset
+// ends it trimmed, as strings.Split of it ends, joined; s.mu is held. It
+// reads the text of the terminal's last rows alone, not of its whole
+// scrollback, as status detection does several times a second: twice n of
+// them, and twice as many again while those hold no more than n lines, as
+// when blank rows end the screen. The first line of those rows may be the
+// rest of one soft-wrapped from above, which then is not among the last.
+func (s *pane) tail(n int, cutset string) string {
+	for rows := max(2*n, 1); ; rows *= 2 {
+		text, all := s.term.TailText(rows)
+		text = strings.TrimRight(text, cutset)
+		if all || strings.Count(text, "\n") >= n {
+			return lastLines(text, n)
+		}
+	}
+}
+
+// lastLines returns the last n lines of text, or all of it when it has no
+// more.
+func lastLines(text string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	end := len(text)
+	for ; n > 0; n-- {
+		i := strings.LastIndexByte(text[:end], '\n')
+		if i < 0 {
+			return text
+		}
+		end = i
+	}
+	return text[end+1:]
 }
 
 // input writes what the user typed to the program.
@@ -754,16 +786,17 @@ func (s *pane) history(force bool) []byte {
 // readText returns the session's text: the screen, or with scrollback.
 func (s *pane) readText(scrollback bool, lines int) string {
 	s.mu.Lock()
-	text := s.term.Text()
-	rows := s.info.Rows
-	s.mu.Unlock()
-	all := strings.Split(strings.TrimRight(text, "\n "), "\n")
 	if !scrollback && lines <= 0 {
-		lines = rows
+		lines = s.info.Rows
 	}
-	if lines > 0 && len(all) > lines {
-		all = all[len(all)-lines:]
+	var text string
+	if lines > 0 {
+		text = s.tail(lines, "\n ")
+	} else {
+		text = strings.TrimRight(s.term.Text(), "\n ")
 	}
+	s.mu.Unlock()
+	all := strings.Split(text, "\n")
 	for i, l := range all {
 		all[i] = strings.TrimRight(l, " ")
 	}
