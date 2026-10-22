@@ -334,6 +334,12 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Changed
 
+- A focused terminal's cursor stops blinking 10 seconds after the last key,
+  or after the terminal takes the focus, and rests shown, as GTK's cursor
+  does (MyGo `81afe923`). The next key starts it again. A blinking cursor
+  paints the window every 600 ms, which woke the app some 8,500 times a
+  minute while it sat focused and idle.
+
 - The sidebar's CPU and RAM meters read the Mac every 5 seconds, as Activity
   Monitor does by default, instead of every 2. Their changes rebuilt the
   window up to 30 times a minute while it was otherwise idle; now at most 12.

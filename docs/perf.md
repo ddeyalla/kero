@@ -281,6 +281,9 @@ unfocused, at 4 and 8 panes (kerod ≤ 500, app ≤ 1,500). The user agreed
 to it on 2026-10-22, and the budget table above now says so. Going further
 would need these steps:
 
+- Done after this run: a focused terminal's cursor stops blinking 10 s
+  after the last key (MyGo `81afe923`), which was about 8,500 of the
+  focused window's 9,500 a minute. Not yet measured.
 - Stop the meters' readings while the window does not have the focus,
   not only slow them (about 300 a minute).
 - Follow the shell's children with `kqueue` (`EVFILT_PROC`,
