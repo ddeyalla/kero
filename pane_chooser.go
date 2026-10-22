@@ -197,8 +197,8 @@ func (a *App) chooserView(c *ui.Context, pal *palette) {
 	// title says as it is held.
 	below := c.Modifiers()&ui.Shift != 0
 	ui.DialogBase(c.Key("chooser"), &a.chooser.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(pal.overlay).Justify(ui.Start).Padding(120, 0, 0, 0)
-		floating(panel.Width(380).Padding(6).Gap(2).Radius(14).Background(pal.popover), pal).Label(locales.ActionNewPane())
+		backdrop.Background(glassScrim(c, pal)).Justify(ui.Start).Padding(120, 0, 0, 0)
+		glassPanel(c, panel.Width(380).Padding(6).Gap(2).Radius(14), pal).Label(locales.ActionNewPane())
 		title := locales.PaneNewTitle()
 		if below {
 			title = locales.PaneNewBelowTitle()
@@ -223,7 +223,7 @@ func (a *App) chooserView(c *ui.Context, pal *palette) {
 			if k.key != 0 && c.Shortcut(ui.Shift, k.key) {
 				chosen, below = i, true
 			}
-			row := ui.Row(c.Key(i)).Height(48).Padding(0, 10).Gap(12).AlignItems(ui.Center).Radius(9)
+			row := ui.Row(c.Key(i)).Height(48).Padding(0, 10).Gap(12).AlignItems(ui.Center).Radius(8)
 			if row.Hovered() && row.Pressed() {
 				a.chooser.index = i
 			}

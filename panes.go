@@ -468,7 +468,7 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 			switch {
 			case dragging:
 				// What follows the pointer is a copy of the grip: a chip.
-				floating(grip.Background(pal.popover), pal)
+				glassChip(c, grip, pal)
 			case grip.Hovered():
 				grip.Background(pal.rowHover).Cursor(ui.CursorGrab)
 			}

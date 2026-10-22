@@ -360,6 +360,19 @@ builds only. What each feature is and where it stands is tracked in the
   session rows show it. It reads what the app already receives, so it needs
   no protocol change.
 
+- The command palette, the confirmation dialog, the New Pane chooser,
+  Settings and a pane's drag chip float on Liquid Glass, as macOS 26 and
+  later draw their popovers, alerts and sheets: regular glass that frosts
+  the terminals under it, tinted in the dark so that muted text keeps 4.5
+  to 1, with its lit rim and a soft shadow. The window
+  under them is no longer dimmed, as macOS dims no window under a sheet.
+  Settings is a sheet of glass around its opaque page, its corner
+  concentric with the page's, and the chooser's rows are rounded
+  concentric with it too. The glass does not yet follow Reduce
+  Transparency, which the MyGo this build pins does not report; one switch
+  (`glassShows` in `glass_ui.go`) turns every panel back to the opaque look
+  once it does.
+
 ### Fixed
 
 - An old Tasks pane that was not migrated yet now shows the Linear plugin even

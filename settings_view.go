@@ -161,9 +161,11 @@ func (a *App) settingsModal(c *ui.Context, pal *palette) {
 	}
 	w, h := settingsSize(c)
 	ui.DialogBase(c.Key("settings"), &a.ss.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(pal.overlay)
-		floating(panel.Width(w).Height(h).Radius(16), pal).Clip().Label(locales.SettingsTitle())
-		settingsWash(pal, panel, a.set)
+		backdrop.Background(glassScrim(c, pal))
+		glassPanel(c, panel.Width(w).Height(h).Radius(concentric(14, cardGap)), pal).Clip().Label(locales.SettingsTitle())
+		if !glassShows(c) {
+			settingsWash(pal, panel, a.set)
+		}
 		a.settingsView(c)
 	})
 	if !a.ss.open {

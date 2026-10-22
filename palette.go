@@ -148,8 +148,8 @@ func (a *App) paletteView(c *ui.Context, pal *palette) {
 
 	var chosen func()
 	ui.DialogBase(c.Key("palette"), &a.pal.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(pal.overlay).Justify(ui.Start).Padding(84, 0, 0, 0)
-		floating(panel.Width(600).MaxHeight(460).Radius(14).Background(pal.popover), pal).Clip().
+		backdrop.Background(glassScrim(c, pal)).Justify(ui.Start).Padding(84, 0, 0, 0)
+		glassPanel(c, panel.Width(600).MaxHeight(460).Radius(14), pal).Clip().
 			Label(locales.PaletteLabel())
 		ui.Row(c).Height(50).Shrink(0).Padding(0, 16).Gap(10).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, searchIcon).Size(16, 16).TextColor(pal.textMuted)
@@ -224,8 +224,8 @@ func (a *App) confirmView(c *ui.Context, pal *palette) {
 	}
 	run := false
 	ui.DialogBase(c.Key("confirm"), &cf.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(pal.overlay)
-		floating(panel.Width(380).Padding(22).Gap(8).Radius(14).Background(pal.popover), pal).Label(cf.title)
+		backdrop.Background(glassScrim(c, pal))
+		glassPanel(c, panel.Width(380).Padding(22).Gap(8).Radius(14), pal).Label(cf.title)
 		ui.Text(c, cf.title).FontSize(15).FontWeight(650).TextColor(pal.text)
 		ui.Text(c, cf.detail).FontSize(13).TextColor(pal.textMuted).LineHeight(1.4)
 		ui.Row(c).Gap(8).Justify(ui.End).Margin(14, 0, 0, 0).Children(func() {

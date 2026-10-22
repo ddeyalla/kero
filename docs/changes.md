@@ -1513,3 +1513,57 @@ real paths: a file's **Open** in the Files pane, a Command+clicked path in a
 terminal (`openLink` in `app.go`, which leaves URLs to the system) and the
 data folder in Settings. The same `openURL` lands with the plugin host on
 `feat/plugins`, where it also opens plugin links.
+
+## Floating panels on Liquid Glass
+
+The panels that float over the window for a moment are of Liquid Glass,
+the material of macOS 26 and later: the command palette and the
+confirmation dialog ([`palette.go`](../palette.go)), the New Pane chooser
+([`pane_chooser.go`](../pane_chooser.go)), Settings
+([`settings_view.go`](../settings_view.go)) and the chip a pane's title
+becomes while it is dragged ([`panes.go`](../panes.go)). This is the
+second step of BRU-212. Apple keeps the glass for the layer of controls
+and navigation that floats over content (Human Interface Guidelines,
+Materials); the panes, rows and cards are content and stay opaque.
+
+[`glass_ui.go`](../glass_ui.go) holds the helpers, so that each panel
+swaps one call:
+
+- `glassPanel` fills a panel with the regular glass of MyGo's
+  `plugins/glass` (`glass.Glass{}`), the variant Apple uses for alerts,
+  popovers and sheets, which frosts what is under it and lightens it, or
+  darkens it in the dark, so that text on it reads over a terminal full of
+  colored text. In the dark, `panelGlass` tints it 60% toward the panel's
+  own color: untinted, white terminal text under it brought the muted text
+  to 3.8 to 1; tinted, it keeps 4.5 to 1. The glass draws its own lit
+  hairline rim, so the panel has
+  no border; `glassShadow` adds the soft shadow that the window AppKit
+  shows a popover or a sheet in casts, as the glass casts none.
+- `glassChip` is the same for the drag chip, with interactive glass, which
+  swells a little while it is held.
+- `glassScrim` is what a panel's backdrop lays over the window: nothing
+  over glass, as macOS dims no window under a sheet, an alert or
+  Spotlight, and the glass needs the panes under it as they are.
+- `concentric` gives a panel the radius of its content's plus the inset:
+  Settings is 22, its page's 14 plus the 8 around it, and the chooser's
+  rows are 8, its 14 less its padding of 6.
+- `glassShows` is the one switch for Reduce Transparency. The MyGo this
+  build pins does not report it to views (`ui.Preferences` has no
+  `ReduceTransparency`), so it says yes; once MyGo does, it returns
+  `!c.Preferences().ReduceTransparency`, and every panel falls back to the
+  opaque `floating` look over the dimmed window, and Settings to its wash.
+
+Settings keeps its page as an opaque card; the sidebar beside it is now
+the sheet's glass rather than the window's wash. The image peek stays a
+borderless flyout: `FlyoutOptions.Popover` would put it in an NSPopover,
+which takes the keyboard while it shows and animates in and out as it
+moves, while the peek follows the pointer with Command held over a
+terminal that must keep the keyboard. The Account usage panel
+([`usage.go`](../usage.go)) is left to its own redesign.
+
+`TestGlassPanelsOverTerminal` opens each panel over two terminals full of
+text in the light and the dark, and writes shots of them to
+`$KERO_GLASS_SHOTS`, a confirmation over Settings among them;
+`TestPaletteIsGlass` checks that the palette shows the terminal through it
+where an opaque panel would be one shade, and `TestGlassTextContrast` that
+the palette's muted text keeps 4.5 to 1 on the glass, light and dark.
