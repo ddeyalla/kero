@@ -1426,6 +1426,16 @@ func (msgs Messages) StatusIdle() string {
 	return Catalog.Format(msgs.locale, "statusIdle", nil)
 }
 
+// StatusBugWork says "Bug work"
+// in the language the app shows.
+func StatusBugWork() string { return In(i18n.Locale()).StatusBugWork() }
+
+// StatusBugWork says "Bug work"
+// in the language of msgs.
+func (msgs Messages) StatusBugWork() string {
+	return Catalog.Format(msgs.locale, "statusBugWork", nil)
+}
+
 // UpdateRestartTip says "Kero was updated: restart the background service to run the new version"
 // in the language the app shows.
 func UpdateRestartTip() string { return In(i18n.Locale()).UpdateRestartTip() }

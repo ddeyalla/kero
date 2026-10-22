@@ -28,6 +28,14 @@ const (
 	rowH    = 34
 )
 
+// A project's header in the sidebar: projectHeaderH tall, projectGap below
+// the project above it, and nothing between it and its first row, which
+// has its own padding: the header reads as the heading of its rows.
+const (
+	projectHeaderH = 24
+	projectGap     = 20
+)
+
 // chrome is where the sidebar's animation puts things, in whole pixels so
 // that edges stay crisp. Each is rounded once, from one progress quantized
 // to the sidebar's pixels, so that they move together: rounded apart,
@@ -324,11 +332,15 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 			needs++
 		}
 	}
-	top := float32(18)
-	if gi == 0 {
+	// A header has room above it and sits close to its rows, so that a
+	// project reads as a heading over what it owns: projectGap between
+	// projects, and as much under the Linear row above the first. The
+	// first, with nothing above it, starts where the rows always did.
+	top := float32(projectGap)
+	if gi == 0 && !a.set.LinearSidebar {
 		top = 2
 	}
-	hdr := ui.Row(c.Key("project-"+id)).Height(28).Margin(top, 0, 3, 0).Padding(0, 6, 0, 10).Gap(6).AlignItems(ui.Center).Radius(6).
+	hdr := ui.Row(c.Key("project-"+id)).Height(projectHeaderH).Margin(top, 0, 0, 0).Padding(0, 6, 0, 12).Gap(6).AlignItems(ui.Center).Radius(6).
 		Transition(headerTransition)
 	hovered := a.hoverIntent(c, "project-"+id, hdr.Hovered())
 	renaming := id != "" && a.renamingProject == id
@@ -378,15 +390,19 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 			return
 		}
 		ui.Text(c, g.project.Name).FontSize(12.5).FontWeight(600).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
-		ui.Textf(c, "%d", len(g.sessions)).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum")
+		ui.Textf(c, "%d", len(g.sessions)).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum").Shrink(0)
 		chev := ui.Icon(c, chevronIcon).Size(11, 11).TextColor(pal.textFaint)
 		turn := chev.AnimateTo("turn", 90*(1-b2f(collapsed)), row)
 		chev.Rotate(turn).Opacity(chev.Animate("shown", b2f(hovered || collapsed), hover.Duration))
 		ui.Spacer(c)
 		if needs > 0 {
-			ui.Text(c, locales.SidebarNeedsYou(needs)).FontSize(12.5).FontWeight(500).TextColor(pal.attention).SingleLine()
+			ui.Text(c, locales.SidebarNeedsYou(needs)).FontSize(12.5).FontWeight(500).TextColor(pal.attention).SingleLine().Shrink(0)
 		}
-		if hovered {
+		// The add button's place is kept while it is hidden, so that the
+		// "needs you" before it stays put as the header is hovered.
+		if !hovered {
+			ui.Box(c).Size(20, 20).Shrink(0)
+		} else {
 			b := ui.ButtonBase(c.Key("add")).Size(20, 20).Radius(5).Center().TextColor(pal.textMuted).Label(locales.NewSessionIn(g.project.Name)).Tooltip(locales.ActionNewSession())
 			if b.Hovered() {
 				b.Background(pal.rowHover).TextColor(pal.text)
@@ -465,13 +481,18 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 			}
 			return
 		}
-		name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13.5).SingleLine().Ellipsis("…").Grow(1).MinWidth(0).TextColor(pal.text)
-		if s.Unread {
-			name.FontWeight(650)
-		}
-		if inactive(s.Status, s.Unread, s.Since, c.Now()) {
-			name.TextColor(pal.textMuted)
-		}
+		// The title's mark (title_marks.go) keeps its place at the head;
+		// the title gives way to the time and the status glyph.
+		ui.Row(c).Grow(1).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
+			titleMarkView(c, pal, titleMark(s, a.st.Linear))
+			name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13.5).SingleLine().Ellipsis("…").Grow(1).MinWidth(0).TextColor(pal.text)
+			if s.Unread {
+				name.FontWeight(650)
+			}
+			if inactive(s.Status, s.Unread, s.Since, c.Now()) {
+				name.TextColor(pal.textMuted)
+			}
+		})
 		cmd := c.Modifiers() == ui.Cmd
 		if cmd && index <= 9 {
 			ui.Text(c, actions.Glyphs(fmt.Sprintf("CmdOrCtrl+%d", index))).FontSize(12).TextColor(pal.textMuted).FontFeatures("tnum").SingleLine()
