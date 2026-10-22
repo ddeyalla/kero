@@ -451,8 +451,9 @@ func (s *pane) look(now time.Time) bool {
 
 // screen returns the text of the screen: the last rows of the terminal's
 // text; s.mu is held.
-func (s *pane) screen() string {
-	return s.tail(s.info.Rows, "\n") + "\n"
+func (s *pane) screen() (text string) {
+	profiled("pane.screen", func() { text = s.tail(s.info.Rows, "\n") + "\n" })
+	return text
 }
 
 // tail returns the last n lines of the terminal's text with what of cutset
@@ -824,15 +825,17 @@ func newAttachment(conn net.Conn) *attachment {
 }
 
 func (a *attachment) send(kind byte, payload []byte) {
-	f := proto.AppendFrames(nil, kind, payload)
-	select {
-	case a.out <- f:
-	case <-a.done:
-	default:
-		// Too far behind: drop it, and it attaches again, from a first
-		// frame.
-		a.finish()
-	}
+	profiled("attachment.send", func() {
+		f := proto.AppendFrames(nil, kind, payload)
+		select {
+		case a.out <- f:
+		case <-a.done:
+		default:
+			// Too far behind: drop it, and it attaches again, from a
+			// first frame.
+			a.finish()
+		}
+	})
 }
 
 // finish ends the attachment: the writer flushes what is queued, as a

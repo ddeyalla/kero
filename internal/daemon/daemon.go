@@ -105,6 +105,7 @@ func Run() error {
 		return err
 	}
 	defer ln.Close()
+	defer serveProfiles(os.Getenv("KERO_PPROF"), lg)() // pprof.go
 
 	exe, _ := os.Executable()
 	d := &Daemon{
@@ -233,9 +234,11 @@ func (d *Daemon) tickLoop() {
 		d.mu.Unlock()
 		changed := false
 		for _, s := range panes {
-			if s.tick(now, s == focused) {
-				changed = true
-			}
+			profiled("pane.tick", func() {
+				if s.tick(now, s == focused) {
+					changed = true
+				}
+			})
 		}
 		if changed {
 			d.changed()

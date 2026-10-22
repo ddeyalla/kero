@@ -106,7 +106,7 @@ func (d *Daemon) saveLoopWith(wait time.Duration, save func()) {
 			due = nil
 			save()
 		case <-snaps.C:
-			d.saveHistories(false)
+			profiled("saveHistories", func() { d.saveHistories(false) })
 		case <-d.quit:
 			return
 		}

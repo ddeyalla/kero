@@ -729,6 +729,53 @@ the release before, `testdata/state-linear-v2.json`, loads whole, moves,
 and reloads), `internal/daemon/idle_test.go` (read counts, focus, the
 debounce under a storm, the HEAD check).
 
+## Performance measurement
+
+One command measures what the app and kerod cost with N panes against
+the budgets of BRU-222, and two tests keep the allocations of the hottest
+paths from growing (BRU-223). The budgets, how each number is taken and
+the baseline are in [Performance](perf.md).
+
+- `scripts/perf.sh N` builds the checkout, starts a kerod and the app of
+  its own (a temporary `KERO_HOME`, `HOME`, socket and `TMPDIR`, every
+  `KERO_*` variable cleared), feeds N panes 16 MB each, samples 60 s of
+  idle and 10 s of a streaming pane, and prints the table. The app runs
+  as a plain executable named `shibu-perf`, so its single-instance lock
+  and identity are not the daily app's; `PERF_APP=0` leaves it out.
+  [`scripts/perf_probe.py`](../scripts/perf_probe.py) reads footprint,
+  RSS, CPU time and wakeups with `proc_pid_rusage` (no root), parses
+  `MYGO_FRAME_STATS=all`, and prints the table; its tests are
+  `scripts/test_perf_probe.py`.
+- `KERO_PPROF=127.0.0.1:6060` has kerod serve `net/http/pprof` on a
+  private mux there until it ends (`serveProfiles`, one deferred line in
+  `Run`). A non-loopback address, one without a host, or a port in use is
+  logged and refused, and kerod runs on. While it serves, `profiled`
+  labels `pane.tick` (`tickLoop`), `pane.screen` (`screen`),
+  `saveHistories` (the 10 s save) and `attachment.send` with
+  `pprof.Do`. Unset, `profiled` only calls its function, and its closure
+  stays on the stack: no allocation on the frame path.
+- `TestScreenAllocsFlatWithScrollback` measures the bytes and objects one
+  `screen()` allocates with 1 MB and 16 MB of full scrollback, and fails
+  if they grow, or pass 16 KB. It measures the old whole-text read too,
+  which must grow, so the test shows it can tell.
+  `TestFrameAllocsFlatWithScrollback` does the same for a key's echo, in
+  the shape of `terminal_perf_test.go`: kerod's side (its terminal and
+  the mirror's frame) and the app's (its terminal and a frame of the
+  terminal view), against today's cost and about half again.
+
+The baseline, on c8ac9bc with this harness, is in
+[Performance › Baseline](perf.md#baseline). Not measured: key press to
+paint, which needs keys sent to the window, and the app with every pane
+visited.
+
+Code: [`internal/daemon/pprof.go`](../internal/daemon/pprof.go),
+[`internal/daemon/perf_test.go`](../internal/daemon/perf_test.go),
+[`frame_allocs_test.go`](../frame_allocs_test.go),
+[`scripts/perf.sh`](../scripts/perf.sh),
+[`scripts/perf_probe.py`](../scripts/perf_probe.py). Tests:
+`internal/daemon/pprof_test.go` (loopback only, off when unset or
+refused, served and stopped, free when off).
+
 ## Title bar and traffic lights
 
 The title bar is macOS's compact title bar and toolbar, and the traffic

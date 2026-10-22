@@ -12,6 +12,16 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Added
 
+- `scripts/perf.sh N` measures Shibu Code with N panes against the
+  performance budgets: kerod's and the app's footprint, idle CPU, idle
+  wakeups and idle frames over 60 s, and frame build and paint times
+  while a pane streams. It runs its own kerod and app, isolated from the
+  daily app, needs no root, and cleans up after itself. kerod serves Go's
+  profiles on a loopback address with `KERO_PPROF=127.0.0.1:6060`, with
+  its pane ticks, screen reads, history saves and frame sends labelled.
+  Two tests fail if a screen read or a key's echo starts to allocate with
+  the scrollback. Budgets and the first numbers: [Performance](perf.md)
+  (BRU-223).
 - An **Attention** pane: every session that needs the user, in one list,
   the most urgent first — what it is doing or asking, the session and its
   project, the agent, the line that came with it, and how long it has been
