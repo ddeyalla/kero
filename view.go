@@ -308,7 +308,11 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 	a.usageSidebar(c, pal)
 	a.resourceSidebar(c, pal)
 	a.sidebarFooter(c, pal)
-	c.After(20 * time.Second) // times ago move on
+	// Times ago move on, a minute at a time as they read, while the
+	// sidebar shows them (agoTick).
+	if !a.prefs.SidebarHidden {
+		agoTick(c)
+	}
 }
 
 func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
@@ -643,6 +647,13 @@ func ago(ms int64, now time.Time) string {
 	}
 	return locales.AgoWeeks(int(d / (7 * 24 * time.Hour)))
 }
+
+// agoTick builds the view again in a minute, for the times ago a view
+// shows to move on. They read in whole minutes at the finest, so one
+// rebuild a minute keeps each within a minute of its time, and every
+// view that asks in the same frame shares it. A view calls it only while
+// it shows them: an idle window does not paint for times nobody sees.
+func agoTick(c *ui.Context) { c.After(time.Minute) }
 
 // inactiveAfter is how long a session rests, read and done, before the
 // sidebar shows it inactive.

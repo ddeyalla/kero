@@ -610,6 +610,7 @@ func (a *App) paneChips(c *ui.Context, pal *palette, p *proto.Pane, icon bool) {
 				statusIconP(c, pal, p.Status, false, p.Progress, 0, 11)
 			}
 			label := ago(p.Since, c.Now())
+			agoTick(c) // with the sidebar hidden too
 			if p.Progress >= 0 {
 				label = itoa(p.Progress) + "%"
 			}
