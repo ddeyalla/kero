@@ -1219,7 +1219,11 @@ func (a *App) advancedPage(c *ui.Context, pal *palette) {
 // there is none yet, so that there is a file to open.
 func (a *App) ensureConfig() {
 	if _, err := os.Stat(settings.Path()); err != nil {
-		settings.Save(a.set)
+		// The file is gone, so what waits cannot be the file's: write it,
+		// and wait, as the editor opens it now.
+		a.setOut.Forget()
+		a.saveSettings(a.set)
+		a.flushSettings()
 	}
 }
 

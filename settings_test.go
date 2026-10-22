@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -64,10 +65,52 @@ func TestRecordShortcut(t *testing.T) {
 	if !tt.HasText(actions.Glyphs(accel) + " was Split Down’s: it has none now.") {
 		t.Errorf("no word of the conflict; texts %q", tt.Texts())
 	}
+	a.flushSettings()
 	if saved := settings.Load(); saved.Shortcuts["pane.split.right"] != accel {
 		t.Errorf("not saved: %v", saved.Shortcuts)
 	}
 	shot(t, tt, "settings-keyboard-recorded")
+}
+
+// The configuration is there to open when there is none: Settings writes it,
+// and waits for it, as its button does.
+func TestEnsureConfigWritesTheFile(t *testing.T) {
+	a := testApp(t)
+	if _, err := os.Stat(settings.Path()); !os.IsNotExist(err) {
+		t.Fatalf("the test's configuration is there before Settings wrote it: %v", err)
+	}
+	a.ensureConfig()
+	if _, err := os.Stat(settings.Path()); err != nil {
+		t.Errorf("Settings did not write the configuration: %v", err)
+	}
+}
+
+// A reload while a settings write waits keeps the app's newer value: the
+// file holds the write before that one, and the waiting write's own change
+// reloads the file when it lands.
+func TestReloadDuringAPendingSaveKeepsTheNewer(t *testing.T) {
+	a := testApp(t)
+	b := a.set
+	b.FontSize = 15
+	a.applySettings(b)
+	a.flushSettings() // B is on disk
+	c := a.set
+	c.FontSize = 18
+	a.applySettings(c) // no flush: C waits for its write
+	if !a.setOut.pending() {
+		t.Fatal("C does not wait for a write, so nothing is in flight")
+	}
+	// The watcher reads the file, which still holds B, and hands it to the
+	// main thread, as reloadConfig does; with no window, the hand is the
+	// test's.
+	a.applyConfigFile(settings.Load(), settings.Problems())
+	if got := a.applied.FontSize; got != 18 {
+		t.Errorf("a reload of the older file took the font size to %v, want the pending 18", got)
+	}
+	a.flushSettings()
+	if got := settings.Load().FontSize; got != 18 {
+		t.Errorf("the file holds the font size %v after the flush, want 18", got)
+	}
 }
 
 // A choice made in a segmented control stays, and is saved.
@@ -85,6 +128,7 @@ func TestSegmentedChoiceSticks(t *testing.T) {
 	if a.set.Appearance != "light" {
 		t.Fatalf("appearance %q after choosing Light", a.set.Appearance)
 	}
+	a.flushSettings()
 	if got := settings.Load().Appearance; got != "light" {
 		t.Fatalf("saved appearance %q", got)
 	}
@@ -94,6 +138,7 @@ func TestSegmentedChoiceSticks(t *testing.T) {
 	for range 3 {
 		tt.Frame()
 	}
+	a.flushSettings()
 	if a.set.Appearance != "system" || settings.Load().Appearance != "system" {
 		t.Fatalf("appearance %q, saved %q, after choosing System", a.set.Appearance, settings.Load().Appearance)
 	}

@@ -710,3 +710,64 @@ find:
 		t.Errorf("the preview stays once Command is let go of: %+v", a.peek)
 	}
 }
+
+// The frames of one hover stat the image's file once, not once each: the
+// pointer resting on a path asks the disk nothing.
+func TestImagePeekStatsOncePerHover(t *testing.T) {
+	if testing.Short() {
+		t.Skip("downloads libghostty-vt")
+	}
+	if err := terminal.Load(); err != nil {
+		t.Fatal(err)
+	}
+	a := testApp(t)
+	dir := t.TempDir()
+	a.st.Sessions[0].Panes[0].Dir = dir
+	f, err := os.Create(filepath.Join(dir, "shot.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 30, 20))
+	draw.Draw(img, img.Bounds(), image.NewUniform(color.RGBA{230, 120, 40, 255}), image.Point{}, draw.Src)
+	png.Encode(f, img)
+	f.Close()
+	term, err := terminal.New(terminal.Options{Conn: idleConn{make(chan struct{})}, OpenLink: func(link string) bool { return a.openLink("a", link) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	term.Feed([]byte("saved shot.png:3\r\n"))
+	a.terms["a"] = &termEntry{term: term}
+	tt := ui.NewTester(a.view, 1100, 640)
+	tt.Frame()
+	b, ok := tt.Find("Terminal")
+	if !ok {
+		t.Fatalf("no terminal; texts %q", tt.Texts())
+	}
+find:
+	for y := b.Y; y < b.Y+40; y += 4 {
+		for x := b.X; x < b.X+b.W/2; x += 3 {
+			tt.Move(x, y)
+			tt.HoldModifiers(ui.Cmd)
+			if link, _, _ := term.HoveredLink(); link != "" {
+				break find
+			}
+		}
+	}
+	tt.Frame()
+	if got := a.peek.path; got != filepath.Join(dir, "shot.png") {
+		t.Fatalf("peeks at %q, want the image", got)
+	}
+	if got := a.peekLook.stats; got != 1 {
+		t.Fatalf("the hover stat'ed its file %d times, want once", got)
+	}
+	for range 5 {
+		tt.Frame()
+	}
+	if got := a.peekLook.stats; got != 1 {
+		t.Errorf("five frames of one hover stat'ed the file %d times, want once", got)
+	}
+	if got := a.peek.path; got != filepath.Join(dir, "shot.png") {
+		t.Errorf("the hovered image went: peek at %q", got)
+	}
+}
