@@ -588,7 +588,7 @@ Two equal-width sidebar meters show CPU busy percentage and RAM used. They
 open details in the usage modal. Bars are clamped to 0–100%, turn amber at
 90%, and stay empty when a measurement is unavailable.
 
-macOS Mach calls sample every two seconds in the background without shell
+macOS Mach calls sample every five seconds in the background without shell
 processes. CPU covers all cores; RAM includes active, wired and compressed
 physical memory, excluding reclaimable cache. These are whole-Mac readings,
 not Shibu process usage or memory pressure.
@@ -603,13 +603,16 @@ An idle window should not paint. Three timers that built and painted the
 whole window, grain shader included, with nothing to show are cut back
 (BRU-225, in part):
 
-- **The CPU and RAM sampler** still reads every two seconds, off the main
+- **The CPU and RAM sampler** reads every five seconds (`resourcePeriod`),
+  as Activity Monitor does by default, off the main
   thread, but calls `a.update` only when `showResources` — the meters'
   labels, the tooltip's and the usage card's, the bars' fills and the
   error — differs from what it last sent. The bars fill in whole percents
   (`cpuPercent`, `memoryPercent`), so what is compared is what is drawn; a
-  repeated error sends nothing either. At rest a Mac's CPU percentage still
-  moves by a point now and then, so the saving depends on the machine.
+  repeated error sends nothing either. On a Mac at work the labels change
+  with nearly every read (30 of 30 reads at 2 s on an M4 Pro running
+  agents), so the period is what bounds the meters' rebuilds: 30 a minute
+  at 2 s, 12 at 5 s.
 - **Times ago** ("5m ago") read in whole minutes at the finest (`ago`). The
   sidebar asked for a rebuild every 20 seconds, shown or hidden; it now asks
   through `agoTick`, once a minute, and only while the sidebar shows. A time

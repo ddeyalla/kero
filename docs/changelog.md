@@ -334,6 +334,10 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Changed
 
+- The sidebar's CPU and RAM meters read the Mac every 5 seconds, as Activity
+  Monitor does by default, instead of every 2. Their changes rebuilt the
+  window up to 30 times a minute while it was otherwise idle; now at most 12.
+
 - The Tasks entry of the New Pane chooser, `Cmd+Alt+L` and `kero split
   --tasks` open the Linear plugin pane. The daemon still accepts the view
   `tasks` in create, split and replace, and makes the Linear plugin pane of it,

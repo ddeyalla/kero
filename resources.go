@@ -12,6 +12,9 @@ import (
 	"kero/internal/resources"
 )
 
+// resourcePeriod is how often the app reads the Mac's CPU and RAM.
+const resourcePeriod = 5 * time.Second
+
 type resourceState struct {
 	sample resources.Sample
 	err    string
@@ -25,12 +28,15 @@ func (a *App) startResources() {
 			a.update(func() { a.resources.err = err.Error() })
 			return
 		}
-		ticker := time.NewTicker(2 * time.Second)
+		// Every 5 s, as Activity Monitor reads by default: on a Mac at work
+		// the meters' whole percent and tenth of a GiB change with nearly
+		// every read, and each change rebuilds the window, so the period
+		// is what bounds those rebuilds, at 12 a minute (docs/perf.md).
+		ticker := time.NewTicker(resourcePeriod)
 		defer ticker.Stop()
 		// A read rebuilds and paints the window only when what the app
-		// shows of it changed: at rest the readings move by fractions that
-		// the labels and bars round away, and a window painted every 2 s
-		// for them costs power. shown is what the app shows, kept here so
+		// shows of it changed: at rest the readings can move by fractions
+		// that the labels and bars round away. shown is what the app shows, kept here so
 		// that the comparison does not read the app's state off its
 		// thread; at first it is nothing a reading shows.
 		var shown resourceShown
