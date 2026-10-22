@@ -25,17 +25,21 @@ import time
 #   present 1.2 (partial), other 1.5; meanwhile …
 FRAME = re.compile(
     r"mygo: frame (?P<frame>\d+) took (?P<total>[\d.]+) ms: "
-    r"build (?P<build>[\d.]+)(?: \((?:painted again|\d+ passes)\))?, "
+    r"build (?P<build>[\d.]+)(?: \((?:(?P<again>painted again)|\d+ passes)\))?, "
     r"layout (?P<layout>[\d.]+), paint (?P<paint>[\d.]+), present (?P<present>[\d.]+)"
 )
 
 
 def parse_frame(line):
-    """The times of a logged frame, in milliseconds, or None."""
+    """The times of a logged frame, in milliseconds, or None. Its
+    "repaint" is true for a frame that painted the last one again, without
+    building or laying it out, as a cursor's blink does."""
     m = FRAME.search(line)
     if not m:
         return None
-    return {k: float(m.group(k)) for k in ("total", "build", "layout", "paint", "present")}
+    f = {k: float(m.group(k)) for k in ("total", "build", "layout", "paint", "present")}
+    f["repaint"] = m.group("again") is not None
+    return f
 
 
 def percentile(values, p):
@@ -48,10 +52,10 @@ def percentile(values, p):
 
 
 def frames(lines):
-    """A summary of the frames among lines: their count, and the p50 and
-    p99 of each part."""
+    """A summary of the frames among lines: their count, how many of them
+    only painted again, and the p50 and p99 of each part."""
     parsed = [f for f in (parse_frame(l) for l in lines) if f]
-    out = {"count": len(parsed)}
+    out = {"count": len(parsed), "repaints": sum(f["repaint"] for f in parsed)}
     for part in ("total", "build", "paint"):
         values = [f[part] for f in parsed]
         out[part] = {"p50": percentile(values, 50), "p99": percentile(values, 99)}
@@ -195,13 +199,19 @@ def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames
                 row("app + kerod idle CPU", f"{cpu:.2f} %", "<= 1 %", _verdict(cpu, 1))
                 row("app + kerod idle wakeups", f"{woke:.0f}/min", "<= 30/min", _verdict(woke, 30))
         if idle_frames is not None and r:
-            n = idle_frames["count"] / r["seconds"] * 60
+            # The budget is for frames that build the window. A frame that
+            # only paints the last one again, as a focused terminal's
+            # cursor blinks, is counted apart and not judged.
+            per_min = 60 / r["seconds"]
+            again = idle_frames.get("repaints", 0)
+            n = (idle_frames["count"] - again) * per_min
             if busy_frames is not None and not busy_frames["count"]:
                 # Not even a streaming pane painted: the window was hidden,
                 # and its idle frames say nothing.
-                row("app idle frames", f"{n:.0f}/min  (not judged: no frame while streaming)", "< 10/min")
+                row("app idle frames built", f"{n:.0f}/min  (not judged: no frame while streaming)", "< 10/min")
             else:
-                row("app idle frames", f"{n:.0f}/min", "< 10/min", "ok" if n < 10 else "OVER")
+                row("app idle frames built", f"{n:.0f}/min", "< 10/min", "ok" if n < 10 else "OVER")
+            row("app idle frames painted again", f"{again * per_min:.0f}/min  (cursor blink)")
         if busy_frames is not None:
             if busy_frames["count"]:
                 build, paint, total = busy_frames["build"], busy_frames["paint"], busy_frames["total"]

@@ -37,11 +37,13 @@ def counters(cpu_s, idle, intr, footprint_mb, resident_mb):
 class PerfProbeTest(unittest.TestCase):
     def test_parse_frame(self):
         self.assertEqual(probe.parse_frame(PLAIN),
-                         {"total": 0.6, "build": 0.1, "layout": 0.0, "paint": 0.2, "present": 0.2})
+                         {"total": 0.6, "build": 0.1, "layout": 0.0, "paint": 0.2, "present": 0.2, "repaint": False})
         self.assertEqual(probe.parse_frame(PASSES)["build"], 4.5)
         self.assertEqual(probe.parse_frame(PASSES)["paint"], 2.0)
         self.assertEqual(probe.parse_frame(AGAIN)["build"], 0.0)
         self.assertEqual(probe.parse_frame(AGAIN)["paint"], 0.6)
+        self.assertTrue(probe.parse_frame(AGAIN)["repaint"])
+        self.assertFalse(probe.parse_frame(PASSES)["repaint"])
         self.assertIsNone(probe.parse_frame("2026/10/22 kero: attached to the daemon"))
         self.assertIsNone(probe.parse_frame(""))
 
@@ -57,6 +59,7 @@ class PerfProbeTest(unittest.TestCase):
     def test_frames(self):
         out = probe.frames(["noise\n", PLAIN, PASSES, AGAIN])
         self.assertEqual(out["count"], 3)
+        self.assertEqual(out["repaints"], 1)
         self.assertEqual(out["build"]["p99"], 4.5)
         self.assertEqual(out["build"]["p50"], 0.1)
         self.assertEqual(out["total"]["p99"], 9.5)
@@ -88,7 +91,7 @@ class PerfProbeTest(unittest.TestCase):
         base = sample(0.0, {7: counters(0.1, 0, 0, 12, 20)})
         t0 = sample(100.0, {7: counters(1.0, 0, 0, 40, 60), 9: counters(5.0, 0, 0, 280, 200)})
         t1 = sample(160.0, {7: counters(1.06, 0, 10, 40, 60), 9: counters(5.3, 3, 20, 290, 210)})
-        idle = {"count": 5, "total": {}, "build": {}, "paint": {}}
+        idle = {"count": 105, "repaints": 100, "total": {}, "build": {}, "paint": {}}
         busy = {"count": 300, "total": {"p50": 0.5, "p99": 3.0}, "build": {"p50": 0.1, "p99": 5.0},
                 "paint": {"p50": 0.2, "p99": 1.5}}
         text = "\n".join(probe.report(2, 16 * MB, 7, base, t0, t1, app=9, idle_frames=idle, busy_frames=busy))
@@ -101,7 +104,11 @@ class PerfProbeTest(unittest.TestCase):
         self.assertIn("30/min", lines["app + kerod idle wakeups"])  # 10 and 20 interrupt
         self.assertTrue(lines["app + kerod idle wakeups"].endswith("ok"))
         self.assertIn("(3/min package idle)", lines["app idle wakeups"])
-        self.assertIn("5/min", lines["app idle frames"])
+        # Only the 5 frames that built the window are judged; the 100
+        # that painted it again, as a cursor blinks, are shown apart.
+        self.assertIn("5/min", lines["app idle frames built"])
+        self.assertTrue(lines["app idle frames built"].endswith("ok"))
+        self.assertIn("100/min", lines["app idle frames painted again"])
         self.assertTrue(lines["frame build p50 / p99 (streaming)"].endswith("OVER"))
         self.assertTrue(lines["app footprint (1 pane shown)"].endswith("OVER"))
         self.assertIn("not measured", lines["key -> paint p99"])
@@ -113,8 +120,8 @@ class PerfProbeTest(unittest.TestCase):
         none = probe.frames([])
         text = "\n".join(probe.report(1, 16 * MB, 7, base, t0, t1, app=9, idle_frames=none, busy_frames=none))
         lines = {l.split("  ")[0]: l for l in text.splitlines()}
-        self.assertIn("not judged", lines["app idle frames"])
-        self.assertFalse(lines["app idle frames"].endswith("ok"))
+        self.assertIn("not judged", lines["app idle frames built"])
+        self.assertFalse(lines["app idle frames built"].endswith("ok"))
         self.assertIn("n/a (0 frames", lines["frames (streaming)"])
 
     def test_report_without_app(self):

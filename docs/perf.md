@@ -12,7 +12,7 @@ Every performance change records its numbers here, before and after.
 | Footprint per pane, app | ≤ 30 MB | `scripts/perf.sh`: the app's footprint, one pane shown (see the limits below) |
 | Idle wakeups, app + kerod | ≤ 30 a minute | `scripts/perf.sh`: interrupt wakeups over 60 s of idle |
 | Idle CPU, app + kerod | ≤ 1 % | `scripts/perf.sh`: CPU time over 60 s of idle, of one core |
-| Idle frames, app | < 10 a minute | `scripts/perf.sh`: frames `MYGO_FRAME_STATS=all` logs over 60 s of idle |
+| Idle frames, app | < 10 a minute that build the window | `scripts/perf.sh`: frames `MYGO_FRAME_STATS=all` logs over 60 s of idle. A frame that only paints the last one again ("painted again"), as a focused terminal's cursor blinks, is counted apart and not judged |
 | p99 frame build | ≤ 4 ms | `scripts/perf.sh`: `MYGO_FRAME_STATS=all` while a shown pane streams output for 10 s |
 | p99 key press → paint | ≤ 50 ms | Not measured yet: it needs keys sent to the window |
 | Allocations of `screen()` | Flat with the scrollback; ≤ 16 KB a call | `TestScreenAllocsFlatWithScrollback` |
@@ -149,6 +149,30 @@ What the numbers say:
   all, even while its pane streamed; two more runs read the same), so its
   frame times there are missing and its idle frames count too few. The
   harness says so rather than judge them.
+
+### After the cursor blink paints (20dc41c)
+
+Two runs at 4 panes on `shibu` at 20dc41c, which pins MyGo 1c5a2cea: a
+focused terminal's cursor blinks by painting the last frame again,
+without building the window (BRU-225). Same machine and defaults as
+above. The second run counts the frames that build the window apart from
+those that only paint it again.
+
+| Measure | c8ac9bc | 20dc41c, run 1 | 20dc41c, run 2 | Budget |
+| --- | --- | --- | --- | --- |
+| app idle frames that build the window | 127/min (all frames) | 104/min (all frames) | 25/min | < 10/min: over |
+| app idle frames painted again | — | — | 100/min | not judged |
+| app + kerod idle wakeups | 11,066/min | 5,595/min | 11,697/min | ≤ 30/min: over |
+| app footprint, one pane shown | 297.8 MB | 162.8 MB | 279.8 MB | ≤ 30 MB a pane: over |
+| frame total p99, streaming | 1.2 ms | 1.2 ms | 1.5 ms | |
+
+- The blink no longer builds the window: its 100 frames a minute are now
+  paint-only. About 25 frames a minute still build it while idle, which
+  is over budget and not yet traced.
+- Wakeups did not move: the two runs differ by a factor of two with no
+  change between them, so a single run says little. Cutting them is
+  BRU-336.
+- The app's footprint moves as much between runs as before.
 
 ## Limits
 
