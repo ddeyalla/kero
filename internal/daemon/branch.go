@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,30 +16,50 @@ import (
 // the agents that forget. Only a session on no task yet, and never back
 // to an issue the user unlinked it from.
 
-const branchEvery = 5 * time.Second
+// The daemon reads the branches of those sessions' repositories every
+// branchEvery, when it is told something may have moved (branchWatch.due:
+// the user focused a pane or looked at a session, or a pane's agent or
+// directory changed), and as the HEAD file it read last changes, which
+// the tick checks every 1.6 s with a stat each: a branch switched shows
+// within 2 s, and an idle daemon reads no repository.
+const branchEvery = 30 * time.Second
 
-func (d *Daemon) branchLoop() {
-	t := time.NewTicker(branchEvery)
-	defer t.Stop()
-	for {
-		select {
-		case <-d.quit:
-			return
-		case <-t.C:
-			d.linkByBranch()
+// branchWatch is what the tick knows of the branches; only the tick's
+// goroutine uses it, but due, which others set.
+type branchWatch struct {
+	due   atomic.Bool
+	at    time.Time            // the last full read
+	heads map[string]time.Time // the HEAD files read then, with their times
+}
+
+// branchTick reads the branches again when due, or when a HEAD file
+// changed since.
+func (d *Daemon) branchTick(now time.Time) {
+	w := &d.branch
+	read := w.due.Swap(false) || now.Sub(w.at) >= branchEvery
+	for path, mod := range w.heads {
+		if read {
+			break
 		}
+		fi, err := os.Stat(path)
+		read = err != nil || !fi.ModTime().Equal(mod)
+	}
+	if read {
+		w.at = now
+		w.heads = d.linkByBranch()
 	}
 }
 
 // linkByBranch links the sessions an agent works in, on no task, whose
-// agent's branch names an issue of the workspace.
-func (d *Daemon) linkByBranch() {
+// agent's branch names an issue of the workspace. It returns the HEAD
+// files it read, with their times, to tell when to read them again.
+func (d *Daemon) linkByBranch() map[string]time.Time {
 	type cand struct{ sid, dir string }
 	var cands []cand
 	d.mu.Lock()
 	if d.linear == nil || d.linear.Team == "" {
 		d.mu.Unlock()
-		return
+		return nil
 	}
 	team := d.linear.Team
 	byIdent := make(map[string]string, len(d.linear.Issues))
@@ -67,8 +88,13 @@ func (d *Daemon) linkByBranch() {
 		}
 	}
 	d.mu.Unlock()
+	heads := map[string]time.Time{}
 	for _, c := range cands {
-		ident := issueInBranch(branchOf(c.dir), team)
+		head := headOf(c.dir)
+		if fi, err := os.Stat(head); err == nil {
+			heads[head] = fi.ModTime()
+		}
+		ident := issueInBranch(branchIn(head), team)
 		id := byIdent[ident]
 		if id == "" || skip[c.sid][id] {
 			continue
@@ -77,6 +103,7 @@ func (d *Daemon) linkByBranch() {
 			d.log.Printf("session %s linked to %s by its branch", c.sid, ident)
 		}
 	}
+	return heads
 }
 
 // issueInBranch is the issue identifier a branch names, as BRU-25 for
@@ -94,9 +121,28 @@ func issueInBranch(branch, team string) string {
 }
 
 // branchOf is the branch checked out in the repository dir is in, from
-// its HEAD; "" for none, or a detached HEAD. A worktree's .git is a file
-// naming its own git directory.
-func branchOf(dir string) string {
+// its HEAD; "" for none, or a detached HEAD.
+func branchOf(dir string) string { return branchIn(headOf(dir)) }
+
+// branchIn is the branch a HEAD file names; "" for none, or a detached
+// HEAD.
+func branchIn(head string) string {
+	if head == "" {
+		return ""
+	}
+	b, err := os.ReadFile(head)
+	if err != nil {
+		return ""
+	}
+	if ref, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "ref: refs/heads/"); ok {
+		return ref
+	}
+	return ""
+}
+
+// headOf is the HEAD file of the repository dir is in; "" for none. A
+// worktree's .git is a file naming its own git directory.
+func headOf(dir string) string {
 	for i := 0; i < 32 && dir != ""; i++ {
 		gitPath := filepath.Join(dir, ".git")
 		if fi, err := os.Stat(gitPath); err == nil {
@@ -115,15 +161,7 @@ func branchOf(dir string) string {
 					gitDir = filepath.Join(dir, gitDir)
 				}
 			}
-			b, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
-			if err != nil {
-				return ""
-			}
-			head := strings.TrimSpace(string(b))
-			if ref, ok := strings.CutPrefix(head, "ref: refs/heads/"); ok {
-				return ref
-			}
-			return ""
+			return filepath.Join(gitDir, "HEAD")
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

@@ -74,11 +74,14 @@ func migrateState(st *savedState) bool {
 }
 
 type savedState struct {
-	Version  int                `json:"version"`
-	Projects []proto.Project    `json:"projects"`
-	Sessions []savedSession     `json:"sessions"`
-	Saved    int64              `json:"saved"`
-	Linear   *proto.LinearState `json:"linear,omitempty"`
+	Version  int             `json:"version"`
+	Projects []proto.Project `json:"projects"`
+	Sessions []savedSession  `json:"sessions"`
+	Saved    int64           `json:"saved"`
+	// Linear is the workspace, which a state file of before kept here;
+	// it is now in linear.json (linear_store.go), and read from here
+	// only to move it there.
+	Linear *proto.LinearState `json:"linear,omitempty"`
 	// Tasks are the conversations that worked on each task, by the
 	// issue's id: what outlives the sessions, to resume.
 	Tasks map[string]*taskLog `json:"tasks,omitempty"`
@@ -124,6 +127,11 @@ type savedPane struct {
 	Unread   bool         `json:"unread,omitempty"`
 	Message  string       `json:"message,omitempty"`
 	ExitCode int          `json:"exitCode,omitempty"`
+	// Summary is what the pane's attention said when last saved
+	// (attention.go): the words of an end that came while the app was
+	// away, which a restored pane's unread mark shows. A state file of
+	// before has none.
+	Summary string `json:"summary,omitempty"`
 }
 
 func (d *Daemon) statePath() string { return filepath.Join(d.dir, "state.json") }
@@ -131,16 +139,29 @@ func (d *Daemon) statePath() string { return filepath.Join(d.dir, "state.json") 
 // historyPath is where a pane's history is kept, for a restore.
 func (d *Daemon) historyPath(id string) string { return filepath.Join(d.dir, "sessions", id+".vt") }
 
-func (d *Daemon) saveLoop() {
+// stateWait is how long a change waits for the next before the state is
+// saved: a storm of status changes writes state.json once every 2 s.
+const stateWait = 2 * time.Second
+
+func (d *Daemon) saveLoop() { d.saveLoopWith(stateWait, d.saveState) }
+
+// saveLoopWith saves the state with save, wait after the first change of
+// those that come meanwhile, and the histories every 10 s.
+func (d *Daemon) saveLoopWith(wait time.Duration, save func()) {
 	snaps := time.NewTicker(10 * time.Second)
 	defer snaps.Stop()
+	var due <-chan time.Time
 	for {
 		select {
 		case <-d.saveCh:
-			time.Sleep(300 * time.Millisecond)
-			d.saveState()
+			if due == nil {
+				due = time.After(wait)
+			}
+		case <-due:
+			due = nil
+			save()
 		case <-snaps.C:
-			d.saveHistories(false)
+			profiled("saveHistories", func() { d.saveHistories(false) })
 		case <-d.quit:
 			return
 		}
@@ -149,7 +170,10 @@ func (d *Daemon) saveLoop() {
 
 func (d *Daemon) saveState() {
 	d.mu.Lock()
-	st := savedState{Version: stateVersion, Projects: d.projects, Saved: time.Now().UnixMilli(), Linear: d.linear}
+	// The Linear workspace is kept in a file of its own, written only
+	// as it changes (linear_store.go).
+	st := savedState{Version: stateVersion, Projects: d.projects, Saved: time.Now().UnixMilli()}
+	lin, linData := d.linearToSaveLocked()
 	for _, s := range d.sessions {
 		ss := savedSession{ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed, Created: s.created, Layout: s.layout, Focus: s.focus,
 			Unlinked: slices.Sorted(maps.Keys(s.unlinked))}
@@ -157,7 +181,7 @@ func (d *Daemon) saveState() {
 			p.mu.Lock()
 			sp := savedPane{ID: p.info.ID, View: p.info.View, Target: p.info.Target, Dir: p.info.Dir, Command: p.info.Command,
 				Agent: p.info.AgentSession, Task: p.info.TaskID, Created: p.info.Created, Cols: p.info.Cols, Rows: p.info.Rows,
-				Status: p.info.Status, Since: p.info.Since, Unread: p.info.Unread}
+				Status: p.info.Status, Since: p.info.Since, Unread: p.info.Unread, Summary: paneAttention(p).Msg}
 			switch p.info.Status {
 			case proto.Failed:
 				sp.Message = p.info.Message
@@ -177,10 +201,20 @@ func (d *Daemon) saveState() {
 	if err != nil {
 		return
 	}
+	// The workspace first: a state file without it, written before it,
+	// would lose it to a crash between the two.
+	if linData != nil {
+		if writeAtomic(d.linearPath(), linData) != nil {
+			return
+		}
+		d.linearWritten(lin)
+	}
 	writeAtomic(d.statePath(), data)
 }
 
-// saveHistories writes the panes' histories that changed, or all.
+// saveHistories writes the panes' histories that changed, or all. What
+// changed goes as its tail (historyTail); all, as the daemon ends, goes
+// whole.
 func (d *Daemon) saveHistories(force bool) {
 	d.mu.Lock()
 	panes := make([]*pane, 0, len(d.panes))
@@ -193,6 +227,9 @@ func (d *Daemon) saveHistories(force bool) {
 			continue
 		}
 		if h := p.history(force); h != nil {
+			if !force {
+				h = historyTail(h, historyTailBytes)
+			}
 			writeAtomic(d.historyPath(p.info.ID), h)
 		}
 	}
@@ -209,6 +246,8 @@ func writeAtomic(path string, data []byte) error {
 // restore starts again the sessions of the last daemon, which ended
 // without closing them.
 func (d *Daemon) restore() {
+	lin := d.loadLinear()
+	d.linear, d.linearSaved = lin, lin
 	data, err := os.ReadFile(d.statePath())
 	if err != nil {
 		return
@@ -217,8 +256,14 @@ func (d *Daemon) restore() {
 	if json.Unmarshal(data, &st) != nil {
 		return
 	}
+	// A state file of before keeps the workspace in it: it is taken
+	// from there, and moves to its own file with the next save. The
+	// workspace is read before the migration, which leaves it alone,
+	// and the next save writes the migrated version.
 	migrateState(&st)
-	d.linear = st.Linear
+	if d.linear = newerLinear(lin, st.Linear); d.linear != lin {
+		d.linearSaved = nil
+	}
 	d.tasks = st.Tasks
 	set := settings.Load()
 	// The conversations of the last daemon end, but those of the panes
@@ -336,6 +381,9 @@ func (d *Daemon) restorePane(sid string, sp savedPane, when string, saved int64)
 		d.log.Printf("restoring %s: %v", sp.ID, err)
 		return nil
 	}
+	// What the pane's attention said when it was saved, for an unread
+	// end to show whose message a restore does not keep.
+	p.summary = sp.Summary
 	// What the session showed, down to where its cursor was, with the
 	// new shell under it: what a program drew below the cursor, as an
 	// agent's status bar, goes, rather than show under the new shell's

@@ -39,6 +39,7 @@ func TestFirstRunIntro(t *testing.T) {
 	if !a.intro.started {
 		t.Fatal("the first run did not start the reveal")
 	}
+	a.flushPrefs()
 	if _, err := os.Stat(prefsPath()); err != nil {
 		t.Errorf("starting the reveal did not write app.json: %v", err)
 	}
@@ -397,6 +398,7 @@ func TestIntroIsFirstRunOnly(t *testing.T) {
 		t.Fatal("a data directory with no app.json is not a first run")
 	}
 	a.savePrefs()
+	a.flushPrefs()
 	if b := newApp(); b.intro.first {
 		t.Error("a second launch with app.json is a first run")
 	}

@@ -39,6 +39,7 @@ var paneKinds = []paneKind{
 	{view: proto.PaneTasks, action: "pane.new.tasks", key: ui.KeyL, letter: "L"},
 	{view: proto.PaneFiles, action: "pane.new.files", key: ui.KeyE, letter: "E"},
 	{view: proto.PaneBrowser, action: "pane.new.browser", key: ui.KeyB, letter: "B"},
+	{view: proto.PaneAttention, action: "pane.new.attention", key: ui.KeyA, letter: "A"},
 }
 
 // chooserKinds is every kind the New Pane chooser offers: the app's own
@@ -80,6 +81,8 @@ func paneKindDetail(view string) string {
 		return locales.PaneFilesDetail()
 	case proto.PaneBrowser:
 		return locales.PaneBrowserDetail()
+	case proto.PaneAttention:
+		return locales.PaneAttentionDetail()
 	}
 	return locales.PaneTerminalDetail()
 }
@@ -235,7 +238,11 @@ func (a *App) chooserView(c *ui.Context, pal *palette) {
 			}
 			row.Children(func() {
 				ui.Box(c).Size(30, 30).Radius(8).Background(pal.kbd).Center().Shrink(0).Children(func() {
-					ui.Icon(c, k.icon()).Size(16, 16).TextColor(pal.textMuted)
+					if k.plugin != "" {
+						ui.Icon(c, k.icon()).Size(16, 16).TextColor(pal.textMuted)
+					} else {
+						paneViewMark(c, k.view, 16, pal.textMuted, pal.dark)
+					}
 				})
 				ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
 					ui.Text(c, k.name()).FontSize(13.5).FontWeight(600).TextColor(pal.text).SingleLine()

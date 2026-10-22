@@ -23,6 +23,19 @@ func glyph(name string) *ui.SVG {
 	return ui.MustParseSVG(b)
 }
 
+// symbolMark draws an SF Symbol at size, in tint, as an image where the
+// app draws an icon: a new icon of the app's is the system's own (see
+// symbols_darwin.go). It draws nothing on a system without symbols, and
+// where the system has no such symbol, which it reports.
+func symbolMark(c *ui.Context, name string, size float32, tint ui.Color, dark bool) bool {
+	b := symbolImage(name, size, tint, dark)
+	if b == nil {
+		return false
+	}
+	ui.Image(c, b).Size(size, size).Shrink(0)
+	return true
+}
+
 // icon draws an icon of kero's own, on 16, as a status glyph.
 func icon(shapes string) *ui.SVG {
 	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">` + shapes + `</svg>`))

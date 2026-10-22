@@ -1,0 +1,77 @@
+{
+  "version": 2,
+  "projects": [
+    {
+      "id": "proj",
+      "name": "demo",
+      "dir": "/tmp/demo",
+      "linearProject": "lp"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "s",
+      "project": "proj",
+      "name": "working",
+      "created": 1700000000000,
+      "layout": {
+        "row": true,
+        "ratio": 0.5,
+        "a": {
+          "pane": "t"
+        },
+        "b": {
+          "pane": "w"
+        }
+      },
+      "focus": "t",
+      "panes": [
+        {
+          "id": "t",
+          "view": "tasks",
+          "dir": "/tmp",
+          "created": 1700000000000,
+          "cols": 80,
+          "rows": 24
+        },
+        {
+          "id": "w",
+          "view": "files",
+          "target": "/tmp",
+          "dir": "/tmp",
+          "created": 1700000000000,
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    }
+  ],
+  "saved": 1792670877999,
+  "linear": {
+    "status": "ok",
+    "team": "DEM",
+    "projects": [
+      {
+        "id": "lp",
+        "name": "Demo Project",
+        "status": "",
+        "progress": 0
+      }
+    ],
+    "issues": [
+      {
+        "id": "issue-1",
+        "identifier": "DEM-1",
+        "title": "First fake issue",
+        "state": ""
+      },
+      {
+        "id": "issue-2",
+        "identifier": "DEM-2",
+        "title": "Second fake issue",
+        "state": ""
+      }
+    ],
+    "fetchedAt": 1760000000000
+  }
+}

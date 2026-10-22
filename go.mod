@@ -16,4 +16,4 @@ require (
 
 require github.com/go-text/typesetting v0.3.5 // indirect
 
-replace github.com/egoist/mygo => github.com/ddeyalla/mygo v0.5.6-0.20261022091213-fc7eb7ece236
+replace github.com/egoist/mygo => github.com/ddeyalla/mygo v0.5.6-0.20261022111251-910f18265cdb

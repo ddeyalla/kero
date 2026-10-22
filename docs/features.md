@@ -32,6 +32,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | The old built-in Linear screen (sidebar row, `Cmd+Shift+L`) and Tasks pane | Replaced by the Linear plugin | 2.0.7-local.1 | Removed in Unreleased |
 | Linear API key in the personal data directory (`0600`), or `LINEAR_API_KEY` | Settings › Agents, `kero linear auth` | 2.0.7-local.1 | Shipped |
 | Daemon keeps the workspace fresh (30 s changes, 5 min full read, last good read kept offline) | Automatic | 2.0.7-local.1 | Shipped |
+| Daemon idle work cut: foreground program read as it changes, directory 1.5 s only for the focused pane, branch scan 30 s plus focus and a HEAD check every 1.6 s, `state.json` at most every 2 s, Linear in its own `linear.json`, written per Linear read, not per status change | Automatic | Unreleased | Untried |
 | Session linked to its task, kept across restarts; issue shows the session and its agent resume id | `kero link <session> <BRU-25>`, issue detail | 2.0.7-local.1 | Shipped |
 | Start a task: link the session, move the issue to In Progress, print its branch | `kero task start <BRU-25>` | 2.0.7-local.1 | Shipped |
 | Project mapped to its Linear project (the one named like the repository offered first) | The project's menu in the sidebar | 2.0.7-local.1 | Shipped |
@@ -42,11 +43,13 @@ plugin panes), and an older build cannot open the migrated panes.
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| New Pane chooser: Terminal, Tasks (the Linear plugin), Files, Browser | `Cmd+Alt+N` or the pane header's **+**, then `T`/`L`/`E`/`B` | 2.0.7-local.1 | Shipped |
+| New Pane chooser: Terminal, Tasks (the Linear plugin), Files, Browser, Attention | `Cmd+Alt+N` or the pane header's **+**, then `T`/`L`/`E`/`B`/`A` | 2.0.7-local.1 | Shipped |
 | Open the new pane below instead of beside | Hold Shift in the chooser | 2.0.7-local.1 | Shipped |
-| Open a kind of pane directly | `Cmd+Alt+T` / `L` / `E` / `B` | 2.0.7-local.1 | Shipped |
+| Open a kind of pane directly | `Cmd+Alt+T` / `L` / `E` / `B` (and `A`) | 2.0.7-local.1 | Shipped |
 | Turn a pane into another kind | Pane menu › **Show in This Pane** | 2.0.7-local.1 | Shipped |
-| Agents open views beside themselves | `kero split --browser 5173`, `--files --open docs/plan.md`, `--tasks` | 2.0.7-local.1 | Shipped |
+| Attention pane: every session that needs you, one list, most urgent first, with chips (All, Needs you, Working, Unread, Done), counts and a plain-text search; a row opens the pane that needs you | `Cmd+Alt+A`, the chooser's `A`, or `kero split --attention` | Unreleased | Untried |
+| New icons are SF Symbols, drawn by macOS and cached as bitmaps | Automatic; the Attention pane's mark and its rows' states | Unreleased | Untried |
+| Agents open views beside themselves | `kero split --browser 5173`, `--files --open docs/plan.md`, `--tasks`, `--attention` | 2.0.7-local.1 | Shipped |
 | A view's page or file is kept across restarts | Automatic | 2.0.7-local.1 | Shipped |
 | Least pane size (280×150); a split without room is refused | Automatic | 2.0.7-local.1 | Shipped |
 | Make panes even | Double-click a divider, `Cmd+Ctrl+=` | 2.0.7-local.1 | Shipped |
@@ -77,6 +80,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | Folder tree with git changes, refreshed every few seconds | Files pane | 2.0.7-local.1 | Shipped |
 | Markdown, code and images shown beside the tree | Click a file | 2.0.7-local.1 | Shipped |
 | Markdown links to headings (`#section`) and other files open in the pane | Click the link | 2.0.7-local.1 | Shipped |
+| Markdown web links open in the default browser (fixed: they were handed over as a file's path) | Click the link | Unreleased | Untried |
 | Fuzzy Find across the project, indexed off the main thread | `Cmd+F` in the pane, arrows or `Ctrl+N`/`Ctrl+P`, Enter | 2.0.7-local.1 | Shipped |
 | Drag a row into a terminal to type its path | Drag and drop | 2.0.7-local.1 | Shipped |
 | Unfolded folders kept across restarts | Automatic | 2.0.7-local.1 | Shipped |
@@ -89,6 +93,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | Select the address | `Cmd+L` | 2.0.7-local.1 | Shipped |
 | Zoom the page (Safari's steps); the zoom chip resets it | `Cmd+=`, `Cmd+-`, `Cmd+0` | 2.0.7-local.1 | Shipped |
 | Reload the page (instead of renaming the session) | `Cmd+R` | 2.0.7-local.1 | Shipped |
+| Open the page in the default browser (fixed: it was handed over as a file's path) | The pane bar's **Open in Default Browser** | Unreleased | Untried |
 
 ## Agents
 
@@ -96,6 +101,11 @@ plugin panes), and an older build cannot open the migrated panes.
 | --- | --- | --- | --- |
 | Claude Code and Codex report working, waiting, done and error from their hooks; Esc and granted permissions still read from the screen | `kero skill setup`; `agent-hooks` in the configuration | Unreleased | Untried |
 | Session status icons: a turning ring while working (a filling one when the program reports progress), an amber ring with a dot when it needs you, a filled check when done and unseen, a faint check once read, a red disc when a program fails, a crossed ring when the shell exits with an error, a half moon when read and idle for 24 hours; kept across a terminal service restart | Sidebar rows and the footer's count chips | Unreleased | Untried |
+| Session title marks (SF Symbols, derived, never typed): needs you, bug (linked task labeled Bug), working, done and seen; the title truncates, not the mark | Automatic; sidebar rows and the command palette | Unreleased | Untried |
+| Sidebar project groups: room above each header, header close to its sessions, fixed order and places for the count, "needs you", chevron and add button; emoji in project titles kept and drawn whole | Sidebar; rename a project from its header's context menu | Unreleased | Untried |
+| Each session carries one attention state — running, waiting-user, unread, done or idle — with one line of what it says, the pane it comes from and its age; a transcript scan fills in where an agent reports nothing (Codex's approvals) | Automatic: it rides on the state kerod sends | Unreleased | Untried |
+| Notifications from that attention: a session that needs you or ends unseen tells once, a turn that begins again clears it, and the same session and state inside `notify-throttle-minutes` is counted silently; every session kerod holds tells, in any profile or window | Automatic; `notify-on-waiting`, `notify-on-done`, `notify-on-error` and `notify-throttle-minutes` in the configuration, Settings › Notifications | Unreleased | Untried |
+| Silence one session's notifications, remembered across restarts | Session › Silence Notifications, the session's context menu, `kero do session.silence`; `silence-session` in the configuration | Unreleased | Untried |
 
 ## Usage and the machine
 
@@ -106,6 +116,8 @@ plugin panes), and an older build cannot open the migrated panes.
 | Optional private provider keys | Usage modal | 2.0.5-local.1 | Shipped |
 | Sidebar usage as a ring per installed harness (found on `PATH` or in the installers' folders), a currency sign for a balance, a dashed ring when not connected, an amber dot when a refresh failed; hovering highlights the harness and shows the plan, every window, its percentage and reset time, a balance or why it is not connected | Hover a ring; click it or press `Cmd+Shift+U` for the modal | Unreleased | Untried |
 | CPU and RAM meters for the whole Mac | Sidebar, `kero resources --json` | 2.0.5-local.2 | Shipped |
+| Performance budgets and a one-command measurement: footprint, idle CPU, wakeups and frames, and frame times while streaming, for N panes, in an isolated kerod and app; kerod profiles on a loopback address; allocation tests for screen reads and a key's echo | `sh scripts/perf.sh N`, `KERO_PPROF=127.0.0.1:6060`; see [Performance](perf.md) | Unreleased | Untried |
+| Idle window paints less: CPU and RAM meters redraw only when what they show changes; times ago tick once a minute, only while shown | Automatic | Unreleased | Untried |
 | The loading.dev ring wherever the app itself is busy: connecting, attaching a pane, reading Files or Linear; it and a working session's ring turn at 15 frames a second | Automatic | Unreleased | Untried |
 
 ## Settings
@@ -124,6 +136,8 @@ plugin panes), and an older build cannot open the migrated panes.
 | Files and images dropped on a terminal insert their paths | Drag and drop | 2.0.5-local.1 | Untried |
 | Faster redraws after a synchronized frame (55.9 ms → 16.9 ms transport median) | Automatic | 2.0.5-local.2 | Shipped |
 | Native ARM64 build, no constant status animation | Automatic | 2.0.5-local.1 | Shipped |
+| Status detection reads the last rows, not the whole scrollback (0.75 ms → 10 µs a look at 4 MB) | Automatic | Unreleased | Untried |
+| Scrollback budget: the app's terminals keep the Scrollback setting (not 10 MB), 8 stay attached (every pane of the shown session kept), the 10 s history save writes the last 256 KB | Settings › Shell › Scrollback; automatic | Unreleased | Untried |
 
 ## Window
 

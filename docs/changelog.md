@@ -115,6 +115,54 @@ builds only. What each feature is and where it stands is tracked in the
   (`ScrollingTree()`) for a pane that scrolls as one page. A horizontal
   slider with a `Width` keeps that width, and one without grows.
 - Plugin icon buttons draw real SF Symbols.
+- `scripts/perf.sh N` measures Shibu Code with N panes against the
+  performance budgets: kerod's and the app's footprint, idle CPU, idle
+  wakeups and idle frames over 60 s, and frame build and paint times
+  while a pane streams. It runs its own kerod and app, isolated from the
+  daily app, needs no root, and cleans up after itself. kerod serves Go's
+  profiles on a loopback address with `KERO_PPROF=127.0.0.1:6060`, with
+  its pane ticks, screen reads, history saves and frame sends labelled.
+  Two tests fail if a screen read or a key's echo starts to allocate with
+  the scrollback. Budgets and the first numbers: [Performance](perf.md)
+  (BRU-223).
+- An **Attention** pane: every session that needs the user, in one list,
+  the most urgent first — what it is doing or asking, the session and its
+  project, the agent, the line that came with it, and how long it has been
+  so. A row puts the keyboard in the pane the state came from, where the
+  decision is, without zooming. Chips narrow it to **Needs you**,
+  **Working**, **Unread** or **Done** and count each; a plain-text search
+  finds a row by its words. A Codex wait whose message the agent did not
+  give says **Focus pane to approve** rather than nothing. `Cmd+Alt+A`,
+  the New Pane chooser's `A`, or `kero split --attention`. It reads the
+  attention state kerod already sends, so it needs no protocol change, and
+  it keeps the filter and search while the pane is open.
+- New icons are SF Symbols, drawn by macOS through AppKit and cached as
+  bitmaps, so they match the system at any size and in the light and the
+  dark (`symbols_darwin.go`). The Attention pane's mark and its rows'
+  states are the first. No cgo.
+- kerod keeps one attention state for every session — running,
+  waiting-user, unread, done or idle — folded from its panes: the most
+  urgent of them, one line of what it says, the pane it came from and the
+  age of it. The state the app receives carries it (`Session.Attention`),
+  so the attention pane and the notifications of the later work read one
+  truth. Where an agent says nothing, the daemon reads the end of its own
+  transcript on disk, locally and only as a fallback: a call that has run
+  45 seconds with no result is taken for one waiting on the user. Hooks
+  and the screen keep their say over it, and an end that came while the
+  app was away keeps its summary across a restart. Codex has no
+  permission-prompt hook, so this scan is its fallback for approvals.
+  **Restart the terminal service once** (when agents are idle) for the
+  state to carry it; until then nothing changes for the app.
+- Notifications now follow that attention: a session that comes to need you
+  (`waiting-user`) or ends unseen (`unread`) tells once, a return to work
+  tells nothing, and the same session and state inside five minutes is
+  counted silently, so a chatty agent's loop does not fill Notification
+  Center (`notify-throttle-minutes`). Every session kerod holds is watched,
+  so a session outside the window or profile you look at still tells.
+  Session › Silence Notifications (or a session's context menu) turns one
+  session's notifications off until you resume it (`kero do
+  session.silence`); the choice is saved (`silence-session`). Unseen ends
+  that failed keep the error's title and `notify-on-error`.
 - Accent presets: six hand-tuned themes of the app's own colors — Blue (the
   one it has had), Plum, Rose, Sea, Moss and Graphite. Each is an accent
   color in the light and in the dark, the background wash that comes with
@@ -300,6 +348,18 @@ builds only. What each feature is and where it stands is tracked in the
   the Tasks pane. A saved window that showed the Linear screen opens the
   selected session.
 
+- Session titles carry a mark at their head that follows the work, an SF
+  Symbol the app derives and never stores in the name: `hand.raised`
+  (amber) when the session needs you, `ladybug` when its linked Linear task
+  is labeled Bug, `arrow.triangle.2.circlepath` while it works, and
+  `checkmark.circle` once an agent's work has ended and you have seen it —
+  the Attention pane's symbols for the same states. Needs you comes first, then the bug,
+  then work, then done; a plain shell back at its prompt, a turn ended unseen, a failure or an
+  exit have none. The title truncates, not the mark, and the time and the
+  status glyph keep their places. The sidebar rows and the command palette's
+  session rows show it. It reads what the app already receives, so it needs
+  no protocol change.
+
 ### Fixed
 
 - An old Tasks pane that was not migrated yet now shows the Linear plugin even
@@ -318,6 +378,48 @@ builds only. What each feature is and where it stands is tracked in the
 - The Browser pane's **Open in Default Browser** button and a Markdown
   link in the Files pane open the page again. The app handed the address
   to the system as a file's path, so the page never opened.
+- An idle window paints less. The CPU and RAM meters still read every two
+  seconds, but rebuild the window only when a label or a bar would change;
+  the bars fill in whole percents, as the labels read. The sidebar's
+  "5m ago" times move on once a minute instead of every 20 seconds, and
+  not at all while the sidebar is hidden; the Attention pane and a working
+  pane's chip keep their own times moving then. A time ago may now read up
+  to a minute late ("now" for up to two minutes). The cursor blink is
+  unchanged (BRU-225, in part).
+- Status detection no longer reads a pane's whole scrollback several times
+  a second. kerod reads the text of the last rows of the terminal alone, so
+  each look at an agent's screen costs the same with any scrollback: about
+  10 µs and 4 KB rather than 0.75 ms and 387 KB with the default 4 MB, or
+  12.6 ms and 6.2 MB with 64 MB, while the session's lock is held. `kero
+  read` reads its lines the same way. Detection sees the same text, byte for
+  byte. It needs MyGo's `Terminal.TailText`, from the fork.
+- The terminal service does less while nothing happens. It asks the
+  kernel for a pane's foreground program as the program changes, not every
+  400 ms; it reads the arguments only for a program whose name is not an
+  agent's; it follows the directory of the pane the user is in every 1.5 s
+  and of the others every 10 s; and it reads the branches agents work on
+  every 30 seconds and when the user focuses a pane, with a cheap check of
+  each HEAD file every 1.6 s, so a branch switch still links its session
+  within 2 seconds. It writes `state.json` at most once every 2 seconds
+  under a storm of status changes, and keeps the Linear workspace in a
+  file of its own, `linear.json`, written when a read of Linear brings a
+  new copy (about every 30 seconds while a key is set) instead of with
+  every status change.
+  An existing `state.json` with the workspace in it loads as before, and
+  the next save moves the workspace out. Going back to an older release
+  loses only the cached workspace until it is read from Linear again.
+  The protocol did not change.
+- A session's scrollback costs less memory and disk. The app's terminals
+  keep the scrollback that Settings › Shell › Scrollback sets, as the
+  terminal service does, instead of MyGo's 10 MB each; at the default of
+  4 MB that is up to 6 MB less per attached pane. The app keeps 8 terminals
+  attached instead of 12, and counts every pane of a session, not only the
+  one in focus, so the panes of sessions shown long ago are let go; the
+  panes of the session on screen always stay. The terminal service writes
+  at most the last 256 KB of a pane's history every 10 seconds, and the
+  whole of it only as it ends, so a crash restores the last screen and a
+  little above it. A history file of any length, or an empty one, still
+  restores.
 - A restart of the terminal service no longer loses the sessions' marks:
   what was unread stays unread, the ages keep their times, and a failure
   stays failed, as does a shell that crashed unseen ("Exited with code N").
@@ -364,11 +466,24 @@ builds only. What each feature is and where it stands is tracked in the
   Esc, a click beside the card and `Cmd+W` close it. In a small window the
   sidebar shows its pages' icons and the search moves into the page's header.
 
+- The sidebar's project groups read as groups: each header has room above
+  it and sits close to its own sessions, the first header has the same room
+  under the Linear row, and the header's name lines up with its sessions'
+  marks. The count and "needs you" no longer shrink, and the add button's
+  place is kept while it is hidden, so the header does not move when the
+  pointer comes over it. A project title with an emoji, such as
+  `🐛 kero-deyalla`, keeps it through a rename and a restart, shows it in
+  color, and is cut short only between whole characters.
+
 ### Documentation
 
 - Rewrote [Linear plugin and session links](linear-workspace.md) around the
   plugin, and updated the plugin guide (new parts, the `focus` permission,
   widget icons and pins), the security notes and the feature tracker.
+- `scripts/dev-env.sh` puts the bundled Go on the shell's path from any
+  worktree, sharing one toolchain and one warm build cache, and
+  `scripts/check.sh` runs the commit checks, or the tests of chosen packages,
+  without reaching the daily app. See [Build](build.md).
 - Added the [feature tracker](features.md): every Shibu feature, the release
   that shipped it, how to reach it and its status.
 - Noted the one-time service restart for 2.0.7-local.1 and the Files Find

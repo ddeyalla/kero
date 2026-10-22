@@ -211,6 +211,7 @@ func (d *Daemon) sessionInfo(s *session) proto.Session {
 		info.Pane = info.Panes[i]
 		info.Lead = info.Panes[i].ID
 	}
+	info.Attention = protoAttention(sessionAttention(s))
 	info.Created, info.Restored = s.created, s.restored
 	return info
 }

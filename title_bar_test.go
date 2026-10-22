@@ -114,24 +114,24 @@ func TestSidebarTopSpacing(t *testing.T) {
 	tt.Advance(time.Second)
 	tt.Frame()
 	buttons, _ := tt.Find(label)
-	first, ok := tt.Find("demo") // the first project's row, 28 tall
+	first, ok := tt.Find("demo") // the first project's row, projectHeaderH tall
 	if !ok {
 		t.Fatalf("no project row; texts %q", tt.Texts())
 	}
 	// The first project's header has a margin of 2 above it, which the
 	// pin's row did not.
-	top := mid(first) - 28/2
+	top := mid(first) - projectHeaderH/2
 	if top-barMid != 32 {
 		t.Errorf("the first row starts %v below the lights' line, not 32", top-barMid)
 	}
 	if gap := top - (buttons.Y + buttons.H); gap < 16 {
 		t.Errorf("the first row is %v below the sidebar's buttons, crowded", gap)
 	}
-	project, ok := tt.Find("demo") // a project's name, 10 into its row
+	project, ok := tt.Find("demo") // a project's name, 12 into its row, as its sessions' marks
 	if !ok {
 		t.Fatalf("no project row; texts %q", tt.Texts())
 	}
-	if x := project.X - 10; x != windowLights[0].X {
+	if x := project.X - 12; x != windowLights[0].X {
 		t.Errorf("the project's row starts %v in, not at the close light's %v", x, windowLights[0].X)
 	}
 }

@@ -67,7 +67,7 @@ const (
 	minSidebar     = 200
 	maxSidebar     = 440
 	defaultFont    = 13
-	maxTerms       = 12 // terminals kept attached, most recently shown
+	maxTerms       = 8 // terminals kept attached, most recently shown
 )
 
 // termEntry is a session's terminal in the app: attached to kerod, which
@@ -93,8 +93,10 @@ type App struct {
 	loaded    bool // a state came
 
 	prefs       prefs
-	set         settings.Settings // the user's settings: Settings' controls edit it
-	applied     settings.Settings // set, as last applied and saved
+	prefsOut    *writeBack[prefs]             // writes the prefs, off the main thread
+	set         settings.Settings             // the user's settings: Settings' controls edit it
+	setOut      *writeBack[settings.Settings] // writes the settings, off the main thread
+	applied     settings.Settings             // set, as last applied and saved
 	ss          settingsState
 	selected    string
 	terms       map[string]*termEntry
@@ -104,9 +106,13 @@ type App struct {
 	layoutDirty string                // a session whose divider is dragged
 	viewSent    *string
 
-	active   bool
-	focused  bool
-	statuses map[string]proto.Status // as last seen, for notifications
+	active  bool
+	focused bool
+	// watch turns the sessions' attention into notifications
+	// (attention_notify.go), and deliver shows one: a test's stub, else
+	// the system's notification.
+	watch   *attentionWatch
+	deliver func(id, title, body string)
 
 	// windowBar is the title bar as it last was in the window, which
 	// titleBar keeps in full screen, where the traffic lights are the
@@ -124,6 +130,9 @@ type App struct {
 	show string
 	// files are the Files panes' states, by pane.
 	files map[string]*filesState
+	// attention are the Attention panes' states, by pane: the filter,
+	// the search and the scroll of each.
+	attention map[string]*attentionView
 	// browsers are the Browser panes' states, with their web views.
 	browsers map[string]*browserState
 	// plugins is the plugin panes' host and state.
@@ -159,7 +168,8 @@ type App struct {
 	usage        usageState
 	resources    resourceState
 	maintenance  maintenanceState
-	peek         peek // the image a path Command hovers shows
+	peek         peek     // the image a path Command hovers shows
+	peekLook     peekLook // the link that hover resolved, and what it found
 	intro        introState
 
 	// growing are the panes just made, which grow from their edge;
@@ -185,11 +195,26 @@ type confirmation struct {
 }
 
 func newApp() *App {
-	a := &App{terms: map[string]*termEntry{}, statuses: map[string]proto.Status{}, active: true, focused: true,
+	a := &App{terms: map[string]*termEntry{}, active: true, focused: true,
 		refs: map[string]*ui.Handle{}, focus: map[string]string{}, arrived: map[string]bool{},
 		hoverSeen: map[string]bool{}, hoverUntil: map[string]time.Time{}, opening: map[string]int{}}
+	// The writers name their files now: they write on another thread, by
+	// which time the environment may say another, as a test's does.
+	prefsFile := prefsPath()
+	a.prefsOut = newWriteBack(writeDelay, func(p prefs) error { return writePrefs(prefsFile, p) })
+	conf := settings.Path()
+	a.setOut = newWriteBack(writeDelay, func(s settings.Settings) error {
+		if err := settings.SaveAt(conf, s); err != nil {
+			a.update(func() { a.toast(locales.ToastSaveSettingsFailed(err.Error())) })
+			return err
+		}
+		return nil
+	})
+	a.watch = newAttentionWatch()
+	a.deliver = a.showNotification
 	a.loadPrefs()
 	a.set = settings.Load()
+	a.setOut.Seed(a.set.Clone())
 	a.ss.problems = settings.Problems()
 	a.applied = a.set.Clone()
 	a.selected = a.prefs.Selected
@@ -202,7 +227,8 @@ func prefsPath() string { return filepath.Join(proto.Dir(), "app.json") }
 
 func (a *App) loadPrefs() {
 	b, err := os.ReadFile(prefsPath())
-	if err == nil {
+	read := err == nil
+	if read {
 		json.Unmarshal(b, &a.prefs)
 	}
 	if os.IsNotExist(err) {
@@ -218,20 +244,57 @@ func (a *App) loadPrefs() {
 	if a.prefs.Collapsed == nil {
 		a.prefs.Collapsed = map[string]bool{}
 	}
+	if read {
+		// The file holds these: a save of them writes nothing, as a
+		// session switch that changes nothing makes.
+		a.prefsOut.Seed(clonePrefs(a.prefs))
+	}
 }
 
-func (a *App) savePrefs() {
+// savePrefs remembers the prefs between runs. It copies them here, and
+// leaves the write to the background (writeBack), so a session switch or a
+// drag of the sidebar does not wait for the disk.
+func (a *App) savePrefs() { a.prefsOut.Set(a.snapshotPrefs()) }
+
+// flushPrefs writes a prefs change that waits, as quitting does.
+func (a *App) flushPrefs() { a.prefsOut.Flush() }
+
+// snapshotPrefs is the prefs as they now are, with maps of their own: the
+// writer takes it to another thread while the app changes its own.
+func (a *App) snapshotPrefs() prefs {
 	a.prefs.Selected = a.selected
 	a.prefs.Show = a.show
-	b, err := json.MarshalIndent(a.prefs, "", "  ")
+	return clonePrefs(a.prefs)
+}
+
+// clonePrefs is p with maps of its own.
+func clonePrefs(p prefs) prefs {
+	p.Collapsed = maps.Clone(p.Collapsed)
+	if p.Files != nil {
+		files := make(map[string][]string, len(p.Files))
+		for id, dirs := range p.Files {
+			files[id] = slices.Clone(dirs)
+		}
+		p.Files = files
+	}
+	return p
+}
+
+// writePrefs writes the prefs as JSON: a temp file renamed over app.json, as
+// the file always was.
+func writePrefs(path string, p prefs) error {
+	b, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	os.MkdirAll(proto.Dir(), 0o700)
-	tmp := prefsPath() + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) == nil {
-		os.Rename(tmp, prefsPath())
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
 	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // update runs fn on the main thread, and draws.
@@ -385,49 +448,20 @@ func (a *App) showNotification(id, title, body string) {
 	go n.Show()
 }
 
-// notify tells about sessions that came to need the user, or finished,
-// while the user was elsewhere: a notification, and the Dock's badge.
+// notify tells about the sessions that came to need the user, or ended
+// unseen, and badges the Dock with how many wait. The transitions are the
+// daemon's attention fold (attention_notify.go): every session the daemon
+// holds is watched, so a session in a profile the user is not looking at
+// still tells.
 func (a *App) notify(first bool) {
 	waiting := 0
 	for i := range a.st.Sessions {
-		s := &a.st.Sessions[i]
-		prev, seen := a.statuses[s.ID]
-		a.statuses[s.ID] = s.Status
-		if s.Status == proto.Waiting {
+		if foldOf(&a.st.Sessions[i]).State == attentionWaitingUser {
 			waiting++
 		}
-		if first || !seen || prev == s.Status || s.ID == a.selected && a.active {
-			continue
-		}
-		var title, body string
-		switch {
-		case s.Status == proto.Waiting && a.set.NotifyWaiting:
-			title, body = locales.NotifyNeedsYouTitle(s.DisplayName(a.set.SessionName)), s.Message
-			if body == "" {
-				body = locales.NotifyWaitingBody()
-			}
-		case s.Status == proto.Failed && a.set.NotifyFailed:
-			title, body = locales.NotifyFailedTitle(s.DisplayName(a.set.SessionName)), s.Message
-			if body == "" {
-				body = locales.NotifyFailedBody(s.PaneName())
-			}
-		case s.Status == proto.Idle && prev == proto.Working && s.Unread && a.set.NotifyDone && (s.Agent != "" || s.Message != ""):
-			title, body = locales.NotifyDoneTitle(s.DisplayName(a.set.SessionName)), s.Message
-			if body == "" {
-				body = locales.NotifyDoneBody(s.Agent, proto.ShortDir(s.WorkDir()))
-			}
-		default:
-			continue
-		}
-		if a.set.BounceDock && (s.Status == proto.Waiting || s.Status == proto.Failed) {
-			mygo.App.Dock.Bounce(false)
-		}
-		a.showNotification(s.ID, title, body)
 	}
-	for id := range a.statuses {
-		if a.session(id) == nil {
-			delete(a.statuses, id)
-		}
+	for _, e := range a.watch.watch(a.st.Sessions, first, a.silencedSet(), a.notifyWindow()) {
+		a.tell(e)
 	}
 	if !a.set.DockBadge {
 		waiting = 0
@@ -436,6 +470,105 @@ func (a *App) notify(first bool) {
 	// waits on the main loop, which a test has not.
 	if a.win != nil {
 		mygo.App.SetBadgeCount(waiting)
+	}
+}
+
+// tell shows one session's notification, if the user asked for its kind
+// and is not looking at it. Its title and body say the session and one
+// line of what it needs, as the fold worded it: no prompt text beyond what
+// the hooks sent, and never a credential.
+func (a *App) tell(e attentionEvent) {
+	s := a.session(e.Session)
+	if s == nil {
+		return
+	}
+	// The user is in it and the app is in front: it needs no telling.
+	// Focus is the only filter, never a profile or a hidden window.
+	if s.ID == a.selected && a.active {
+		return
+	}
+	name := s.DisplayName(a.set.SessionName)
+	var title, body string
+	switch {
+	case e.State == attentionWaitingUser && a.set.NotifyWaiting:
+		title, body = locales.NotifyNeedsYouTitle(name), e.Msg
+		if body == "" {
+			body = locales.NotifyWaitingBody()
+		}
+	case e.State == attentionUnread && e.Failed && a.set.NotifyFailed:
+		title, body = locales.NotifyFailedTitle(name), e.Msg
+		if body == "" {
+			body = locales.NotifyFailedBody(s.PaneName())
+		}
+	case e.State == attentionUnread && !e.Failed && a.set.NotifyDone:
+		title, body = locales.NotifyDoneTitle(name), e.Msg
+		if body == "" {
+			body = locales.NotifyDoneBody(s.Agent, proto.ShortDir(s.WorkDir()))
+		}
+	default:
+		return
+	}
+	if a.set.BounceDock && (e.State == attentionWaitingUser || e.Failed) {
+		mygo.App.Dock.Bounce(false)
+	}
+	a.deliver(s.ID, title, body)
+}
+
+// silencedSet is the sessions whose notifications the user turned off.
+func (a *App) silencedSet() map[string]bool {
+	if len(a.set.SilencedSessions) == 0 {
+		return nil
+	}
+	m := make(map[string]bool, len(a.set.SilencedSessions))
+	for _, id := range a.set.SilencedSessions {
+		m[id] = true
+	}
+	return m
+}
+
+// silenced tells whether the user turned off a session's notifications.
+func (a *App) silenced(id string) bool {
+	return slices.Contains(a.set.SilencedSessions, id)
+}
+
+// notifyWindow is how long a session's same state stays quiet after it
+// told, as the user set it: 0 for no throttle.
+func (a *App) notifyWindow() time.Duration {
+	return time.Duration(a.set.NotifyThrottle) * time.Minute
+}
+
+// silenceTitle is the mute toggle's row, as the session's state makes it:
+// silencing, or resuming.
+func (a *App) silenceTitle(id string) string {
+	if a.silenced(id) {
+		return locales.SessionResumeNotifications()
+	}
+	return locales.SessionSilenceNotifications()
+}
+
+// toggleSilence silences a session's notifications, or resumes them. The
+// choice is saved with the settings, so a silenced session stays quiet
+// until the user says otherwise, over a restart of the app too.
+func (a *App) toggleSilence(id string) {
+	s := a.session(id)
+	if s == nil {
+		return
+	}
+	next := slices.Clone(a.set.SilencedSessions)
+	i := slices.Index(next, id)
+	off := i < 0
+	if off {
+		next = append(next, id)
+	} else {
+		next = slices.Delete(next, i, i+1)
+	}
+	a.set.SilencedSessions = next
+	a.applySettings(a.set)
+	name := s.DisplayName(a.set.SessionName)
+	if off {
+		a.toast(locales.ToastSessionSilenced(name))
+	} else {
+		a.toast(locales.ToastSessionResumed(name))
 	}
 }
 
@@ -556,13 +689,11 @@ func (a *App) reportView() {
 }
 
 // touch moves a terminal to the front of those kept attached, dropping
-// the one shown longest ago past the limit.
+// those shown longest ago past the limit (trimTerms).
 func (a *App) touch(id string) {
 	a.lru = slices.DeleteFunc(a.lru, func(x string) bool { return x == id })
 	a.lru = append(a.lru, id)
-	for len(a.lru) > maxTerms {
-		a.dropTerm(a.lru[0])
-	}
+	a.trimTerms()
 }
 
 func (a *App) dropTerm(id string) {
@@ -643,6 +774,7 @@ func (a *App) ensureTerm(id string) {
 	}
 	e := &termEntry{started: time.Now()}
 	a.terms[id] = e
+	a.noteTerm(id)
 	go func() {
 		stream, err := client.Attach(id)
 		if err != nil {
@@ -730,6 +862,7 @@ func (a *App) termOptions(id string, conn *gated) terminal.Options {
 	light, dark := a.termThemes()
 	o := terminal.Options{
 		Conn:          conn,
+		Scrollback:    a.set.ScrollbackBytes(),
 		Font:          a.termFont(),
 		Theme:         light,
 		DarkTheme:     dark,
@@ -796,15 +929,32 @@ func (a *App) zoom(steps int, reset bool) {
 // terminal takes.
 func (a *App) applySettings(s settings.Settings) { a.apply(s, true) }
 
+// saveSettings writes the settings in the background (writeBack): a font
+// size stepped through waits for the next step rather than writing each.
+func (a *App) saveSettings(s settings.Settings) { a.setOut.Set(s.Clone()) }
+
+// flushSettings writes a settings change that waits, as quitting does.
+func (a *App) flushSettings() { a.setOut.Flush() }
+
+// beforeQuit writes what waits for the disk, and stops what reads behind the
+// view, as the window closes last.
+func (a *App) beforeQuit() {
+	a.savePrefs()
+	a.stopPlugins()
+	a.flushPrefs()
+	a.flushSettings()
+	if a.usage.cancel != nil {
+		a.usage.cancel()
+	}
+}
+
 // apply makes settings the app's, saving them to the configuration when
 // they come from the app rather than from the file.
 func (a *App) apply(s settings.Settings, save bool) {
 	old := a.applied
 	a.set, a.applied = s, s.Clone()
 	if save {
-		if err := settings.Save(s); err != nil {
-			a.toast(locales.ToastSaveSettingsFailed(err.Error()))
-		}
+		a.saveSettings(s)
 	}
 	font := old.FontFamily != s.FontFamily || old.FontSize != s.FontSize || old.FontWeight != s.FontWeight ||
 		old.LineHeight != s.LineHeight || old.Ligatures != s.Ligatures || old.Thicken != s.Thicken
@@ -889,17 +1039,24 @@ func (a *App) watchConfig() {
 func (a *App) reloadConfig() {
 	cur := settings.Load()
 	problems := settings.Problems()
-	a.update(func() {
-		changed := strings.Join(problems, "\n") != strings.Join(a.ss.problems, "\n")
-		a.ss.problems = problems
-		if !reflect.DeepEqual(cur, a.applied) {
-			a.apply(cur, false)
-		}
-		if changed && len(problems) > 0 {
-			a.toast(locales.ToastConfigProblems(len(problems)))
-		}
-		a.invalidateMain()
-	})
+	a.update(func() { a.applyConfigFile(cur, problems) })
+}
+
+// applyConfigFile applies the configuration the file holds, cur, on the main
+// thread. A settings write waits in the background (writeBack), so the file
+// can hold an older value than the app: while one waits, the app's own value
+// stands, and the write that carries it fires the watch again, which reloads
+// the file then.
+func (a *App) applyConfigFile(cur settings.Settings, problems []string) {
+	changed := strings.Join(problems, "\n") != strings.Join(a.ss.problems, "\n")
+	a.ss.problems = problems
+	if !a.setOut.pending() && !reflect.DeepEqual(cur, a.applied) {
+		a.apply(cur, false)
+	}
+	if changed && len(problems) > 0 {
+		a.toast(locales.ToastConfigProblems(len(problems)))
+	}
+	a.invalidateMain()
 }
 
 func vibrancyFor(s settings.Settings) mygo.Vibrancy {
@@ -930,6 +1087,16 @@ func (a *App) openLink(id, link string) bool {
 // the directory of the program that printed it, or "" for no such file.
 // id is a pane's, or a session's for its pane in front.
 func (a *App) resolvePath(id, link string) string {
+	path := a.pathFor(id, link)
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+// pathFor returns the file a path printed in a pane names, without asking
+// the disk whether it is there.
+func (a *App) pathFor(id, link string) string {
 	path := lineSuffix.ReplaceAllString(link, "")
 	if strings.HasPrefix(path, "~/") || runtime.GOOS == "windows" && strings.HasPrefix(path, `~`) {
 		path = filepath.Join(proto.Home(), path[2:])
@@ -938,9 +1105,6 @@ func (a *App) resolvePath(id, link string) string {
 		if dir := a.workDir(id); dir != "" {
 			path = filepath.Join(dir, path)
 		}
-	}
-	if _, err := os.Stat(path); err != nil {
-		return ""
 	}
 	return path
 }

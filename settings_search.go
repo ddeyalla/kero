@@ -61,6 +61,7 @@ func settingsIndex() []searchEntry {
 		{"notifications", locales.SetNotifyWaiting(), "notify-on-waiting attention blocked permission"},
 		{"notifications", locales.SetNotifyDone(), "notify-on-done done complete"},
 		{"notifications", locales.SetNotifyFailed(), "notify-on-error error"},
+		{"notifications", locales.SetNotifyThrottle(), "notify-throttle-minutes throttle repeat dedupe spam loop"},
 		{"notifications", locales.SetPlaySound(), "notify-sound audio"},
 		{"notifications", locales.SetDockBadge(), "dock-badge count"},
 		{"notifications", locales.SetDockBounce(), "dock-bounce attention"},

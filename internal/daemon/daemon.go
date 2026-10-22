@@ -49,7 +49,10 @@ type Daemon struct {
 	ending   bool
 	// linear is the Linear workspace, as last read. Nil when there is
 	// no key, or when it was never read.
-	linear         *proto.LinearState
+	linear *proto.LinearState
+	// linearSaved is the copy of linear last written to linear.json
+	// (linear_store.go), under mu.
+	linearSaved    *proto.LinearState
 	linearMu       sync.Mutex // serialize polls and manual refreshes
 	linearRetry    time.Time
 	linearIdentity string
@@ -58,6 +61,8 @@ type Daemon struct {
 	tasks  map[string]*taskLog
 
 	viewed atomic.Pointer[string]
+	// branch follows the branches agents work on (branch.go).
+	branch branchWatch
 	// theme is the colors of the client that last told them, which the
 	// panes answer programs' questions about the colors with.
 	theme    atomic.Pointer[terminal.Theme]
@@ -100,6 +105,7 @@ func Run() error {
 		return err
 	}
 	defer ln.Close()
+	defer serveProfiles(os.Getenv("KERO_PPROF"), lg)() // pprof.go
 
 	exe, _ := os.Executable()
 	d := &Daemon{
@@ -116,6 +122,9 @@ func Run() error {
 	lg.Printf("kerod %d started (pid %d, %s)", proto.Version, os.Getpid(), exe)
 	d.linkCLI()
 	d.restore()
+	// What the transcripts of the panes say, once at the start: the
+	// ends of turns that came while nothing watched.
+	go d.scanPass(time.Now())
 
 	signal.Ignore(syscall.SIGHUP, syscall.SIGPIPE)
 	sigs := make(chan os.Signal, 1)
@@ -133,7 +142,6 @@ func Run() error {
 	go d.saveLoop()
 	go d.tickLoop()
 	go d.linearLoop()
-	go d.branchLoop()
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -210,6 +218,7 @@ func (d *Daemon) broadcastLoop() {
 func (d *Daemon) tickLoop() {
 	t := time.NewTicker(400 * time.Millisecond)
 	defer t.Stop()
+	ticks := 0
 	for now := range t.C {
 		d.mu.Lock()
 		panes := make([]*pane, 0, len(d.panes))
@@ -221,15 +230,27 @@ func (d *Daemon) tickLoop() {
 			d.idleAt = now
 		}
 		idleFor := now.Sub(d.idleAt)
+		focused := d.focusedPaneLocked()
 		d.mu.Unlock()
 		changed := false
 		for _, s := range panes {
-			if s.tick(now) {
-				changed = true
-			}
+			profiled("pane.tick", func() {
+				if s.tick(now, s == focused) {
+					changed = true
+				}
+			})
 		}
 		if changed {
 			d.changed()
+		}
+		// The agents' transcripts, every few of these ticks: slow reads
+		// of the end of a file, of what else told nothing.
+		ticks++
+		if ticks%12 == 0 {
+			d.scanPass(now)
+		}
+		if ticks%4 == 0 {
+			d.branchTick(now)
 		}
 		// Nothing to keep: go, rather than linger in the background.
 		if idle && idleFor > 30*time.Second {

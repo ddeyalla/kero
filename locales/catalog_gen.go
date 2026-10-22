@@ -154,6 +154,16 @@ func (msgs Messages) ActionRenameSession() string {
 	return Catalog.Format(msgs.locale, "actionRenameSession", nil)
 }
 
+// ActionSilenceSession says "Silence Notifications for This Session"
+// in the language the app shows.
+func ActionSilenceSession() string { return In(i18n.Locale()).ActionSilenceSession() }
+
+// ActionSilenceSession says "Silence Notifications for This Session"
+// in the language of msgs.
+func (msgs Messages) ActionSilenceSession() string {
+	return Catalog.Format(msgs.locale, "actionSilenceSession", nil)
+}
+
 // ActionRestartPane says "Restart Pane"
 // in the language the app shows.
 func ActionRestartPane() string { return In(i18n.Locale()).ActionRestartPane() }
@@ -252,6 +262,16 @@ func ActionNewBrowserPane() string { return In(i18n.Locale()).ActionNewBrowserPa
 // in the language of msgs.
 func (msgs Messages) ActionNewBrowserPane() string {
 	return Catalog.Format(msgs.locale, "actionNewBrowserPane", nil)
+}
+
+// ActionNewAttentionPane says "New Attention Pane"
+// in the language the app shows.
+func ActionNewAttentionPane() string { return In(i18n.Locale()).ActionNewAttentionPane() }
+
+// ActionNewAttentionPane says "New Attention Pane"
+// in the language of msgs.
+func (msgs Messages) ActionNewAttentionPane() string {
+	return Catalog.Format(msgs.locale, "actionNewAttentionPane", nil)
 }
 
 // ActionEvenPanes says "Make Panes Even"
@@ -776,6 +796,26 @@ func (msgs Messages) ToastNothingNeedsYou() string {
 	return Catalog.Format(msgs.locale, "toastNothingNeedsYou", nil)
 }
 
+// ToastSessionSilenced says "Notifications are off for {name}"
+// in the language the app shows.
+func ToastSessionSilenced(name string) string { return In(i18n.Locale()).ToastSessionSilenced(name) }
+
+// ToastSessionSilenced says "Notifications are off for {name}"
+// in the language of msgs.
+func (msgs Messages) ToastSessionSilenced(name string) string {
+	return Catalog.Format(msgs.locale, "toastSessionSilenced", map[string]any{"name": name})
+}
+
+// ToastSessionResumed says "Notifications are back on for {name}"
+// in the language the app shows.
+func ToastSessionResumed(name string) string { return In(i18n.Locale()).ToastSessionResumed(name) }
+
+// ToastSessionResumed says "Notifications are back on for {name}"
+// in the language of msgs.
+func (msgs Messages) ToastSessionResumed(name string) string {
+	return Catalog.Format(msgs.locale, "toastSessionResumed", map[string]any{"name": name})
+}
+
 // CliInstallFailed says "Couldn’t install the kero command: {error}"
 // in the language the app shows.
 func CliInstallFailed(error string) string { return In(i18n.Locale()).CliInstallFailed(error) }
@@ -1136,6 +1176,26 @@ func (msgs Messages) SessionRename() string {
 	return Catalog.Format(msgs.locale, "sessionRename", nil)
 }
 
+// SessionSilenceNotifications says "Silence Notifications"
+// in the language the app shows.
+func SessionSilenceNotifications() string { return In(i18n.Locale()).SessionSilenceNotifications() }
+
+// SessionSilenceNotifications says "Silence Notifications"
+// in the language of msgs.
+func (msgs Messages) SessionSilenceNotifications() string {
+	return Catalog.Format(msgs.locale, "sessionSilenceNotifications", nil)
+}
+
+// SessionResumeNotifications says "Resume Notifications"
+// in the language the app shows.
+func SessionResumeNotifications() string { return In(i18n.Locale()).SessionResumeNotifications() }
+
+// SessionResumeNotifications says "Resume Notifications"
+// in the language of msgs.
+func (msgs Messages) SessionResumeNotifications() string {
+	return Catalog.Format(msgs.locale, "sessionResumeNotifications", nil)
+}
+
 // SessionMarkRead says "Mark as Read"
 // in the language the app shows.
 func SessionMarkRead() string { return In(i18n.Locale()).SessionMarkRead() }
@@ -1344,6 +1404,36 @@ func StatusDone() string { return In(i18n.Locale()).StatusDone() }
 // in the language of msgs.
 func (msgs Messages) StatusDone() string {
 	return Catalog.Format(msgs.locale, "statusDone", nil)
+}
+
+// StatusUnread says "Unread"
+// in the language the app shows.
+func StatusUnread() string { return In(i18n.Locale()).StatusUnread() }
+
+// StatusUnread says "Unread"
+// in the language of msgs.
+func (msgs Messages) StatusUnread() string {
+	return Catalog.Format(msgs.locale, "statusUnread", nil)
+}
+
+// StatusIdle says "Idle"
+// in the language the app shows.
+func StatusIdle() string { return In(i18n.Locale()).StatusIdle() }
+
+// StatusIdle says "Idle"
+// in the language of msgs.
+func (msgs Messages) StatusIdle() string {
+	return Catalog.Format(msgs.locale, "statusIdle", nil)
+}
+
+// StatusBugWork says "Bug work"
+// in the language the app shows.
+func StatusBugWork() string { return In(i18n.Locale()).StatusBugWork() }
+
+// StatusBugWork says "Bug work"
+// in the language of msgs.
+func (msgs Messages) StatusBugWork() string {
+	return Catalog.Format(msgs.locale, "statusBugWork", nil)
 }
 
 // UpdateRestartTip says "Kero was updated: restart the background service to run the new version"
@@ -3022,6 +3112,46 @@ func (msgs Messages) SetNotifyFailedDetail() string {
 	return Catalog.Format(msgs.locale, "setNotifyFailedDetail", nil)
 }
 
+// SetNotifyThrottle says "Repeat after"
+// in the language the app shows.
+func SetNotifyThrottle() string { return In(i18n.Locale()).SetNotifyThrottle() }
+
+// SetNotifyThrottle says "Repeat after"
+// in the language of msgs.
+func (msgs Messages) SetNotifyThrottle() string {
+	return Catalog.Format(msgs.locale, "setNotifyThrottle", nil)
+}
+
+// SetNotifyThrottleDetail says "A session that needs you or ends unseen tells once. A loop of the same session and state inside this window is counte…"
+// in the language the app shows.
+func SetNotifyThrottleDetail() string { return In(i18n.Locale()).SetNotifyThrottleDetail() }
+
+// SetNotifyThrottleDetail says "A session that needs you or ends unseen tells once. A loop of the same session and state inside this window is counte…"
+// in the language of msgs.
+func (msgs Messages) SetNotifyThrottleDetail() string {
+	return Catalog.Format(msgs.locale, "setNotifyThrottleDetail", nil)
+}
+
+// SetNotifyThrottleOff says "Off"
+// in the language the app shows.
+func SetNotifyThrottleOff() string { return In(i18n.Locale()).SetNotifyThrottleOff() }
+
+// SetNotifyThrottleOff says "Off"
+// in the language of msgs.
+func (msgs Messages) SetNotifyThrottleOff() string {
+	return Catalog.Format(msgs.locale, "setNotifyThrottleOff", nil)
+}
+
+// SetNotifyThrottleMinutes says "{n, plural, one {# minute} other {# minutes}}"
+// in the language the app shows.
+func SetNotifyThrottleMinutes(n int) string { return In(i18n.Locale()).SetNotifyThrottleMinutes(n) }
+
+// SetNotifyThrottleMinutes says "{n, plural, one {# minute} other {# minutes}}"
+// in the language of msgs.
+func (msgs Messages) SetNotifyThrottleMinutes(n int) string {
+	return Catalog.Format(msgs.locale, "setNotifyThrottleMinutes", map[string]any{"n": n})
+}
+
 // SetHow says "How"
 // in the language the app shows.
 func SetHow() string { return In(i18n.Locale()).SetHow() }
@@ -4258,6 +4388,16 @@ func PaneBrowser() string { return In(i18n.Locale()).PaneBrowser() }
 // in the language of msgs.
 func (msgs Messages) PaneBrowser() string {
 	return Catalog.Format(msgs.locale, "paneBrowser", nil)
+}
+
+// PaneAttention says "Attention"
+// in the language the app shows.
+func PaneAttention() string { return In(i18n.Locale()).PaneAttention() }
+
+// PaneAttention says "Attention"
+// in the language of msgs.
+func (msgs Messages) PaneAttention() string {
+	return Catalog.Format(msgs.locale, "paneAttention", nil)
 }
 
 // PaneTerminal says "Terminal"
@@ -5522,6 +5662,106 @@ func PagePlugins() string { return In(i18n.Locale()).PagePlugins() }
 // in the language of msgs.
 func (msgs Messages) PagePlugins() string {
 	return Catalog.Format(msgs.locale, "pagePlugins", nil)
+}
+
+// PaneAttentionDetail says "Every session that needs you, in one list"
+// in the language the app shows.
+func PaneAttentionDetail() string { return In(i18n.Locale()).PaneAttentionDetail() }
+
+// PaneAttentionDetail says "Every session that needs you, in one list"
+// in the language of msgs.
+func (msgs Messages) PaneAttentionDetail() string {
+	return Catalog.Format(msgs.locale, "paneAttentionDetail", nil)
+}
+
+// AttentionAll says "All"
+// in the language the app shows.
+func AttentionAll() string { return In(i18n.Locale()).AttentionAll() }
+
+// AttentionAll says "All"
+// in the language of msgs.
+func (msgs Messages) AttentionAll() string {
+	return Catalog.Format(msgs.locale, "attentionAll", nil)
+}
+
+// AttentionSearch says "Search attention"
+// in the language the app shows.
+func AttentionSearch() string { return In(i18n.Locale()).AttentionSearch() }
+
+// AttentionSearch says "Search attention"
+// in the language of msgs.
+func (msgs Messages) AttentionSearch() string {
+	return Catalog.Format(msgs.locale, "attentionSearch", nil)
+}
+
+// AttentionSearchPlaceholder says "Search"
+// in the language the app shows.
+func AttentionSearchPlaceholder() string { return In(i18n.Locale()).AttentionSearchPlaceholder() }
+
+// AttentionSearchPlaceholder says "Search"
+// in the language of msgs.
+func (msgs Messages) AttentionSearchPlaceholder() string {
+	return Catalog.Format(msgs.locale, "attentionSearchPlaceholder", nil)
+}
+
+// AttentionClearFilter says "Clear Filter"
+// in the language the app shows.
+func AttentionClearFilter() string { return In(i18n.Locale()).AttentionClearFilter() }
+
+// AttentionClearFilter says "Clear Filter"
+// in the language of msgs.
+func (msgs Messages) AttentionClearFilter() string {
+	return Catalog.Format(msgs.locale, "attentionClearFilter", nil)
+}
+
+// AttentionEmptyTitle says "Nothing needs you"
+// in the language the app shows.
+func AttentionEmptyTitle() string { return In(i18n.Locale()).AttentionEmptyTitle() }
+
+// AttentionEmptyTitle says "Nothing needs you"
+// in the language of msgs.
+func (msgs Messages) AttentionEmptyTitle() string {
+	return Catalog.Format(msgs.locale, "attentionEmptyTitle", nil)
+}
+
+// AttentionEmptyDetail says "Sessions that work, wait on you or end unseen show here, with the pane to open."
+// in the language the app shows.
+func AttentionEmptyDetail() string { return In(i18n.Locale()).AttentionEmptyDetail() }
+
+// AttentionEmptyDetail says "Sessions that work, wait on you or end unseen show here, with the pane to open."
+// in the language of msgs.
+func (msgs Messages) AttentionEmptyDetail() string {
+	return Catalog.Format(msgs.locale, "attentionEmptyDetail", nil)
+}
+
+// AttentionEmptyFilteredTitle says "Nothing in this filter"
+// in the language the app shows.
+func AttentionEmptyFilteredTitle() string { return In(i18n.Locale()).AttentionEmptyFilteredTitle() }
+
+// AttentionEmptyFilteredTitle says "Nothing in this filter"
+// in the language of msgs.
+func (msgs Messages) AttentionEmptyFilteredTitle() string {
+	return Catalog.Format(msgs.locale, "attentionEmptyFilteredTitle", nil)
+}
+
+// AttentionEmptyFilteredDetail says "Another filter, or no search, may show what you look for."
+// in the language the app shows.
+func AttentionEmptyFilteredDetail() string { return In(i18n.Locale()).AttentionEmptyFilteredDetail() }
+
+// AttentionEmptyFilteredDetail says "Another filter, or no search, may show what you look for."
+// in the language of msgs.
+func (msgs Messages) AttentionEmptyFilteredDetail() string {
+	return Catalog.Format(msgs.locale, "attentionEmptyFilteredDetail", nil)
+}
+
+// AttentionApprove says "Focus pane to approve"
+// in the language the app shows.
+func AttentionApprove() string { return In(i18n.Locale()).AttentionApprove() }
+
+// AttentionApprove says "Focus pane to approve"
+// in the language of msgs.
+func (msgs Messages) AttentionApprove() string {
+	return Catalog.Format(msgs.locale, "attentionApprove", nil)
 }
 
 // PaneShow says "Show in This Pane"

@@ -286,6 +286,12 @@ func (s *pane) applyReport(r proto.Record, osc7501 bool) {
 		s.records = map[string]proto.Record{}
 	}
 	delete(s.soft, r.ID) // a program's own report, not an agent's hook's (applySoft)
+	if r.ID != scanRecordID {
+		// A report of another's, of a hook or the program itself,
+		// retires the transcript scan's: it knows more, and sooner.
+		delete(s.records, scanRecordID)
+		delete(s.soft, scanRecordID)
+	}
 	if osc7501 && r.ID == "" {
 		// The program reports for itself, as Claude Code does, after its
 		// hooks: its working ends the wait they told, its idle the turn

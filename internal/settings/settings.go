@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 
 	"kero/internal/proto"
@@ -61,8 +62,14 @@ type Settings struct {
 	NotifyDone    bool `json:"notifyDone"`    // an agent finished
 	NotifyFailed  bool `json:"notifyFailed"`  // a program reported it failed
 	NotifySound   bool `json:"notifySound"`
-	DockBadge     bool `json:"dockBadge"`
-	BounceDock    bool `json:"bounceDock"`
+	// NotifyThrottle is how many minutes the same session and state stays
+	// quiet after it told: 0 tells every transition.
+	NotifyThrottle int `json:"notifyThrottle"`
+	// SilencedSessions are the sessions whose notifications the user
+	// turned off, by their id.
+	SilencedSessions []string `json:"silencedSessions,omitempty"`
+	DockBadge        bool     `json:"dockBadge"`
+	BounceDock       bool     `json:"bounceDock"`
 
 	// Agents
 	RemoteControl bool `json:"remoteControl"` // kero focus and kero do drive the app
@@ -109,6 +116,7 @@ func Default() Settings {
 		NotifyWaiting:   true,
 		NotifyDone:      true,
 		NotifyFailed:    true,
+		NotifyThrottle:  5,
 		DockBadge:       true,
 		RemoteControl:   true,
 		AgentHooks:      true,
@@ -223,33 +231,42 @@ func migrate() {
 
 // Save writes the settings into the configuration, keeping what the user
 // wrote around them (see format).
-func Save(s Settings) error {
+func Save(s Settings) error { return SaveAt(Path(), s) }
+
+// SaveAt writes the settings into the file at path, which Save names, for a
+// caller that writes on another thread, after this process's environment
+// may have said another file.
+func SaveAt(path string, s Settings) error {
 	mu.Lock()
 	defer mu.Unlock()
 	s.normalize()
-	if err := write(s); err != nil {
+	if err := writeAt(path, s); err != nil {
 		return err
 	}
 	c := clone(s)
 	cache, problems = &c, nil
-	if st, err := os.Stat(Path()); err == nil {
+	if st, err := os.Stat(path); err == nil {
 		mtime = st.ModTime().UnixNano()
 	}
 	return nil
 }
 
 // write writes the configuration; mu is held.
-func write(s Settings) error {
-	old, _ := os.ReadFile(Path())
+func write(s Settings) error { return writeAt(Path(), s) }
+
+// writeAt writes the configuration at path, keeping what the user wrote
+// around the settings; mu is held.
+func writeAt(path string, s Settings) error {
+	old, _ := os.ReadFile(path)
 	data := format(s, string(old))
-	if err := os.MkdirAll(filepath.Dir(Path()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := Path() + ".tmp"
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(data), 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, Path())
+	return os.Rename(tmp, path)
 }
 
 // Clone returns a copy that shares nothing with s.
@@ -257,6 +274,7 @@ func (s Settings) Clone() Settings { return clone(s) }
 
 func clone(s Settings) Settings {
 	s.Env = append([]string(nil), s.Env...)
+	s.SilencedSessions = append([]string(nil), s.SilencedSessions...)
 	if s.Shortcuts != nil {
 		m := make(map[string]string, len(s.Shortcuts))
 		for k, v := range s.Shortcuts {
@@ -310,10 +328,34 @@ func (s *Settings) normalize() {
 	if s.Scrollback < 0 || s.Scrollback > 256 {
 		s.Scrollback = d.Scrollback
 	}
+	if s.NotifyThrottle < 0 || s.NotifyThrottle > 60 {
+		s.NotifyThrottle = d.NotifyThrottle
+	}
+	s.SilencedSessions = cleanSessions(s.SilencedSessions)
 	if s.LightTheme == "" {
 		s.LightTheme = d.LightTheme
 	}
 	if s.DarkTheme == "" {
 		s.DarkTheme = d.DarkTheme
 	}
+}
+
+// cleanSessions keeps a list of session ids as the one form of them: each
+// once, with none empty, as the settings file and the app's toggle may say
+// it.
+func cleanSessions(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
 }

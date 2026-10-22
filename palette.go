@@ -57,7 +57,7 @@ func (a *App) paletteItems() []paletteItem {
 	var cmds []paletteItem
 	for _, act := range actions.All {
 		id := act.ID
-		cmds = append(cmds, paletteItem{title: strings.TrimSuffix(actionTitle(act.ID), "…"), keys: actions.Glyphs(actions.Keys(act, a.set.Shortcuts)),
+		cmds = append(cmds, paletteItem{title: strings.TrimSuffix(a.actionLabel(act.ID), "…"), keys: actions.Glyphs(actions.Keys(act, a.set.Shortcuts)),
 			run: func() { a.run(id, map[string]string{"via": "palette"}) }})
 	}
 	for _, k := range a.pluginWidgets() {
@@ -194,6 +194,10 @@ func (a *App) paletteView(c *ui.Context, pal *palette) {
 						statusIcon(c, pal, it.session.Status, it.session.Unread, 14)
 					} else {
 						ui.Icon(c, returnIcon).Size(14, 14).TextColor(pal.textFaint)
+					}
+					if isSession {
+						// The title's mark, as the sidebar's row has it.
+						titleMarkView(c, pal, titleMark(it.session, a.st.Linear))
 					}
 					ui.Text(c, it.title).FontSize(13.5).TextColor(pal.text).SingleLine().Ellipsis("…").Shrink(0).MaxWidth(300)
 					ui.Text(c, it.detail).FontSize(12.5).TextColor(pal.textFaint).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)

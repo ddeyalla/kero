@@ -182,6 +182,12 @@ var keys = []key{
 	boolKey("notify-on-done", "when an agent finishes", func(s *Settings) *bool { return &s.NotifyDone }),
 	boolKey("notify-on-error", "when a program reports it failed", func(s *Settings) *bool { return &s.NotifyFailed }),
 	boolKey("notify-sound", "", func(s *Settings) *bool { return &s.NotifySound }),
+	numberKey("notify-throttle-minutes", "how long the same session and state stays quiet after a notification, in minutes; 0 tells every time",
+		func(s *Settings) float64 { return float64(s.NotifyThrottle) },
+		func(s *Settings, n float64) { s.NotifyThrottle = int(min(max(n, 0), 60)) }),
+	{name: "silence-session", doc: "a session whose notifications are off, by its id; repeat it", list: true,
+		get: func(s *Settings) []string { return slices.Clone(s.SilencedSessions) },
+		set: func(s *Settings, v []string) error { s.SilencedSessions = cleanSessions(v); return nil }},
 	boolKey("dock-badge", "the number of sessions that need you", func(s *Settings) *bool { return &s.DockBadge }),
 	boolKey("dock-bounce", "once, when a session comes to need you", func(s *Settings) *bool { return &s.BounceDock }),
 

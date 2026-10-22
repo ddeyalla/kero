@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"kero/internal/plugin/protocol"
@@ -97,5 +98,52 @@ func TestRestoreMigratesAndSaveWritesV3(t *testing.T) {
 	var saved savedState
 	if err := json.Unmarshal(out, &saved); err != nil || saved.Version != 3 {
 		t.Fatalf("saved version %d: %v", saved.Version, err)
+	}
+}
+
+// A state.json of the release before has a Tasks pane and the Linear
+// workspace in it. A restore migrates the pane and takes the workspace; the
+// next save writes version 3, with the pane a Linear plugin pane, the
+// workspace in linear.json and none of it in state.json.
+func TestRestoreMigratesTasksPaneAndMovesLinear(t *testing.T) {
+	d, want := fixtureDaemon(t, "state-linear-tasks-v2.json")
+	if want.Linear == nil || len(want.Linear.Issues) != 2 || want.Version != 2 {
+		t.Fatalf("the fixture is not a version 2 file with a workspace: %+v", want)
+	}
+	d.restore()
+	if len(d.sessions) != 1 || len(d.sessions[0].panes) != 2 {
+		t.Fatalf("restored: %+v", d.sessions)
+	}
+	if info := d.panes["t"].info; info.View != proto.PanePlugins || info.Target != linearPluginTarget() {
+		t.Fatalf("the Tasks pane restored as %q %q", info.View, info.Target)
+	}
+	if info := d.panes["w"].info; info.View != proto.PaneFiles {
+		t.Fatalf("the files pane restored as %q", info.View)
+	}
+	if d.linear == nil || len(d.linear.Issues) != 2 {
+		t.Fatalf("the workspace was lost on restore: %+v", d.linear)
+	}
+
+	d.saveState()
+	out, err := os.ReadFile(d.statePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved savedState
+	if err := json.Unmarshal(out, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Version != 3 {
+		t.Fatalf("saved version %d, want 3", saved.Version)
+	}
+	if p := saved.Sessions[0].Panes[0]; p.View != proto.PanePlugins || p.Target != linearPluginTarget() {
+		t.Fatalf("the Tasks pane was saved as %q %q", p.View, p.Target)
+	}
+	if saved.Linear != nil || strings.Contains(string(out), `"linear"`) || strings.Contains(string(out), "DEM-1") {
+		t.Fatalf("state.json still holds the workspace: %s", out)
+	}
+	lin := d.loadLinear()
+	if lin == nil || len(lin.Issues) != 2 || lin.Issues[0].Identifier != "DEM-1" || lin.FetchedAt != want.Linear.FetchedAt {
+		t.Fatalf("linear.json: %+v", lin)
 	}
 }

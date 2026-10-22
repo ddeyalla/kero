@@ -44,7 +44,7 @@ func TestLinearLinkUnlinkAndPersistedIdentity(t *testing.T) {
 	if err := json.Unmarshal(b, &saved); err != nil {
 		t.Fatal(err)
 	}
-	if saved.Sessions[0].Panes[0].Task != "uuid" || saved.Linear == nil {
+	if saved.Sessions[0].Panes[0].Task != "uuid" || d.loadLinear() == nil {
 		t.Fatal("task link or offline cache not persisted")
 	}
 	if err := d.linkSession("s", "", "link"); err != nil {

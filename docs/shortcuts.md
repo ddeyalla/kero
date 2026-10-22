@@ -49,6 +49,12 @@ On Windows and Linux, <kbd>Ctrl</kbd> with a letter belongs to the shell (<kbd>C
 | Pane Right    | <kbd>⌘</kbd> <kbd>⌥</kbd> <kbd>→</kbd> | <kbd>Alt</kbd> <kbd>→</kbd>                       | `pane.right`       |
 | Pane Above    | <kbd>⌘</kbd> <kbd>⌥</kbd> <kbd>↑</kbd> | <kbd>Alt</kbd> <kbd>↑</kbd>                       | `pane.up`          |
 | Pane Below    | <kbd>⌘</kbd> <kbd>⌥</kbd> <kbd>↓</kbd> | <kbd>Alt</kbd> <kbd>↓</kbd>                       | `pane.down`        |
+| New Pane…     | <kbd>⌘</kbd> <kbd>⌥</kbd> <kbd>N</kbd> | <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>N</kbd>       | `pane.new`         |
+| New Terminal Pane | <kbd>⌘</kbd> <kbd>⌥</kbd> <kbd>T</kbd> | <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>T</kbd> | `pane.new.terminal` |
+| New Tasks Pane | <kbd>⌘</kbd> <kbd>⌥</kbd> <kbd>L</kbd> | <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>L</kbd>       | `pane.new.tasks`   |
+| New Files Pane | <kbd>⌘</kbd> <kbd>⌥</kbd> <kbd>E</kbd> | <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>E</kbd>       | `pane.new.files`   |
+| New Browser Pane | <kbd>⌘</kbd> <kbd>⌥</kbd> <kbd>B</kbd> | <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>B</kbd>     | `pane.new.browser` |
+| New Attention Pane | <kbd>⌘</kbd> <kbd>⌥</kbd> <kbd>A</kbd> | <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>A</kbd>   | `pane.new.attention` |
 
 ## View
 

@@ -126,6 +126,9 @@ func TestPinUnpinRoundTrip(t *testing.T) {
 	if !slices.Equal(a.prefs.Pinned, []pinRef{{"fake", "board"}}) {
 		t.Fatalf("pins = %v, want the first widget pinned once", a.prefs.Pinned)
 	}
+	// The prefs are written in the background: a restart sees them once
+	// they are flushed, as quitting does.
+	a.flushPrefs()
 	if again := newApp(); !slices.Contains(again.prefs.Pinned, pinRef{"fake", "board"}) {
 		t.Fatalf("pins after a restart = %v", again.prefs.Pinned)
 	}
@@ -133,6 +136,7 @@ func TestPinUnpinRoundTrip(t *testing.T) {
 	if len(a.prefs.Pinned) != 0 {
 		t.Fatalf("pins = %v after an unpin", a.prefs.Pinned)
 	}
+	a.flushPrefs()
 	if again := newApp(); slices.Contains(again.prefs.Pinned, pinRef{"fake", "board"}) {
 		t.Fatalf("an unpinned plugin came back: %v", again.prefs.Pinned)
 	}
@@ -159,6 +163,7 @@ func TestLinearSidebarSeedsAPinOnce(t *testing.T) {
 	}
 	a.savePrefs()
 	a.unpinPlugin("linear", "board")
+	a.flushPrefs()
 	b := newApp()
 	if len(b.prefs.Pinned) != 0 {
 		t.Fatalf("pins = %v, want the migration not to run twice", b.prefs.Pinned)

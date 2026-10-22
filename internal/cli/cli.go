@@ -46,6 +46,7 @@ Usage:
       --browser <url>             a web page, as a dev server's
       --plugin <id> [--widget <name>]
                                   a widget of a plugin, such as Spotify
+      --attention                 every session that needs you
   kero send <target> <text…>    type text into a pane
       -e                          interpret \n \r \t \e \xHH escapes
       --enter                     press Enter after it
@@ -323,7 +324,7 @@ func run(args []string) error {
 		f, err := parse(args, map[string]string{"r": "ratio", "ratio": "ratio", "d": "dir", "dir": "dir", "timeout": "timeout", "t": "timeout",
 			"browser": "browser", "open": "open", "plugin": "plugin", "widget": "widget"},
 			map[string]string{"right": "right", "down": "down", "left": "left", "up": "up", "json": "json", "f": "focus", "focus": "focus", "wait": "wait", "w": "wait",
-				"tasks": "tasks", "files": "files"})
+				"tasks": "tasks", "files": "files", "attention": "attention"})
 		if err != nil {
 			return err
 		}
@@ -343,7 +344,7 @@ func run(args []string) error {
 			return usageErr("kero split --wait needs a command: kero split --wait -- cmd…")
 		}
 		// A view in place of a terminal: the project's tasks, its files
-		// (one open with --open), or a page.
+		// (one open with --open), a page, or what needs the user.
 		view, target := "", ""
 		switch {
 		case f.set["tasks"]:
@@ -376,6 +377,8 @@ func run(args []string) error {
 			target = t
 		case f.vals["widget"] != "":
 			return usageErr("kero split --widget needs --plugin <id>")
+		case f.set["attention"]:
+			view = proto.PaneAttention
 		}
 		if view != "" && (len(command) > 0 || f.set["wait"]) {
 			return usageErr("a view runs no command")

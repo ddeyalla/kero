@@ -44,6 +44,7 @@ type pane struct {
 	shellPID     int
 	fgPGID       int
 	cwdAt        time.Time
+	fg           fgProgram // the foreground program, as last read (proc_cache.go)
 
 	dirty bool // output since the history on disk
 	// seen is what the screen showed when the status last came from it,
@@ -61,6 +62,22 @@ type pane struct {
 	records  map[string]proto.Record
 	soft     map[string]bool
 	reported bool
+	// The transcript scan (attention.go) reads an agent's conversation
+	// on disk for what its hooks and its screen do not say. What a
+	// parse read it keeps (key, state, msg, callAt), what of that its
+	// status shows it keeps told, and a lookup that found no file waits
+	// scanMissHold before it looks again.
+	transcriptPath string
+	scanKey        string
+	scanState      string
+	scanMsg        string
+	scanCallAt     int64
+	scanTold       string
+	scanToldMsg    string
+	scanMissed     time.Time
+	// summary is what the pane's attention said when last saved, which
+	// an unread end of a restored pane shows (paneAttention).
+	summary string
 	// awaiting tells that the command the pane started with runs, whose
 	// end its shell will tell (OSC 133;D, see shellArgs).
 	awaiting   bool
@@ -107,13 +124,9 @@ func newPane(d *Daemon, sid string, info proto.Pane) (*pane, error) {
 	if s.info.Cols <= 0 || s.info.Rows <= 0 {
 		s.info.Cols, s.info.Rows = 120, 36
 	}
-	sb := settings.Load().Scrollback << 20
-	if sb == 0 {
-		sb = -1 // none
-	}
 	term, err := terminal.New(terminal.Options{
 		Conn:       &headless{s: s, closed: make(chan struct{})},
-		Scrollback: sb,
+		Scrollback: settings.Load().ScrollbackBytes(),
 		// Programs' reads of the clipboard go on to the clients, whose
 		// terminals answer them, asking the user as they would.
 		ClipboardRead: terminal.ClipboardForward,
@@ -283,8 +296,9 @@ func (s *pane) wake() {
 }
 
 // tick follows the foreground program and the shell's directory, and ends
-// work that went quiet.
-func (s *pane) tick(now time.Time) bool {
+// work that went quiet. focused tells that the pane is the one the user
+// is in, whose directory it follows closely (cwdEvery).
+func (s *pane) tick(now time.Time, focused bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.proc == nil || s.info.Status == proto.Exited {
@@ -292,11 +306,12 @@ func (s *pane) tick(now time.Time) bool {
 	}
 	changed := false
 	pg := s.proc.Foreground()
+	moved := pg != s.fgPGID
 	s.fgPGID = pg
 	proc, agent, runtime := "", "", ""
 	if pg != 0 && pg != s.shellPID {
-		proc = procName(pg)
-		args := procArgs(pg)
+		var args []string
+		proc, args = s.foreground(pg, now)
 		agent = detectAgent(proc, args)
 		if proc == "node" || proc == "bun" || proc == "python" || proc == "python3" || proc == "deno" {
 			// A script: name it by the script, as "codex", not "node".
@@ -308,6 +323,8 @@ func (s *pane) tick(now time.Time) bool {
 		if agent != "" {
 			proc = agent
 		}
+	} else {
+		s.fg = fgProgram{}
 	}
 	if proc == "" && s.info.Process != "" {
 		// The program ended: its live reports go with it, and an agent's
@@ -326,7 +343,7 @@ func (s *pane) tick(now time.Time) bool {
 			s.d.taskEnd(s.info.ID)
 		}
 		if agent != "" {
-			dir := procCwd(pg)
+			dir := readCwd(pg)
 			if dir == "" {
 				dir = s.info.Dir
 			}
@@ -334,22 +351,26 @@ func (s *pane) tick(now time.Time) bool {
 		}
 	}
 	if proc != s.info.Process || agent != s.info.Agent || runtime != s.info.Runtime {
+		if agent != s.info.Agent {
+			s.d.branch.due.Store(true)
+		}
 		s.info.Process, s.info.Agent, s.info.Runtime = proc, agent, runtime
 		s.seen, s.looked = "", false
 		changed = true
 	}
-	if now.Sub(s.cwdAt) > 1500*time.Millisecond || proc == "" && s.info.ProcessDir != "" {
+	if moved || now.Sub(s.cwdAt) > cwdEvery(focused) || proc == "" && s.info.ProcessDir != "" {
 		s.cwdAt = now
-		if dir := procCwd(s.shellPID); dir != "" && dir != s.info.Dir {
+		if dir := readCwd(s.shellPID); dir != "" && dir != s.info.Dir {
 			s.info.Dir = dir
 			changed = true
+			s.d.branch.due.Store(true)
 			s.d.save()
 		}
 		// The program's own, from its group's leader, as an agent's that
 		// went into a worktree: the shell under it stays where it was.
 		pdir := ""
 		if proc != "" {
-			pdir = procCwd(pg)
+			pdir = readCwd(pg)
 		}
 		if pdir == s.info.Dir {
 			pdir = ""
@@ -357,6 +378,7 @@ func (s *pane) tick(now time.Time) bool {
 		if pdir != s.info.ProcessDir {
 			s.info.ProcessDir = pdir
 			changed = true
+			s.d.branch.due.Store(true)
 		}
 	}
 	if s.look(now) {
@@ -429,10 +451,43 @@ func (s *pane) look(now time.Time) bool {
 
 // screen returns the text of the screen: the last rows of the terminal's
 // text; s.mu is held.
-func (s *pane) screen() string {
-	text := strings.TrimRight(s.term.Text(), "\n")
-	lines := strings.Split(text, "\n")
-	return strings.Join(lines[max(0, len(lines)-s.info.Rows):], "\n") + "\n"
+func (s *pane) screen() (text string) {
+	profiled("pane.screen", func() { text = s.tail(s.info.Rows, "\n") + "\n" })
+	return text
+}
+
+// tail returns the last n lines of the terminal's text with what of cutset
+// ends it trimmed, as strings.Split of it ends, joined; s.mu is held. It
+// reads the text of the terminal's last rows alone, not of its whole
+// scrollback, as status detection does several times a second: twice n of
+// them, and twice as many again while those hold no more than n lines, as
+// when blank rows end the screen. The first line of those rows may be the
+// rest of one soft-wrapped from above, which then is not among the last.
+func (s *pane) tail(n int, cutset string) string {
+	for rows := max(2*n, 1); ; rows *= 2 {
+		text, all := s.term.TailText(rows)
+		text = strings.TrimRight(text, cutset)
+		if all || strings.Count(text, "\n") >= n {
+			return lastLines(text, n)
+		}
+	}
+}
+
+// lastLines returns the last n lines of text, or all of it when it has no
+// more.
+func lastLines(text string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	end := len(text)
+	for ; n > 0; n-- {
+		i := strings.LastIndexByte(text[:end], '\n')
+		if i < 0 {
+			return text
+		}
+		end = i
+	}
+	return text[end+1:]
 }
 
 // input writes what the user typed to the program.
@@ -650,6 +705,7 @@ func (s *pane) restart() error {
 	s.frame()
 	s.setStatus(proto.Idle)
 	s.info.Unread, s.info.Message, s.info.ExitCode = false, "", 0
+	s.summary = ""
 	s.mu.Unlock()
 	if err := s.start(nil, nil); err != nil {
 		return err
@@ -737,16 +793,17 @@ func (s *pane) history(force bool) []byte {
 // readText returns the session's text: the screen, or with scrollback.
 func (s *pane) readText(scrollback bool, lines int) string {
 	s.mu.Lock()
-	text := s.term.Text()
-	rows := s.info.Rows
-	s.mu.Unlock()
-	all := strings.Split(strings.TrimRight(text, "\n "), "\n")
 	if !scrollback && lines <= 0 {
-		lines = rows
+		lines = s.info.Rows
 	}
-	if lines > 0 && len(all) > lines {
-		all = all[len(all)-lines:]
+	var text string
+	if lines > 0 {
+		text = s.tail(lines, "\n ")
+	} else {
+		text = strings.TrimRight(s.term.Text(), "\n ")
 	}
+	s.mu.Unlock()
+	all := strings.Split(text, "\n")
 	for i, l := range all {
 		all[i] = strings.TrimRight(l, " ")
 	}
@@ -768,15 +825,17 @@ func newAttachment(conn net.Conn) *attachment {
 }
 
 func (a *attachment) send(kind byte, payload []byte) {
-	f := proto.AppendFrames(nil, kind, payload)
-	select {
-	case a.out <- f:
-	case <-a.done:
-	default:
-		// Too far behind: drop it, and it attaches again, from a first
-		// frame.
-		a.finish()
-	}
+	profiled("attachment.send", func() {
+		f := proto.AppendFrames(nil, kind, payload)
+		select {
+		case a.out <- f:
+		case <-a.done:
+		default:
+			// Too far behind: drop it, and it attaches again, from a
+			// first frame.
+			a.finish()
+		}
+	})
 }
 
 // finish ends the attachment: the writer flushes what is queued, as a

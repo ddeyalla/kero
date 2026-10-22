@@ -124,11 +124,7 @@ func runApp() {
 		}
 	})
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
-		a.savePrefs()
-		a.stopPlugins()
-		if a.usage.cancel != nil {
-			a.usage.cancel()
-		}
+		a.beforeQuit()
 	})
 	mygo.App.WhenReady(func() {
 		a.win = mygo.NewWindow(framed(mygo.WindowOptions{

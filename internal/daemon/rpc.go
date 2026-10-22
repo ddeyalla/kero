@@ -176,6 +176,7 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		if !ok {
 			return nil, fmt.Errorf("no pane %q in session %q", p.Pane, p.Session)
 		}
+		d.branch.due.Store(true)
 		d.changed()
 		return true, nil
 
@@ -257,6 +258,7 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		}
 		d.mu.Unlock()
 		d.viewed.Store(&id)
+		d.branch.due.Store(true)
 		for _, pn := range panes {
 			pn.mu.Lock()
 			pn.info.Unread = false

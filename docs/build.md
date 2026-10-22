@@ -15,12 +15,13 @@ in [Versioning](versioning.md); the current runtime version is in
 MyGo is pinned in `go.mod`/`go.sum`; use `go tool mygo`, not an independently
 installed CLI. `.toolchain/` and build outputs are local, ignored directories.
 
-If using the checkout's bundled Go, configure the current shell:
+To use the bundled Go in the current shell, source the setup script. It works
+from the main checkout and from any worktree, and every worktree shares the
+main checkout's `.toolchain`: one Go, one module cache and one warm build
+cache.
 
 ```sh
-export PATH="$PWD/.toolchain/go/bin:$PATH"
-export GOPATH="$PWD/.toolchain/gopath"
-export GOCACHE="$PWD/.toolchain/gocache"
+. scripts/dev-env.sh
 go version
 go env GOHOSTOS GOHOSTARCH
 ```
@@ -31,15 +32,18 @@ Rosetta can report `amd64`; use a native ARM64 Go toolchain in that case.
 ## Verify
 
 ```sh
-env PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" CGO_ENABLED=0 go test ./...
-go tool mygo vet .
-git diff --check
+sh scripts/check.sh                    # tests, MyGo vet, script tests, diff check
+sh scripts/check.sh ./internal/daemon  # only these packages, for the edit-test loop
 ```
 
-The PATH order selects system zsh for subprocess tests; the Homebrew-zsh
-environment previously failed two existing daemon tests. No global shell
-configuration needs changing. Use focused race/UI checks when the relevant
-code changes; see the [verification record](local-v1-verification.md).
+[`check.sh`](../scripts/check.sh) uses the bundled Go, puts the system tools
+first on `PATH` (the Homebrew-zsh environment previously failed two existing
+daemon tests) and clears `KERO_HOME`, `KERO_CONFIG`, `KERO_SOCKET`,
+`KERO_PANE` and `KERO_SESSION`, so tests started inside the daily app never
+reach it. Run the full set before a commit; use the focused form while you
+edit. No global shell configuration needs changing. Use focused race/UI checks
+when the relevant code changes; see the
+[verification record](local-v1-verification.md).
 
 ## Build
 
