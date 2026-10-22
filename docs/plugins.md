@@ -116,16 +116,20 @@ app's palette, fonts and motion.
 
 | Part | Fields | Event |
 | --- | --- | --- |
-| `row`, `column` | `gap`, `padding`, `align`, `grow`; children | — |
-| `text` | `text`, `role` (headline, title, body, caption, mono), `color` (text, muted, accent), `lines`, `marquee`, optional `rate` and `at` (a clock that counts on its own) | — |
+| `row`, `column` | `gap`, `padding`, `align`, `grow`, `surface: "card"` (a soft panel with rounded corners, `radius` 10 unless set); children | — |
+| `text` | `text`, `role` (headline, title, body, caption, mono, strong: body size in a heavier weight), `color` (text, muted, accent, danger, warning, success, orange, green, teal, blue, purple, gray), `lines`, `marquee`, `icon` or `mark` (a glyph or a program logo before the words), optional `label` (the spoken name of an icon-only text), optional `rate` and `at` (a clock that counts on its own) | — |
 | `image` | `url` (a URL or a `data:` URI), `width`, `height`, `radius`, `tint` | — |
 | `button`, `iconButton` | `label` or `icon` (from the app's set), `primary`, `enabled`; an `iconButton` with a `width` (up to 96) is a round button of that size, and a primary one is a filled disc | `press` |
 | `slider` | `value`, `min`, `max`, `step`, optional `rate` and `at` (the host moves it while playing); a horizontal slider with a `width` keeps it, one without grows | `change` while dragging, `commit` once on release, even if the pointer left the track |
-| `progress` | `value`, `color`, optional `rate` and `at` | — |
+| `progress` | `value`, `color`, optional `marker` (a tick at a fraction of the bar, 0 to 1, such as where usage should be by now), optional `rate` and `at` | — |
+| `segmented` | `items` (2 to 8 choices), `active` (the chosen one) | `select` |
+| `donut` | `segments` (up to 32, each with `id`, `label`, `value`, `color`), `width` (the diameter, 48 to 240 points), `text` (in the middle), `detail` (the caption under it) | — |
 | `list` | `rows` of `image`, `title`, `subtitle`, `trailing`, `leading`, `active` (the row is highlighted); `variant: "grid"` draws the rows as square tiles `width` wide, which wrap with 12 points between them | `select` |
 | `searchField` | `placeholder`, optional `text` (the query to show, such as one saved before a restart; the app puts it in the field when the field first shows and when the plugin sends another one, and ignores an echo of what the field last sent) | `change` after a short pause, `submit` |
 | `emptyState` | `title`, `detail`, one action | the action's `press` |
 | `spacer`, `divider` | — | — |
+
+The fields `surface`, `marker`, `mark` and `segments` are valid only on their own node types (row and column, progress, text and donut); a tree that sets one elsewhere is refused. Plugin text is drawn with tabular digits.
 
 A tree may set `scroll` (`ScrollingTree()` in the SDK). The whole pane then
 scrolls as one page: the root takes its natural height, and a `list` draws at
@@ -146,7 +150,9 @@ from the last one it sent for that pane. The mapping:
 | `shuffle` | `shuffle` | `gear` | `gearshape` |
 | `repeat` | `repeat` | `external` | `arrow.up.right.square` |
 | `volume` | `speaker.wave.2.fill` | `volume-off` | `speaker.slash.fill` |
-| `copy` | `doc.on.doc` | | |
+| `copy` | `doc.on.doc` | `flame` | `flame.fill` |
+| `dot` | `circle.fill` | `warning` | `exclamationmark.triangle.fill` |
+| `info` | `info.circle` | | |
 
 The table lists a part of the set; `plugin_symbol.go` has all of it.
 
@@ -188,7 +194,7 @@ plugin pane.
 | Plugin | Widget | Permissions | What it shows |
 | --- | --- | --- | --- |
 | `spotify` | `player` | `secrets`, `openURL`, `web`, `ambient` | A Spotify player that plays in the app, with no Spotify app open (Premium). A compact player (two rows from 440 points wide) over the library as a grid of covers; a playlist or album opens its track list, and an Up next tab shows the queue. Its album colour tints the app while a track plays. Set the Client ID in Settings › Plugins; **Sign Out** is next to it. |
-| `usage` | `usage` | none | Each account's usage with a bar and a percent (or its balance), and the machine's CPU and RAM; the large layout adds the reset time, the plan and every window. It refreshes only while it is visible, at most every two minutes unless you press refresh. |
+| `usage` | `usage` | none | A Cost card (donut and legend over Today, Yesterday or 30 Days, from local logs) and a section per provider with its mark, name, plan and each window's bar, pace tick, "% left", reset time and a "Limit in …" flame; a chevron opens Today and Last 30 Days in dollars and tokens. Small panes get a compact form. Accounts refresh only while it is visible, at most every two minutes unless you press refresh; cost reads every 5 minutes. |
 
 `openURL` opens the sign-in page, the Spotify developer dashboard and the
 download page in the browser, and Privacy & Security › Automation in System

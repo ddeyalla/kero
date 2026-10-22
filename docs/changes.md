@@ -894,13 +894,19 @@ filled again after a restart. The large layout keeps the
 Search, Playlists, Albums and Up next tabs under the player. The title uses `marquee` and the album art
 uses `tint`.
 
-The Usage widget (`usage`, widget `usage`) reads `internal/usage` and
-`internal/resources` directly and has no network code and no permissions. The
-compact layout draws each account with its percent used (or its balance) and
-a bar when it has a window, mutes a percent whose refresh failed and says it is
-the last known one, and draws the machine's CPU and RAM. The large layout adds
-the time of the last read, the reset time, the plan, every window, the balance
-line, the sign-in help and the notes on the machine and the accounts. It starts
+The Usage widget (`usage`, widget `usage`) reads `internal/usage` directly and
+has no network code and no permissions. It no longer shows the machine's CPU
+and RAM. A Cost card shows a Today, Yesterday and 30 Days `segmented` control,
+a `donut` whose middle text shrinks to fit the total, and a legend of a dot,
+the provider's name and its amount; "≈" and a line "Some amounts are
+estimates" mark estimated prices, and the line's tooltip lists those models.
+Each provider has a section with its mark, name and plan. Each window (Session,
+Weekly, Monthly) is a `progress` bar with a `marker` for the pace, "% left"
+and "Resets in …"; when the pace would reach the limit before the reset, a red
+`flame` and "Limit in …" show. A chevron opens Today and Last 30 Days as
+dollars and tokens. Small panes get a compact form. The range and the open
+providers are saved in the pane's target. A percent whose refresh failed is
+muted and says it is the last known one. It starts
 its read loop when a pane becomes visible and cancels it when none is, so a
 hidden widget does no work. A pane is hidden whenever a frame does not draw it,
 so the loop keeps the time of the last account read: a pane shown again within
@@ -910,12 +916,27 @@ slow provider does not hold up the CPU and RAM bars, and each show starts the
 CPU sampler afresh, so its first reading does not average over the hidden
 span.
 
+Cost comes from `internal/usage/cost`, which reads the logs of Claude Code
+(`~/.claude/projects`, or `CLAUDE_CONFIG_DIR`), Codex (`~/.codex/sessions`, or
+`CODEX_HOME`) and OpenCode (`opencode.db` through the system `sqlite3`, read
+only, with OpenCode's own recorded cost). `price.go` holds the embedded price
+table; Claude prices from Anthropic's list and the other prices are estimates.
+Reads are incremental, and a compact binary cache at
+`<KERO_HOME>/plugin-data/usage/cost-cache.bin` is saved at most every 30
+minutes and on close. The plugin reads only while a pane is visible: every 5
+minutes, at midnight and on refresh. Nothing reads or stores message text.
+The generic parts that the card needs (`segmented`, `donut`, `surface`,
+`marker`, `icon` and `mark` on text, the `strong` role, more colour roles and
+icons) live in `internal/plugin/protocol/tree.go`, `internal/plugin/sdk/parts.go`,
+[`plugin_view.go`](../plugin_view.go) and [`plugin_symbol.go`](../plugin_symbol.go).
+
 Code: [`internal/plugin/builtin/spotify/`](../internal/plugin/builtin/spotify/)
 (the plugin, its layouts, engine, browse and the end-to-end test), [`…/spotify/engine/`](../internal/plugin/builtin/spotify/engine/) (the Web Playback SDK page and its server), [`plugin_web.go`](../plugin_web.go), [`plugin_symbol.go`](../plugin_symbol.go), [`ambient.go`](../ambient.go) and `controls.go`,
 [`…/spotify/transport/`](../internal/plugin/builtin/spotify/transport/) (AppleScript and
 the distributed notification) and [`…/spotify/web/`](../internal/plugin/builtin/spotify/web/)
 (PKCE sign-in and the Web API client),
 [`internal/plugin/builtin/usage/`](../internal/plugin/builtin/usage/) (the Usage
-plugin and its source seam), and
+plugin and its source seam), [`internal/usage/cost/`](../internal/usage/cost/)
+(the cost scan, prices and cache), and
 [`internal/plugin/registry/manifests/`](../internal/plugin/registry/manifests/)
 (the two manifests).

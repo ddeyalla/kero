@@ -2,9 +2,9 @@
   "id": "usage",
   "name": "Usage",
   "version": "1.0.0",
-  "description": "The account allowances of the coding agents on this Mac, and its CPU and memory.",
+  "description": "The account allowances of the coding agents on this Mac, and what they cost.",
   "run": ["kero", "plugin-run", "usage"],
   "widgets": [
-    {"name": "usage", "title": "Usage", "minWidth": 280, "minHeight": 240}
+    {"name": "usage", "title": "Usage", "minWidth": 260, "minHeight": 200}
   ]
 }

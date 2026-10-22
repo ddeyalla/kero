@@ -60,7 +60,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Sign Out of Spotify (keeps the Client ID, stops the engine) | Settings › Plugins › Spotify; palette › Sign Out of Spotify | Unreleased | Untried |
 | Colour from music: a plugin with the `ambient` permission tints the accent, focus edge, cursor, selection and the cards, capped to 3:1 contrast | Settings › Appearance › Colour from music; `ambient-color = false` off | Unreleased | Untried |
 | Plugin panes that scroll as one page (`Tree.Scroll`), plugin icon buttons drawn as SF Symbols, and a smooth pane: unchanged trees skipped, seek bar and clock moved by the host | Automatic; Spotify uses all | Unreleased | Untried |
-| Usage widget: every account's bar and percent and the machine's CPU and RAM, with reset, plan and windows in the large pane | New Pane chooser › Usage, palette, `kero split --plugin usage` | Unreleased | Untried |
+| Usage widget: a Cost card (Today, Yesterday, 30 Days; donut and legend, from local Claude Code, Codex and OpenCode logs) and a section per provider with each window's bar, pace tick, "% left", reset and "Limit in …" flame, and Today and Last 30 Days in dollars and tokens; compact in small panes | New Pane chooser › Usage, palette, `kero split --plugin usage` | Unreleased | Untried |
 
 ### Files pane
 

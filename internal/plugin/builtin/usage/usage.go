@@ -1,24 +1,28 @@
 package usage
 
 // The usage plugin: the account allowances of the coding agents on this Mac,
-// and this Mac's CPU and memory, as a pane of their own. The plugin has no
-// network code of its own; it reads the accounts through internal/usage and
-// samples the machine through internal/resources, and it refreshes only
-// while a pane of it is on screen.
+// and what they cost, as a pane of their own. The plugin has no network code
+// of its own; it reads the accounts through internal/usage and the cost from
+// the agents' logs through internal/usage/cost, and it refreshes only while
+// a pane of it is on screen.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"kero/internal/plugin/protocol"
 	"kero/internal/plugin/registry"
 	"kero/internal/plugin/sdk"
-	"kero/internal/resources"
 	accountusage "kero/internal/usage"
+	"kero/internal/usage/cost"
 )
 
 func init() {
@@ -30,54 +34,80 @@ const (
 	// same two minutes the Usage tab keeps.
 	refreshEvery = 2 * time.Minute
 
-	// sampleEvery is how often a visible pane samples the CPU and the memory,
-	// the same two seconds the Usage tab keeps.
-	sampleEvery = 2 * time.Second
+	// costEvery is how often a visible pane reads the logs again. The read
+	// is incremental, but it walks the files, so it is rarer than the
+	// accounts'.
+	costEvery = 5 * time.Minute
 
 	// compactWidth and compactHeight are where a pane stops being its large
-	// self: the same widget draws one row for each account, or the full card
-	// with the resets and the machine sample.
-	compactWidth  = 480
-	compactHeight = 320
+	// self: the same widget draws one row for each account, or the cost card
+	// and a section for each account. Below stackedWidth the cost card puts
+	// its legend under the donut.
+	compactWidth  = 260
+	compactHeight = 300
+	stackedWidth  = 340
 )
 
 // plugin is the usage plugin's process: one pane or a few, and the accounts
-// and the machine they share.
+// and the cost they share.
 type plugin struct {
-	src                     Source
-	usageEvery, sampleEvery time.Duration
-	clock                   func() time.Time
+	src                  Source
+	usageEvery, costWait time.Duration
+	clock                func() time.Time
+
+	// save keeps a pane's state in its target. It is the connection's
+	// SaveState once a pane opens; a test replaces it.
+	save func(pane string, state any) error
 
 	mu        sync.Mutex
 	conn      *sdk.Conn
 	panes     map[string]*pane
 	reports   []accountusage.Report
+	providers []accountusage.Report // every account the app can read, set up or not
 	installed []string
-	sample    resources.Sample
-	sampleErr string
 	loading   bool
 
-	// lastRead is when the accounts were last asked for, and refreshing
-	// tells that a read is still out. A pane shown again waits out the rest
-	// of usageEvery from lastRead, so that switching tabs does not read the
-	// accounts each time.
-	lastRead   time.Time
-	refreshing bool
+	// costs is the spend of each range as of the last read of the logs, and
+	// costLoaded tells that something was read, so that an empty range means
+	// there is no log and not that the read is still out.
+	costs      map[cost.Range][]cost.Spend
+	costLoaded bool
+
+	// lastRead and lastCost are when the accounts and the logs were last
+	// asked for, and refreshing and costRefreshing tell that a read is still
+	// out. A pane shown again waits out the rest of the interval from the
+	// last read, so that switching tabs does not read each time.
+	lastRead, lastCost time.Time
+	refreshing         bool
+	costRefreshing     bool
 
 	running bool
 	cancel  context.CancelFunc
 	wake    chan struct{}
+	// retry tells the loop that a read it cancelled has ended, so that it
+	// looks again at what is due: the timers were set while that read was
+	// still out and its start was dropped.
+	retry chan struct{}
 
 	renderMu sync.Mutex
 	work     sync.WaitGroup
 }
 
-// pane is one pane of the plugin: the size it draws at, and whether it is on
-// screen to read again.
+// pane is one pane of the plugin: the size it draws at, whether it is on
+// screen to read again, and what its user chose: the range of the cost and
+// the accounts whose details are open.
 type pane struct {
 	id      string
 	size    protocol.Size
 	visible bool
+	rng     string
+	open    map[string]bool
+}
+
+// paneState is what a pane keeps in its target.
+type paneState struct {
+	Range string   `json:"range"`
+	Open  []string `json:"open"`
 }
 
 // serve runs the plugin on the host's connection until the host goes away.
@@ -96,22 +126,38 @@ func serve(src Source) error {
 
 func newPlugin(src Source) *plugin {
 	return &plugin{
-		src:         src,
-		usageEvery:  refreshEvery,
-		sampleEvery: sampleEvery,
-		clock:       time.Now,
-		panes:       map[string]*pane{},
-		reports:     src.Providers(),
-		wake:        make(chan struct{}, 1),
+		src:        src,
+		usageEvery: refreshEvery,
+		costWait:   costEvery,
+		clock:      time.Now,
+		panes:      map[string]*pane{},
+		reports:    src.Providers(),
+		providers:  src.Providers(),
+		costs:      map[cost.Range][]cost.Spend{},
+		wake:       make(chan struct{}, 1),
+		retry:      make(chan struct{}, 1),
 	}
 }
 
-// open draws a pane for the first time. The accounts and the sample are read
-// once a pane is visible, not when it opens.
+// open draws a pane for the first time, with the choices it kept. The
+// accounts and the cost are read once a pane is visible, not when it opens.
 func (p *plugin) open(c *sdk.Conn, e sdk.OpenEvent) {
+	st := &pane{id: e.Pane, size: e.Size, rng: rangeToday, open: map[string]bool{}}
+	var saved paneState
+	if len(e.State) > 0 && json.Unmarshal(e.State, &saved) == nil {
+		if validRange(saved.Range) {
+			st.rng = saved.Range
+		}
+		for _, id := range saved.Open {
+			st.open[id] = true
+		}
+	}
 	p.mu.Lock()
 	p.conn = c
-	p.panes[e.Pane] = &pane{id: e.Pane, size: e.Size}
+	if c != nil {
+		p.save = c.SaveState
+	}
+	p.panes[e.Pane] = st
 	p.mu.Unlock()
 	p.render(e.Pane)
 }
@@ -128,7 +174,7 @@ func (p *plugin) close(_ *sdk.Conn, id string) {
 }
 
 // resize records a pane's size and redraws it if it crossed the line between
-// the short form and the large one.
+// two forms.
 func (p *plugin) resize(_ *sdk.Conn, id string, size protocol.Size) {
 	p.mu.Lock()
 	st := p.panes[id]
@@ -136,9 +182,9 @@ func (p *plugin) resize(_ *sdk.Conn, id string, size protocol.Size) {
 		p.mu.Unlock()
 		return
 	}
-	was := compact(st.size)
+	was := layoutFor(st.size)
 	st.size = size
-	now := compact(size)
+	now := layoutFor(size)
 	p.mu.Unlock()
 	if was != now {
 		p.render(id)
@@ -196,34 +242,74 @@ func (p *plugin) anyVisibleLocked() bool {
 	return false
 }
 
-// event refreshes the accounts and the machine when the pane's refresh button
-// is pressed.
+// event handles a pane's controls: the refresh button reads the accounts and
+// the logs now, the range control changes what the cost card shows, and a
+// section's button opens or closes its details. A choice is saved with the
+// pane.
 func (p *plugin) event(_ *sdk.Conn, e protocol.EventParams) {
-	if e.Kind != protocol.KindPress || e.Node != "usage-refresh" {
-		return
-	}
-	select {
-	case p.wake <- struct{}{}:
-	default:
+	switch {
+	case e.Kind == protocol.KindPress && e.Node == "usage-refresh":
+		select {
+		case p.wake <- struct{}{}:
+		default:
+		}
+	case e.Kind == protocol.KindSelect && e.Node == "usage-range":
+		key, _ := e.Value.(string)
+		if validRange(key) {
+			p.choose(e.Pane, func(st *pane) { st.rng = key })
+		}
+	case e.Kind == protocol.KindPress && strings.HasPrefix(e.Node, "toggle-"):
+		id := strings.TrimPrefix(e.Node, "toggle-")
+		p.choose(e.Pane, func(st *pane) {
+			if st.open[id] {
+				delete(st.open, id)
+			} else {
+				st.open[id] = true
+			}
+		})
 	}
 }
 
-// loop reads while at least one pane is visible: the accounts every two
-// minutes, the machine every two seconds, and both at once when the refresh
-// button asks for them. A pane is hidden whenever a frame does not draw it,
-// so a loop that starts again keeps the accounts' two minutes from the last
-// read; only the button reads them sooner. The machine's sampler starts
-// afresh, so the first CPU reading is not an average over the hidden span.
-// The host cancels the loop when the last visible pane goes away or the
-// plugin closes.
-func (p *plugin) loop(ctx context.Context) {
-	p.src.ResetSample()
-	usageTimer := time.NewTimer(p.usageWait())
-	sampleTick := time.NewTicker(p.sampleEvery)
-	defer usageTimer.Stop()
-	defer sampleTick.Stop()
+// choose changes a pane's choices, saves them, and draws the pane alone: the
+// range and the details are not shared. The cost of another range is already
+// in memory, so the pane does not wait for a read.
+func (p *plugin) choose(id string, change func(*pane)) {
+	p.mu.Lock()
+	st := p.panes[id]
+	if st == nil {
+		p.mu.Unlock()
+		return
+	}
+	change(st)
+	state := paneState{Range: st.rng, Open: make([]string, 0, len(st.open))}
+	for open := range st.open {
+		state.Open = append(state.Open, open)
+	}
+	save := p.save
+	p.mu.Unlock()
+	sort.Strings(state.Open)
+	if save != nil {
+		if err := save(id, state); err != nil && !errors.Is(err, sdk.ErrClosed) {
+			fmt.Fprintln(os.Stderr, "the usage plugin:", err)
+		}
+	}
+	p.render(id)
+}
 
-	p.sampleOnce(ctx)
+// loop reads while at least one pane is visible: the accounts every two
+// minutes, the logs every five and at the first midnight after a read, and
+// both at once when the refresh button asks for them. A pane is hidden
+// whenever a frame does not draw it, so a loop that starts again keeps the
+// intervals from the last reads; only the button reads sooner. The host
+// cancels the loop when the last visible pane goes away or the plugin
+// closes.
+func (p *plugin) loop(ctx context.Context) {
+	usageTimer := time.NewTimer(p.usageWait())
+	costTimer := time.NewTimer(p.costDue())
+	defer usageTimer.Stop()
+	defer costTimer.Stop()
+
+	p.showCached()
 	for {
 		select {
 		case <-ctx.Done():
@@ -231,13 +317,38 @@ func (p *plugin) loop(ctx context.Context) {
 		case <-usageTimer.C:
 			p.startRefresh(ctx)
 			usageTimer.Reset(p.usageEvery)
-		case <-sampleTick.C:
-			p.sampleOnce(ctx)
+		case <-costTimer.C:
+			p.startCostRefresh(ctx)
+			costTimer.Reset(p.costDue())
+		case <-p.retry:
+			resetTimer(usageTimer, p.usageWait())
+			resetTimer(costTimer, p.costDue())
 		case <-p.wake:
 			p.startRefresh(ctx)
-			p.sampleOnce(ctx)
+			p.startCostRefresh(ctx)
 			usageTimer.Reset(p.usageEvery)
+			costTimer.Reset(p.costDue())
 		}
+	}
+}
+
+// resetTimer sets a timer that may have fired, or be waiting unread, to go
+// off in d.
+func resetTimer(t *time.Timer, d time.Duration) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
+	t.Reset(d)
+}
+
+// readEnded tells the loop that a read it cancelled has ended.
+func (p *plugin) readEnded() {
+	select {
+	case p.retry <- struct{}{}:
+	default:
 	}
 }
 
@@ -253,10 +364,56 @@ func (p *plugin) usageWait() time.Duration {
 	return max(p.usageEvery-p.clock().Sub(p.lastRead), 0)
 }
 
+// costDue is how long until the logs are read again: nothing when they were
+// never read, otherwise the rest of the interval, cut short at the first
+// local midnight after the last read, because the days shift there.
+func (p *plugin) costDue() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.lastCost.IsZero() {
+		return 0
+	}
+	now := p.clock()
+	next := p.lastCost.Add(p.costWait)
+	y, m, d := p.lastCost.Local().Date()
+	if midnight := time.Date(y, m, d+1, 0, 0, 0, 0, time.Local); midnight.Before(next) {
+		next = midnight
+	}
+	return max(next.Sub(now), 0)
+}
+
+// showCached draws what the logs said on an earlier run, which is in memory
+// once the reader has loaded its cache, before the first scan ends.
+func (p *plugin) showCached() {
+	p.mu.Lock()
+	loaded := p.costLoaded
+	p.mu.Unlock()
+	if loaded {
+		return
+	}
+	spends := p.src.Spends(p.clock())
+	p.mu.Lock()
+	if !p.costLoaded && hasSpend(spends) {
+		p.costs, p.costLoaded = spends, true
+	}
+	p.mu.Unlock()
+	p.renderAll()
+}
+
+// hasSpend tells whether any range has a provider.
+func hasSpend(spends map[cost.Range][]cost.Spend) bool {
+	for _, s := range spends {
+		if len(s) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // startRefresh reads the accounts on a goroutine of its own, so that a slow
-// provider does not hold up the machine's bars. One read is out at a time;
-// a tick or a press while it is out is dropped. Only the loop calls it, and
-// the loop's own count in work keeps closeAll waiting for the read too.
+// provider does not hold up the logs. One read is out at a time; a tick or a
+// press while it is out is dropped. Only the loop calls it, and the loop's
+// own count in work keeps closeAll waiting for the read too.
 func (p *plugin) startRefresh(ctx context.Context) {
 	p.mu.Lock()
 	if p.refreshing || ctx.Err() != nil || !p.anyVisibleLocked() {
@@ -276,7 +433,7 @@ func (p *plugin) startRefresh(ctx context.Context) {
 }
 
 // refreshUsage reads the accounts off the lock, then draws what it read. A
-// read that finishes after the panes went away is dropped, and the head stops
+// read that finishes after the panes went away is dropped, and the foot stops
 // saying it is checking.
 func (p *plugin) refreshUsage(ctx context.Context, previous []accountusage.Report) {
 	p.renderAll()
@@ -285,37 +442,59 @@ func (p *plugin) refreshUsage(ctx context.Context, previous []accountusage.Repor
 
 	p.mu.Lock()
 	p.refreshing, p.loading = false, false
-	if ctx.Err() == nil {
+	cancelled := ctx.Err() != nil
+	if cancelled {
+		// The read did not finish: the accounts are due again at once.
+		p.lastRead = time.Time{}
+	} else {
 		p.reports, p.installed = reports, installed
 	}
 	p.mu.Unlock()
 	p.renderAll()
+	if cancelled {
+		p.readEnded()
+	}
 }
 
-// sampleOnce samples the machine off the lock, then draws what it read.
-func (p *plugin) sampleOnce(ctx context.Context) {
+// startCostRefresh reads the logs on a goroutine of its own, like the
+// accounts: the first read is slow. A read that the loop cancels is not
+// counted, so the next one starts at once; the reader keeps what it did.
+func (p *plugin) startCostRefresh(ctx context.Context) {
 	p.mu.Lock()
-	if ctx.Err() != nil || !p.anyVisibleLocked() {
+	if p.costRefreshing || ctx.Err() != nil || !p.anyVisibleLocked() {
 		p.mu.Unlock()
 		return
 	}
+	p.costRefreshing = true
+	now := p.clock()
+	p.lastCost = now
+	p.work.Add(1)
 	p.mu.Unlock()
-
-	sample, err := p.src.Sample()
-	if ctx.Err() != nil {
-		return
-	}
-
-	p.mu.Lock()
-	p.sample, p.sampleErr = sample, ""
-	if err != nil {
-		p.sampleErr = err.Error()
-	}
-	p.mu.Unlock()
-	p.renderAll()
+	go func() {
+		defer p.work.Done()
+		err := p.src.RefreshCost(ctx, now)
+		var spends map[cost.Range][]cost.Spend
+		if err == nil && ctx.Err() == nil {
+			spends = p.src.Spends(now)
+		}
+		p.mu.Lock()
+		p.costRefreshing = false
+		switch {
+		case ctx.Err() != nil:
+			p.lastCost = time.Time{}
+		case spends != nil:
+			p.costs, p.costLoaded = spends, true
+		}
+		p.mu.Unlock()
+		p.renderAll()
+		if ctx.Err() != nil {
+			p.readEnded()
+		}
+	}()
 }
 
-// closeAll stops the loop and waits for it before the process exits.
+// closeAll stops the loop and the reads it started, waits for them, and
+// saves what the cost reader learned, before the process exits.
 func (p *plugin) closeAll() {
 	p.mu.Lock()
 	cancel := p.cancel
@@ -327,10 +506,13 @@ func (p *plugin) closeAll() {
 		cancel()
 	}
 	p.work.Wait()
+	if err := p.src.Flush(); err != nil {
+		fmt.Fprintln(os.Stderr, "the usage plugin:", err)
+	}
 }
 
 // renderAll redraws the panes on screen, because the accounts and the
-// machine are shared. A hidden pane is drawn when it is shown again.
+// cost are shared. A hidden pane is drawn when it is shown again.
 func (p *plugin) renderAll() {
 	for _, id := range p.visiblePanes() {
 		p.render(id)
@@ -368,20 +550,23 @@ func (p *plugin) render(id string) {
 	if c == nil {
 		return
 	}
-	err := c.Render(id, widgetTree(v, time.Now()))
+	err := c.Render(id, widgetTree(v, p.clock()))
 	if err != nil && !errors.Is(err, sdk.ErrClosed) {
 		fmt.Fprintln(os.Stderr, "the usage plugin:", err)
 	}
 }
 
-// view is what one frame draws: a pane's size, and the shared accounts and
-// machine sample.
+// view is what one frame draws: a pane's size and choices, and the shared
+// accounts and cost.
 type view struct {
-	size      protocol.Size
-	reports   []accountusage.Report
-	loading   bool
-	sample    resources.Sample
-	sampleErr string
+	size       protocol.Size
+	reports    []accountusage.Report
+	providers  []accountusage.Report
+	loading    bool
+	costs      map[cost.Range][]cost.Spend
+	costLoaded bool
+	rng        string
+	open       map[string]bool
 }
 
 func (p *plugin) snapshot(id string) *view {
@@ -392,10 +577,13 @@ func (p *plugin) snapshot(id string) *view {
 		return nil
 	}
 	return &view{
-		size:      st.size,
-		reports:   filterReports(p.reports, p.installed),
-		loading:   p.loading,
-		sample:    p.sample,
-		sampleErr: p.sampleErr,
+		size:       st.size,
+		reports:    filterReports(p.reports, p.installed),
+		providers:  p.providers,
+		loading:    p.loading,
+		costs:      p.costs,
+		costLoaded: p.costLoaded,
+		rng:        st.rng,
+		open:       maps.Clone(st.open),
 	}
 }

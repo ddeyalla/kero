@@ -17,7 +17,7 @@ import (
 
 // fakeSourceFile takes the place of source.go when the test builds the app:
 // the real binary runs as "kero plugin-run usage", and its accounts and
-// machine are fixed, so the test needs no network and no real Mac.
+// cost are fixed, so the test needs no network and no real Mac.
 const fakeSourceFile = `package usage
 
 import (
@@ -25,8 +25,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"kero/internal/resources"
 	accountusage "kero/internal/usage"
+	"kero/internal/usage/cost"
 )
 
 type fakeSource struct{}
@@ -45,17 +45,19 @@ func (fakeSource) Refresh(context.Context, []accountusage.Report) []accountusage
 	return reports
 }
 
-func (fakeSource) Sample() (resources.Sample, error) {
-	cpu := 23.0
-	return resources.Sample{
-		CPU:         &cpu,
-		MemoryUsed:  10 << 30,
-		MemoryTotal: 32 << 30,
-		At:          time.Now(),
-	}, nil
+// costReads counts the scans of the logs.
+var costReads atomic.Int64
+
+func (fakeSource) RefreshCost(context.Context, time.Time) error {
+	costReads.Add(1)
+	return nil
 }
 
-func (fakeSource) ResetSample() {}
+func (fakeSource) Spends(time.Time) map[cost.Range][]cost.Spend {
+	return map[cost.Range][]cost.Spend{cost.Today: {{Provider: "claude", USD: 12.5, Tokens: 1000}}}
+}
+
+func (fakeSource) Flush() error { return nil }
 
 func fakeReports() []accountusage.Report {
 	now := time.Now()
@@ -67,7 +69,7 @@ func fakeReports() []accountusage.Report {
 			Plan: "max",
 			Windows: []accountusage.Window{
 				{Label: "Weekly", Used: 42, Resets: now.Add(3 * 24 * time.Hour)},
-				{Label: "Session", Used: 8, Resets: now.Add(2 * time.Hour)},
+				{Label: "5 hours", Used: 8, Resets: now.Add(2 * time.Hour)},
 			},
 			Checked: now,
 		},
@@ -147,7 +149,7 @@ func TestUsageThroughTheRealHost(t *testing.T) {
 	}
 
 	waitForEvent(t, "the plugin to say hello", ready)
-	first := waitForRender(t, renders, "pane-1", "42% used")
+	first := waitForRender(t, renders, "pane-1", "58% left")
 	if err := first.ValidateTree(); err != nil {
 		t.Fatalf("the first tree is invalid: %v", err)
 	}
@@ -156,10 +158,10 @@ func TestUsageThroughTheRealHost(t *testing.T) {
 	}
 
 	// Showing the pane reads the fake source again and draws again, this
-	// time with the machine sample the visible pane takes.
+	// time with the cost the visible pane reads.
 	h.Visible("pane-1", true)
 	drain(renders)
-	second := waitForRender(t, renders, "pane-1", "This Mac")
+	second := waitForRender(t, renders, "pane-1", "$12.50")
 	if err := second.ValidateTree(); err != nil {
 		t.Fatalf("the visible tree is invalid: %v", err)
 	}
@@ -179,7 +181,7 @@ func TestUsageThroughTheRealHost(t *testing.T) {
 	// Each read of the fake source is one point higher: showing the pane
 	// was the first (43), so the button's is the second (44). A refresh
 	// whose tree equals the last is not sent again, so this one must differ.
-	waitForRender(t, renders, "pane-1", "44% used")
+	waitForRender(t, renders, "pane-1", "56% left")
 	time.Sleep(300 * time.Millisecond)
 	assertNoRender(t, renders, "pane-2")
 
@@ -218,7 +220,7 @@ func moduleRoot(t *testing.T) string {
 }
 
 // buildAppWithFakeUsage builds the app with source.go replaced, so
-// plugin-run usage reads the fake accounts and machine.
+// plugin-run usage reads the fake accounts and cost.
 func buildAppWithFakeUsage(t *testing.T, root string) string {
 	t.Helper()
 	source := filepath.Join(root, "internal", "plugin", "builtin", "usage", "source.go")

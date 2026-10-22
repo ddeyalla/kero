@@ -2,16 +2,18 @@ package usage
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
+	"time"
 
-	"kero/internal/resources"
+	"kero/internal/proto"
 	accountusage "kero/internal/usage"
+	"kero/internal/usage/cost"
 )
 
-// Source is the account usage and the machine sample a pane shows. The app
-// reads them from internal/usage and internal/resources; a test gives its
-// own, so that no test reads a real account, samples the real machine, or
-// touches the network.
+// Source is the account usage and the cost a pane shows. The app reads them
+// from internal/usage and its cost package; a test gives its own, so that no
+// test reads a real account, scans real logs, or touches the network.
 type Source interface {
 	// Providers is every account the app knows how to read.
 	Providers() []accountusage.Report
@@ -24,19 +26,29 @@ type Source interface {
 	// that fails.
 	Refresh(ctx context.Context, previous []accountusage.Report) []accountusage.Report
 
-	// Sample reads the CPU and the memory of this Mac.
-	Sample() (resources.Sample, error)
+	// RefreshCost reads what the agents' logs gained since the last read. The
+	// first read is slow, so it runs off the render path and ends when ctx
+	// does.
+	RefreshCost(ctx context.Context, now time.Time) error
 
-	// ResetSample forgets the last CPU reading, so that the next sample does
-	// not average over the time no pane was on screen.
-	ResetSample()
+	// Spends is the cost of every range as of the last RefreshCost, the
+	// costliest provider first. It reads memory only.
+	Spends(now time.Time) map[cost.Range][]cost.Spend
+
+	// Flush writes what the cost reader learned, if it changed. The plugin
+	// calls it once, when it closes.
+	Flush() error
 }
 
-// liveSource is the app's own accounts and machine.
+// costFolder is where the plugin keeps what it learned from the logs, under
+// the plugin's data folder in the app's directory. The directory follows
+// $KERO_HOME, so a test app does not share the daily app's cache.
+func costFolder() string { return filepath.Join(proto.Dir(), "plugin-data", "usage") }
+
+// liveSource is the app's own accounts and logs.
 type liveSource struct {
-	mu      sync.Mutex
-	sampler *resources.Sampler
-	err     error
+	once   sync.Once
+	reader *cost.Reader
 }
 
 func (s *liveSource) Providers() []accountusage.Report { return accountusage.Providers() }
@@ -47,22 +59,25 @@ func (s *liveSource) Refresh(ctx context.Context, previous []accountusage.Report
 	return accountusage.Refresh(ctx, previous)
 }
 
-func (s *liveSource) Sample() (resources.Sample, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.sampler == nil && s.err == nil {
-		s.sampler, s.err = resources.NewSampler()
-	}
-	if s.err != nil {
-		return resources.Sample{}, s.err
-	}
-	return s.sampler.Read()
+// costs is the reader of the logs, made once: it loads the cache of the
+// earlier runs.
+func (s *liveSource) costs() *cost.Reader {
+	s.once.Do(func() { s.reader = cost.NewReader(costFolder()) })
+	return s.reader
 }
 
-// ResetSample drops the sampler; the next sample makes a new one, which has
-// no earlier reading to compare and so shows no CPU until the one after.
-func (s *liveSource) ResetSample() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sampler, s.err = nil, nil
+func (s *liveSource) RefreshCost(ctx context.Context, now time.Time) error {
+	return s.costs().Refresh(ctx, now)
+}
+
+func (s *liveSource) Spends(now time.Time) map[cost.Range][]cost.Spend {
+	return s.costs().Spends(now)
+}
+
+// Flush saves the reader's cache when a read made one.
+func (s *liveSource) Flush() error {
+	if s.reader == nil {
+		return nil
+	}
+	return s.reader.Flush()
 }

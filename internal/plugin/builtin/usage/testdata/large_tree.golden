@@ -1,0 +1,71 @@
+column usage-root
+  column usage-cost surface=card
+    segmented usage-range item(today,"Today",true) item(yesterday,"Yesterday",false) item(30d,"30 Days",false)
+    row usage-cost-body
+      donut usage-donut "$4.6K" seg(claude=3200.50,orange) seg(codex=1400.25,green)
+      column usage-legend
+        row leg-claude
+          text leg-dot-claude icon=dot color=orange
+          text leg-name-claude "Claude"
+          row leg-amount-claude
+            text leg-usd-claude "$3,200.50"
+        row leg-codex
+          text leg-dot-codex icon=dot color=green
+          text leg-name-codex "Codex"
+          row leg-amount-codex
+            text leg-approx-codex "≈" color=muted
+            text leg-usd-codex "$1,400.25"
+    text usage-estimated "Some amounts are estimates" icon=info color=muted
+  column sec-claude
+    row head-claude
+      text name-claude "Claude" mark=claude
+      text plan-claude "Max" color=muted
+      spacer space-claude
+      iconButton toggle-claude icon=chevron-down
+    column card-claude surface=card
+      column win-claude-0
+        row win-head-claude-0
+          text wlabel-claude-0 "Weekly"
+        progress bar-claude-0 color=blue value=0.420 marker=0.571
+        row win-foot-claude-0
+          text wleft-claude-0 "58% left" color=muted
+          text wreset-claude-0 "Resets in 3d" color=muted
+      column win-claude-1
+        row win-head-claude-1
+          text wlabel-claude-1 "Session"
+        progress bar-claude-1 color=blue value=0.080 marker=0.600
+        row win-foot-claude-1
+          text wleft-claude-1 "92% left" color=muted
+          text wreset-claude-1 "Resets in 2h" color=muted
+  column sec-codex
+    row head-codex
+      text name-codex "Codex" mark=codex
+      text plan-codex "Plus" color=muted
+      spacer space-codex
+      iconButton toggle-codex icon=chevron-up
+    column card-codex surface=card
+      column win-codex-0
+        row win-head-codex-0
+          text wlabel-codex-0 "Weekly"
+          text pace-codex-0 "Limit in 16h" icon=flame color=danger
+        progress bar-codex-0 color=danger value=0.900 marker=0.857
+        row win-foot-codex-0
+          text wleft-codex-0 "10% left" color=muted
+          text wreset-codex-0 "Resets in 1d" color=muted
+      row cost-today-codex
+        text cost-today-codex-label "Today"
+        text cost-today-codex-value "≈$1.4K · 22.1M tokens"
+      row cost-30d-codex
+        text cost-30d-codex-label "Last 30 Days"
+        text cost-30d-codex-value "≈$1.2K · 90M tokens"
+  column sec-deepseek
+    row head-deepseek
+      text name-deepseek "DeepSeek"
+      spacer space-deepseek
+      iconButton toggle-deepseek icon=chevron-down
+    column card-deepseek surface=card
+      text error-deepseek "Not connected" color=muted
+      text help-deepseek "Direct DeepSeek API credit. For DeepSeek through OpenCode Go, use the OpenCode allowance instead." color=muted
+  row usage-foot
+    text usage-updated "Updated Wed 5:30 PM" color=muted
+    iconButton usage-refresh icon=refresh

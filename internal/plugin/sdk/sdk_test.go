@@ -473,6 +473,47 @@ func TestPartsBuildValidTree(t *testing.T) {
 	}
 }
 
+func TestUsagePartsBuildValidTree(t *testing.T) {
+	root := Column("root",
+		Segmented("range",
+			protocol.Item{ID: "today", Title: "Today", Active: true},
+			protocol.Item{ID: "30d", Title: "30 Days"},
+		),
+		Donut("donut", protocol.Segment{ID: "claude", Value: 3, Color: protocol.ColorOrange}).
+			Center("$4.6K", "dollars").Width(96),
+		Text("dot", "").Icon("dot").Color(protocol.ColorSuccess),
+		Text("name", "Claude").Mark("claude").Role(protocol.RoleStrong),
+		Progress("bar", 0.4).Marker(0).Color(protocol.ColorDanger),
+		Column("card").Surface(protocol.SurfaceCard).Radius(12).Padding(12),
+	)
+	tree := root.Tree()
+	if err := tree.ValidateTree(); err != nil {
+		t.Fatalf("ValidateTree: %v", err)
+	}
+	built := root.Build()
+	if got := built.Children[0]; got.Type != protocol.NodeSegmented || len(got.Items) != 2 || !got.Items[0].Active {
+		t.Fatalf("segmented = %+v", got)
+	}
+	if got := built.Children[1]; got.Type != protocol.NodeDonut || got.Text != "$4.6K" || got.Detail != "dollars" || got.Width != 96 || len(got.Segments) != 1 {
+		t.Fatalf("donut = %+v", got)
+	}
+	if got := built.Children[2]; got.Icon != "dot" || got.Color != protocol.ColorSuccess || got.Text != "" {
+		t.Fatalf("dot = %+v", got)
+	}
+	if got := built.Children[3]; got.Mark != "claude" || got.Role != protocol.RoleStrong {
+		t.Fatalf("name = %+v", got)
+	}
+	if got := built.Children[4]; got.Marker == nil || *got.Marker != 0 {
+		t.Fatalf("bar = %+v, want a marker at zero kept", got)
+	}
+	if got := built.Children[5]; got.Surface != protocol.SurfaceCard || got.Radius != 12 {
+		t.Fatalf("card = %+v", got)
+	}
+	if plain := Progress("p", 0.5).Build(); plain.Marker != nil {
+		t.Fatalf("a bar without a marker has %v", plain.Marker)
+	}
+}
+
 // A tree equal to the one last sent for a pane is not sent again; a
 // different one is, and so is one after a failed render.
 func TestRenderSkipsAnUnchangedTree(t *testing.T) {

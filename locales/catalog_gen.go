@@ -6376,26 +6376,6 @@ func (msgs Messages) UsagePluginTitle() string {
 	return Catalog.Format(msgs.locale, "usagePluginTitle", nil)
 }
 
-// UsagePluginPercent says "{percent}%"
-// in the language the app shows.
-func UsagePluginPercent(percent string) string { return In(i18n.Locale()).UsagePluginPercent(percent) }
-
-// UsagePluginPercent says "{percent}%"
-// in the language of msgs.
-func (msgs Messages) UsagePluginPercent(percent string) string {
-	return Catalog.Format(msgs.locale, "usagePluginPercent", map[string]any{"percent": percent})
-}
-
-// UsagePluginUsed says "{percent}% used"
-// in the language the app shows.
-func UsagePluginUsed(percent string) string { return In(i18n.Locale()).UsagePluginUsed(percent) }
-
-// UsagePluginUsed says "{percent}% used"
-// in the language of msgs.
-func (msgs Messages) UsagePluginUsed(percent string) string {
-	return Catalog.Format(msgs.locale, "usagePluginUsed", map[string]any{"percent": percent})
-}
-
 // UsagePluginBalance says "{balance} remaining"
 // in the language the app shows.
 func UsagePluginBalance(balance string) string { return In(i18n.Locale()).UsagePluginBalance(balance) }
@@ -6446,16 +6426,6 @@ func (msgs Messages) UsagePluginStale() string {
 	return Catalog.Format(msgs.locale, "usagePluginStale", nil)
 }
 
-// UsagePluginWeek says "Week"
-// in the language the app shows.
-func UsagePluginWeek() string { return In(i18n.Locale()).UsagePluginWeek() }
-
-// UsagePluginWeek says "Week"
-// in the language of msgs.
-func (msgs Messages) UsagePluginWeek() string {
-	return Catalog.Format(msgs.locale, "usagePluginWeek", nil)
-}
-
 // UsagePluginUpdated says "Updated {when}"
 // in the language the app shows.
 func UsagePluginUpdated(when string) string { return In(i18n.Locale()).UsagePluginUpdated(when) }
@@ -6478,16 +6448,6 @@ func (msgs Messages) UsagePluginLastSuccessful(when string) string {
 	return Catalog.Format(msgs.locale, "usagePluginLastSuccessful", map[string]any{"when": when})
 }
 
-// UsagePluginResetUnavailable says "Reset time unavailable"
-// in the language the app shows.
-func UsagePluginResetUnavailable() string { return In(i18n.Locale()).UsagePluginResetUnavailable() }
-
-// UsagePluginResetUnavailable says "Reset time unavailable"
-// in the language of msgs.
-func (msgs Messages) UsagePluginResetUnavailable() string {
-	return Catalog.Format(msgs.locale, "usagePluginResetUnavailable", nil)
-}
-
 // UsagePluginResetDue says "Reset due · refresh to check"
 // in the language the app shows.
 func UsagePluginResetDue() string { return In(i18n.Locale()).UsagePluginResetDue() }
@@ -6496,70 +6456,6 @@ func UsagePluginResetDue() string { return In(i18n.Locale()).UsagePluginResetDue
 // in the language of msgs.
 func (msgs Messages) UsagePluginResetDue() string {
 	return Catalog.Format(msgs.locale, "usagePluginResetDue", nil)
-}
-
-// UsagePluginResets says "Resets {when}"
-// in the language the app shows.
-func UsagePluginResets(when string) string { return In(i18n.Locale()).UsagePluginResets(when) }
-
-// UsagePluginResets says "Resets {when}"
-// in the language of msgs.
-func (msgs Messages) UsagePluginResets(when string) string {
-	return Catalog.Format(msgs.locale, "usagePluginResets", map[string]any{"when": when})
-}
-
-// UsagePluginThisMac says "This Mac"
-// in the language the app shows.
-func UsagePluginThisMac() string { return In(i18n.Locale()).UsagePluginThisMac() }
-
-// UsagePluginThisMac says "This Mac"
-// in the language of msgs.
-func (msgs Messages) UsagePluginThisMac() string {
-	return Catalog.Format(msgs.locale, "usagePluginThisMac", nil)
-}
-
-// UsagePluginCpu says "CPU"
-// in the language the app shows.
-func UsagePluginCpu() string { return In(i18n.Locale()).UsagePluginCpu() }
-
-// UsagePluginCpu says "CPU"
-// in the language of msgs.
-func (msgs Messages) UsagePluginCpu() string {
-	return Catalog.Format(msgs.locale, "usagePluginCpu", nil)
-}
-
-// UsagePluginRam says "RAM"
-// in the language the app shows.
-func UsagePluginRam() string { return In(i18n.Locale()).UsagePluginRam() }
-
-// UsagePluginRam says "RAM"
-// in the language of msgs.
-func (msgs Messages) UsagePluginRam() string {
-	return Catalog.Format(msgs.locale, "usagePluginRam", nil)
-}
-
-// UsagePluginCpuValue says "{percent}%"
-// in the language the app shows.
-func UsagePluginCpuValue(percent string) string {
-	return In(i18n.Locale()).UsagePluginCpuValue(percent)
-}
-
-// UsagePluginCpuValue says "{percent}%"
-// in the language of msgs.
-func (msgs Messages) UsagePluginCpuValue(percent string) string {
-	return Catalog.Format(msgs.locale, "usagePluginCpuValue", map[string]any{"percent": percent})
-}
-
-// UsagePluginMemory says "{used} / {total} GiB"
-// in the language the app shows.
-func UsagePluginMemory(used string, total string) string {
-	return In(i18n.Locale()).UsagePluginMemory(used, total)
-}
-
-// UsagePluginMemory says "{used} / {total} GiB"
-// in the language of msgs.
-func (msgs Messages) UsagePluginMemory(used string, total string) string {
-	return Catalog.Format(msgs.locale, "usagePluginMemory", map[string]any{"used": used, "total": total})
 }
 
 // UsagePluginNoValue says "—"
@@ -6572,24 +6468,214 @@ func (msgs Messages) UsagePluginNoValue() string {
 	return Catalog.Format(msgs.locale, "usagePluginNoValue", nil)
 }
 
-// UsagePluginAcrossAllApps says "Across all apps. RAM includes active, wired and compressed memory; reclaimable cache is excluded."
+// UsagePluginRangeToday says "Today"
 // in the language the app shows.
-func UsagePluginAcrossAllApps() string { return In(i18n.Locale()).UsagePluginAcrossAllApps() }
+func UsagePluginRangeToday() string { return In(i18n.Locale()).UsagePluginRangeToday() }
 
-// UsagePluginAcrossAllApps says "Across all apps. RAM includes active, wired and compressed memory; reclaimable cache is excluded."
+// UsagePluginRangeToday says "Today"
 // in the language of msgs.
-func (msgs Messages) UsagePluginAcrossAllApps() string {
-	return Catalog.Format(msgs.locale, "usagePluginAcrossAllApps", nil)
+func (msgs Messages) UsagePluginRangeToday() string {
+	return Catalog.Format(msgs.locale, "usagePluginRangeToday", nil)
 }
 
-// UsagePluginAccountNote says "Account limits come from each provider; they are separate from a session's context window."
+// UsagePluginRangeYesterday says "Yesterday"
 // in the language the app shows.
-func UsagePluginAccountNote() string { return In(i18n.Locale()).UsagePluginAccountNote() }
+func UsagePluginRangeYesterday() string { return In(i18n.Locale()).UsagePluginRangeYesterday() }
 
-// UsagePluginAccountNote says "Account limits come from each provider; they are separate from a session's context window."
+// UsagePluginRangeYesterday says "Yesterday"
 // in the language of msgs.
-func (msgs Messages) UsagePluginAccountNote() string {
-	return Catalog.Format(msgs.locale, "usagePluginAccountNote", nil)
+func (msgs Messages) UsagePluginRangeYesterday() string {
+	return Catalog.Format(msgs.locale, "usagePluginRangeYesterday", nil)
+}
+
+// UsagePluginRange30Days says "30 Days"
+// in the language the app shows.
+func UsagePluginRange30Days() string { return In(i18n.Locale()).UsagePluginRange30Days() }
+
+// UsagePluginRange30Days says "30 Days"
+// in the language of msgs.
+func (msgs Messages) UsagePluginRange30Days() string {
+	return Catalog.Format(msgs.locale, "usagePluginRange30Days", nil)
+}
+
+// UsagePluginCostDollars says "dollars"
+// in the language the app shows.
+func UsagePluginCostDollars() string { return In(i18n.Locale()).UsagePluginCostDollars() }
+
+// UsagePluginCostDollars says "dollars"
+// in the language of msgs.
+func (msgs Messages) UsagePluginCostDollars() string {
+	return Catalog.Format(msgs.locale, "usagePluginCostDollars", nil)
+}
+
+// UsagePluginCostChart says "Cost {range}: {items}"
+// in the language the app shows.
+func UsagePluginCostChart(range_ string, items string) string {
+	return In(i18n.Locale()).UsagePluginCostChart(range_, items)
+}
+
+// UsagePluginCostChart says "Cost {range}: {items}"
+// in the language of msgs.
+func (msgs Messages) UsagePluginCostChart(range_ string, items string) string {
+	return Catalog.Format(msgs.locale, "usagePluginCostChart", map[string]any{"range": range_, "items": items})
+}
+
+// UsagePluginNoCostLogs says "No local usage logs"
+// in the language the app shows.
+func UsagePluginNoCostLogs() string { return In(i18n.Locale()).UsagePluginNoCostLogs() }
+
+// UsagePluginNoCostLogs says "No local usage logs"
+// in the language of msgs.
+func (msgs Messages) UsagePluginNoCostLogs() string {
+	return Catalog.Format(msgs.locale, "usagePluginNoCostLogs", nil)
+}
+
+// UsagePluginEstimated says "Includes estimates for unknown models: {models}"
+// in the language the app shows.
+func UsagePluginEstimated(models string) string {
+	return In(i18n.Locale()).UsagePluginEstimated(models)
+}
+
+// UsagePluginEstimated says "Includes estimates for unknown models: {models}"
+// in the language of msgs.
+func (msgs Messages) UsagePluginEstimated(models string) string {
+	return Catalog.Format(msgs.locale, "usagePluginEstimated", map[string]any{"models": models})
+}
+
+// UsagePluginSession says "Session"
+// in the language the app shows.
+func UsagePluginSession() string { return In(i18n.Locale()).UsagePluginSession() }
+
+// UsagePluginSession says "Session"
+// in the language of msgs.
+func (msgs Messages) UsagePluginSession() string {
+	return Catalog.Format(msgs.locale, "usagePluginSession", nil)
+}
+
+// UsagePluginWeekly says "Weekly"
+// in the language the app shows.
+func UsagePluginWeekly() string { return In(i18n.Locale()).UsagePluginWeekly() }
+
+// UsagePluginWeekly says "Weekly"
+// in the language of msgs.
+func (msgs Messages) UsagePluginWeekly() string {
+	return Catalog.Format(msgs.locale, "usagePluginWeekly", nil)
+}
+
+// UsagePluginMonthly says "Monthly"
+// in the language the app shows.
+func UsagePluginMonthly() string { return In(i18n.Locale()).UsagePluginMonthly() }
+
+// UsagePluginMonthly says "Monthly"
+// in the language of msgs.
+func (msgs Messages) UsagePluginMonthly() string {
+	return Catalog.Format(msgs.locale, "usagePluginMonthly", nil)
+}
+
+// UsagePluginLeft says "{percent}% left"
+// in the language the app shows.
+func UsagePluginLeft(percent string) string { return In(i18n.Locale()).UsagePluginLeft(percent) }
+
+// UsagePluginLeft says "{percent}% left"
+// in the language of msgs.
+func (msgs Messages) UsagePluginLeft(percent string) string {
+	return Catalog.Format(msgs.locale, "usagePluginLeft", map[string]any{"percent": percent})
+}
+
+// UsagePluginResetsIn says "Resets in {duration}"
+// in the language the app shows.
+func UsagePluginResetsIn(duration string) string {
+	return In(i18n.Locale()).UsagePluginResetsIn(duration)
+}
+
+// UsagePluginResetsIn says "Resets in {duration}"
+// in the language of msgs.
+func (msgs Messages) UsagePluginResetsIn(duration string) string {
+	return Catalog.Format(msgs.locale, "usagePluginResetsIn", map[string]any{"duration": duration})
+}
+
+// UsagePluginLimitIn says "Limit in {duration}"
+// in the language the app shows.
+func UsagePluginLimitIn(duration string) string {
+	return In(i18n.Locale()).UsagePluginLimitIn(duration)
+}
+
+// UsagePluginLimitIn says "Limit in {duration}"
+// in the language of msgs.
+func (msgs Messages) UsagePluginLimitIn(duration string) string {
+	return Catalog.Format(msgs.locale, "usagePluginLimitIn", map[string]any{"duration": duration})
+}
+
+// UsagePluginToday says "Today"
+// in the language the app shows.
+func UsagePluginToday() string { return In(i18n.Locale()).UsagePluginToday() }
+
+// UsagePluginToday says "Today"
+// in the language of msgs.
+func (msgs Messages) UsagePluginToday() string {
+	return Catalog.Format(msgs.locale, "usagePluginToday", nil)
+}
+
+// UsagePluginLast30Days says "Last 30 Days"
+// in the language the app shows.
+func UsagePluginLast30Days() string { return In(i18n.Locale()).UsagePluginLast30Days() }
+
+// UsagePluginLast30Days says "Last 30 Days"
+// in the language of msgs.
+func (msgs Messages) UsagePluginLast30Days() string {
+	return Catalog.Format(msgs.locale, "usagePluginLast30Days", nil)
+}
+
+// UsagePluginCostTokens says "{cost} · {tokens} tokens"
+// in the language the app shows.
+func UsagePluginCostTokens(cost string, tokens string) string {
+	return In(i18n.Locale()).UsagePluginCostTokens(cost, tokens)
+}
+
+// UsagePluginCostTokens says "{cost} · {tokens} tokens"
+// in the language of msgs.
+func (msgs Messages) UsagePluginCostTokens(cost string, tokens string) string {
+	return Catalog.Format(msgs.locale, "usagePluginCostTokens", map[string]any{"cost": cost, "tokens": tokens})
+}
+
+// UsagePluginNoData says "No data"
+// in the language the app shows.
+func UsagePluginNoData() string { return In(i18n.Locale()).UsagePluginNoData() }
+
+// UsagePluginNoData says "No data"
+// in the language of msgs.
+func (msgs Messages) UsagePluginNoData() string {
+	return Catalog.Format(msgs.locale, "usagePluginNoData", nil)
+}
+
+// UsagePluginShowDetails says "Show details"
+// in the language the app shows.
+func UsagePluginShowDetails() string { return In(i18n.Locale()).UsagePluginShowDetails() }
+
+// UsagePluginShowDetails says "Show details"
+// in the language of msgs.
+func (msgs Messages) UsagePluginShowDetails() string {
+	return Catalog.Format(msgs.locale, "usagePluginShowDetails", nil)
+}
+
+// UsagePluginHideDetails says "Hide details"
+// in the language the app shows.
+func UsagePluginHideDetails() string { return In(i18n.Locale()).UsagePluginHideDetails() }
+
+// UsagePluginHideDetails says "Hide details"
+// in the language of msgs.
+func (msgs Messages) UsagePluginHideDetails() string {
+	return Catalog.Format(msgs.locale, "usagePluginHideDetails", nil)
+}
+
+// UsagePluginTotalToday says "{cost} today"
+// in the language the app shows.
+func UsagePluginTotalToday(cost string) string { return In(i18n.Locale()).UsagePluginTotalToday(cost) }
+
+// UsagePluginTotalToday says "{cost} today"
+// in the language of msgs.
+func (msgs Messages) UsagePluginTotalToday(cost string) string {
+	return Catalog.Format(msgs.locale, "usagePluginTotalToday", map[string]any{"cost": cost})
 }
 
 // UsagePluginHelpClaude says "Reads your Claude Code sign-in. Run claude and sign in, then refresh."
@@ -6630,4 +6716,78 @@ func UsagePluginHelpDeepseek() string { return In(i18n.Locale()).UsagePluginHelp
 // in the language of msgs.
 func (msgs Messages) UsagePluginHelpDeepseek() string {
 	return Catalog.Format(msgs.locale, "usagePluginHelpDeepseek", nil)
+}
+
+// UsagePluginRefresh says "Refresh usage"
+// in the language the app shows.
+func UsagePluginRefresh() string { return In(i18n.Locale()).UsagePluginRefresh() }
+
+// UsagePluginRefresh says "Refresh usage"
+// in the language of msgs.
+func (msgs Messages) UsagePluginRefresh() string {
+	return Catalog.Format(msgs.locale, "usagePluginRefresh", nil)
+}
+
+// UsagePluginEstimatedShort says "Some amounts are estimates"
+// in the language the app shows.
+func UsagePluginEstimatedShort() string { return In(i18n.Locale()).UsagePluginEstimatedShort() }
+
+// UsagePluginEstimatedShort says "Some amounts are estimates"
+// in the language of msgs.
+func (msgs Messages) UsagePluginEstimatedShort() string {
+	return Catalog.Format(msgs.locale, "usagePluginEstimatedShort", nil)
+}
+
+// UsagePluginApprox says "≈{amount}"
+// in the language the app shows.
+func UsagePluginApprox(amount string) string { return In(i18n.Locale()).UsagePluginApprox(amount) }
+
+// UsagePluginApprox says "≈{amount}"
+// in the language of msgs.
+func (msgs Messages) UsagePluginApprox(amount string) string {
+	return Catalog.Format(msgs.locale, "usagePluginApprox", map[string]any{"amount": amount})
+}
+
+// UsagePluginUnderMinute says "<1m"
+// in the language the app shows.
+func UsagePluginUnderMinute() string { return In(i18n.Locale()).UsagePluginUnderMinute() }
+
+// UsagePluginUnderMinute says "<1m"
+// in the language of msgs.
+func (msgs Messages) UsagePluginUnderMinute() string {
+	return Catalog.Format(msgs.locale, "usagePluginUnderMinute", nil)
+}
+
+// UsagePluginDurationPair says "{major} {minor}"
+// in the language the app shows.
+func UsagePluginDurationPair(major string, minor string) string {
+	return In(i18n.Locale()).UsagePluginDurationPair(major, minor)
+}
+
+// UsagePluginDurationPair says "{major} {minor}"
+// in the language of msgs.
+func (msgs Messages) UsagePluginDurationPair(major string, minor string) string {
+	return Catalog.Format(msgs.locale, "usagePluginDurationPair", map[string]any{"major": major, "minor": minor})
+}
+
+// UsagePluginTimeLayout says "Mon 3:04 PM"
+// in the language the app shows.
+func UsagePluginTimeLayout() string { return In(i18n.Locale()).UsagePluginTimeLayout() }
+
+// UsagePluginTimeLayout says "Mon 3:04 PM"
+// in the language of msgs.
+func (msgs Messages) UsagePluginTimeLayout() string {
+	return Catalog.Format(msgs.locale, "usagePluginTimeLayout", nil)
+}
+
+// UsagePluginWindowBar says "{window}: {left}"
+// in the language the app shows.
+func UsagePluginWindowBar(window string, left string) string {
+	return In(i18n.Locale()).UsagePluginWindowBar(window, left)
+}
+
+// UsagePluginWindowBar says "{window}: {left}"
+// in the language of msgs.
+func (msgs Messages) UsagePluginWindowBar(window string, left string) string {
+	return Catalog.Format(msgs.locale, "usagePluginWindowBar", map[string]any{"window": window, "left": left})
 }

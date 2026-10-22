@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 )
@@ -22,6 +23,8 @@ const (
 	NodeEmptyState  = "emptyState"
 	NodeSpacer      = "spacer"
 	NodeDivider     = "divider"
+	NodeSegmented   = "segmented"
+	NodeDonut       = "donut"
 )
 
 // KnownNodeTypes are the part types this protocol version knows.
@@ -29,30 +32,64 @@ var KnownNodeTypes = []string{
 	NodeRow, NodeColumn, NodeText, NodeImage, NodeButton,
 	NodeIconButton, NodeSlider, NodeProgress, NodeList,
 	NodeSearchField, NodeEmptyState, NodeSpacer, NodeDivider,
+	NodeSegmented, NodeDonut,
 }
 
 // The roles a text part may take. A headline is the large title of a
-// pane that has the room, such as the track a player shows.
+// pane that has the room, such as the track a player shows. Strong is a
+// body-sized text in a heavier weight, such as a label in a card.
 const (
 	RoleHeadline = "headline"
 	RoleTitle    = "title"
 	RoleBody     = "body"
 	RoleCaption  = "caption"
 	RoleMono     = "mono"
+	RoleStrong   = "strong"
 )
 
 // KnownRoles are the text roles the app draws.
-var KnownRoles = []string{RoleHeadline, RoleTitle, RoleBody, RoleCaption, RoleMono}
+var KnownRoles = []string{RoleHeadline, RoleTitle, RoleBody, RoleCaption, RoleMono, RoleStrong}
 
-// The colors a part may take: the app's own, never a free one.
+// The colors a part may take: the app's own, never a free one. The first
+// three are the text colors. Danger, warning and success are meanings the
+// app colors for the appearance; the hues (orange to gray) are for telling
+// the slices of a chart apart.
 const (
-	ColorText   = "text"
-	ColorMuted  = "muted"
-	ColorAccent = "accent"
+	ColorText    = "text"
+	ColorMuted   = "muted"
+	ColorAccent  = "accent"
+	ColorDanger  = "danger"
+	ColorWarning = "warning"
+	ColorSuccess = "success"
+	ColorOrange  = "orange"
+	ColorGreen   = "green"
+	ColorTeal    = "teal"
+	ColorBlue    = "blue"
+	ColorPurple  = "purple"
+	ColorGray    = "gray"
 )
 
 // KnownColorRoles are the colors the app draws.
-var KnownColorRoles = []string{ColorText, ColorMuted, ColorAccent}
+var KnownColorRoles = []string{
+	ColorText, ColorMuted, ColorAccent,
+	ColorDanger, ColorWarning, ColorSuccess,
+	ColorOrange, ColorGreen, ColorTeal, ColorBlue, ColorPurple, ColorGray,
+}
+
+// SurfaceCard is a row or column drawn as a card: a soft panel with
+// rounded corners that sets its children apart from the pane.
+const SurfaceCard = "card"
+
+// KnownSurfaces are the surfaces a row or column may take.
+var KnownSurfaces = []string{SurfaceCard}
+
+// KnownMarks are the logos a text may show before its words: those of the
+// programs the app has a logo for, by the name kerod gives them.
+var KnownMarks = []string{
+	"claude", "codex", "gemini", "opencode", "amp", "cursor-agent",
+	"copilot", "qwen", "kimi", "cline", "node", "bun", "deno", "python",
+	"python3", "vim", "nvim", "git", "docker",
+}
 
 // The alignments a row or column may take.
 const (
@@ -91,12 +128,20 @@ var KnownIcons = []string{
 	"folder", "external", "copy", "link", "gear", "files", "globe",
 	"terminal", "image", "back", "forward", "preview", "source",
 	"doc", "list", "board", "shuffle", "repeat", "volume", "volume-off",
+	"flame", "dot", "warning", "info",
 }
 
 // The limits a tree is held to, so that a plugin cannot stall the app.
 const (
 	MaxNodes = 2000
 	MaxDepth = 24
+	// MaxSegments is how many slices a donut may have.
+	MaxSegments = 32
+	// MaxSegmentedItems is how many choices a segmented control may have.
+	MaxSegmentedItems = 8
+	// MinDonut and MaxDonut bound a donut's diameter in points.
+	MinDonut = 48
+	MaxDonut = 240
 )
 
 var nodeRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$`)
@@ -130,8 +175,11 @@ type Node struct {
 	Radius int  `json:"radius,omitempty"`
 	Tint   bool `json:"tint,omitempty"` // BRU-167
 
-	Label   string `json:"label,omitempty"`
+	Label string `json:"label,omitempty"`
+	// Icon is an icon button's glyph, and a text's, drawn before its words
+	// in the text's color. Mark is a program's logo drawn there instead.
 	Icon    string `json:"icon,omitempty"`
+	Mark    string `json:"mark,omitempty"`
 	Primary bool   `json:"primary,omitempty"`
 	// Active marks an icon button as switched on, such as shuffle that is
 	// on: the app draws its glyph in the accent color.
@@ -151,6 +199,9 @@ type Node struct {
 	// set; its Text is the fallback of a host that does not know a clock.
 	Rate float64 `json:"rate,omitempty"` // a playing part's speed
 	At   int64   `json:"at,omitempty"`   // and when it started, in unix milliseconds
+	// Marker is a tick across a progress bar at a fraction of its length,
+	// from 0 to 1, such as where the usage of a window should be by now.
+	Marker *float64 `json:"marker,omitempty"`
 
 	Grow    float64 `json:"grow,omitempty"`
 	Gap     int     `json:"gap,omitempty"`
@@ -162,6 +213,23 @@ type Node struct {
 
 	// Variant is a list's look: "" for rows, or "grid".
 	Variant string `json:"variant,omitempty"`
+
+	// Surface draws a row or column as a card; its Radius, 10 when unset,
+	// rounds the card's corners.
+	Surface string `json:"surface,omitempty"`
+	// Segments are the slices of a donut. Its Width is its diameter, Text
+	// the words in its middle and Detail the caption under them. A
+	// segmented control takes its choices from Items, the chosen one Active.
+	Segments []Segment `json:"segments,omitempty"`
+}
+
+// Segment is one slice of a donut part: a share of the whole by its Value,
+// in the color role Color.
+type Segment struct {
+	ID    string  `json:"id"`
+	Label string  `json:"label,omitempty"`
+	Value float64 `json:"value"`
+	Color string  `json:"color,omitempty"`
 }
 
 // Item is one row of a list part.
@@ -243,10 +311,28 @@ func (n *Node) validateFields() error {
 	if n.Align != "" && !slices.Contains(KnownAligns, n.Align) {
 		return fmt.Errorf("plugin tree: node %q has unknown align %q", n.ID, n.Align)
 	}
+	if n.Surface != "" && n.Type != NodeRow && n.Type != NodeColumn {
+		return fmt.Errorf("plugin tree: node %q of type %q has a surface", n.ID, n.Type)
+	}
+	if n.Marker != nil && n.Type != NodeProgress {
+		return fmt.Errorf("plugin tree: node %q of type %q has a marker", n.ID, n.Type)
+	}
+	if n.Mark != "" && n.Type != NodeText {
+		return fmt.Errorf("plugin tree: node %q of type %q has a mark", n.ID, n.Type)
+	}
+	if len(n.Segments) > 0 && n.Type != NodeDonut {
+		return fmt.Errorf("plugin tree: node %q of type %q has segments", n.ID, n.Type)
+	}
 	switch n.Type {
 	case NodeRow, NodeColumn:
 		if n.Text != "" || len(n.Items) > 0 {
 			return fmt.Errorf("plugin tree: node %q of type %q holds text or items", n.ID, n.Type)
+		}
+		if n.Surface != "" && !slices.Contains(KnownSurfaces, n.Surface) {
+			return fmt.Errorf("plugin tree: node %q has unknown surface %q", n.ID, n.Surface)
+		}
+		if n.Radius < 0 {
+			return fmt.Errorf("plugin tree: node %q has a negative radius", n.ID)
 		}
 	case NodeText:
 		if n.Role != "" && !slices.Contains(KnownRoles, n.Role) {
@@ -254,6 +340,12 @@ func (n *Node) validateFields() error {
 		}
 		if n.Color != "" && !slices.Contains(KnownColorRoles, n.Color) {
 			return fmt.Errorf("plugin tree: node %q has unknown color %q", n.ID, n.Color)
+		}
+		if n.Icon != "" && !slices.Contains(KnownIcons, n.Icon) {
+			return fmt.Errorf("plugin tree: text %q has unknown icon %q", n.ID, n.Icon)
+		}
+		if n.Mark != "" && !slices.Contains(KnownMarks, n.Mark) {
+			return fmt.Errorf("plugin tree: text %q has unknown mark %q", n.ID, n.Mark)
 		}
 		if n.Lines < 0 {
 			return fmt.Errorf("plugin tree: node %q has a negative line limit", n.ID)
@@ -296,6 +388,9 @@ func (n *Node) validateFields() error {
 		if n.Color != "" && !slices.Contains(KnownColorRoles, n.Color) {
 			return fmt.Errorf("plugin tree: progress %q has unknown color %q", n.ID, n.Color)
 		}
+		if n.Marker != nil && !(*n.Marker >= 0 && *n.Marker <= 1) {
+			return fmt.Errorf("plugin tree: progress %q has a marker outside 0 to 1", n.ID)
+		}
 	case NodeList:
 		if n.Variant != "" && !slices.Contains(KnownVariants, n.Variant) {
 			return fmt.Errorf("plugin tree: list %q has unknown variant %q", n.ID, n.Variant)
@@ -329,6 +424,69 @@ func (n *Node) validateFields() error {
 			return fmt.Errorf("plugin tree: spacer %q has a negative grow", n.ID)
 		}
 	case NodeDivider:
+	case NodeSegmented:
+		return n.validateSegmented()
+	case NodeDonut:
+		return n.validateDonut()
+	}
+	return nil
+}
+
+// validateSegmented checks a segmented control's choices: at least two,
+// with ids of their own and titles, and at most one chosen.
+func (n *Node) validateSegmented() error {
+	if len(n.Items) < 2 {
+		return fmt.Errorf("plugin tree: segmented %q needs at least two items", n.ID)
+	}
+	if len(n.Items) > MaxSegmentedItems {
+		return fmt.Errorf("plugin tree: segmented %q has more than %d items", n.ID, MaxSegmentedItems)
+	}
+	itemIDs := map[string]bool{}
+	active := 0
+	for _, item := range n.Items {
+		if !nodeRe.MatchString(item.ID) {
+			return fmt.Errorf("plugin tree: segmented %q has item id %q that must match %s", n.ID, item.ID, nodeRe)
+		}
+		if itemIDs[item.ID] {
+			return fmt.Errorf("plugin tree: segmented %q repeats item id %q", n.ID, item.ID)
+		}
+		itemIDs[item.ID] = true
+		if item.Title == "" {
+			return fmt.Errorf("plugin tree: segmented %q has item %q without a title", n.ID, item.ID)
+		}
+		if item.Active {
+			active++
+		}
+	}
+	if active > 1 {
+		return fmt.Errorf("plugin tree: segmented %q has %d active items, at most one", n.ID, active)
+	}
+	return nil
+}
+
+// validateDonut checks a donut's diameter and slices.
+func (n *Node) validateDonut() error {
+	if n.Width != 0 && (n.Width < MinDonut || n.Width > MaxDonut) {
+		return fmt.Errorf("plugin tree: donut %q has a diameter outside %d to %d", n.ID, MinDonut, MaxDonut)
+	}
+	if len(n.Segments) > MaxSegments {
+		return fmt.Errorf("plugin tree: donut %q has more than %d segments", n.ID, MaxSegments)
+	}
+	segIDs := map[string]bool{}
+	for _, seg := range n.Segments {
+		if !nodeRe.MatchString(seg.ID) {
+			return fmt.Errorf("plugin tree: donut %q has segment id %q that must match %s", n.ID, seg.ID, nodeRe)
+		}
+		if segIDs[seg.ID] {
+			return fmt.Errorf("plugin tree: donut %q repeats segment id %q", n.ID, seg.ID)
+		}
+		segIDs[seg.ID] = true
+		if !(seg.Value >= 0) || math.IsInf(seg.Value, 0) {
+			return fmt.Errorf("plugin tree: donut %q has segment %q with a negative or invalid value", n.ID, seg.ID)
+		}
+		if seg.Color != "" && !slices.Contains(KnownColorRoles, seg.Color) {
+			return fmt.Errorf("plugin tree: donut %q has segment %q with unknown color %q", n.ID, seg.ID, seg.Color)
+		}
 	}
 	return nil
 }

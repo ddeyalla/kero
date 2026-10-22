@@ -209,6 +209,34 @@ builds only. What each feature is and where it stands is tracked in the
   and every window. It reads the same data as the Usage tab, needs no
   permission, and refreshes only while it is visible, at most every two
   minutes unless you press refresh.
+- The Usage pane is redesigned. A Cost card has a Today, Yesterday and 30 Days
+  segmented control, a donut with the total in its middle (the text shrinks to
+  fit), and a legend of a provider dot, its name and its amount. An amount
+  made with an estimated price shows "≈", and a line "Some amounts are
+  estimates" has a tooltip that lists the models priced by estimate. Below it,
+  each provider has a section with its mark, name and plan. Each window
+  (Session, Weekly, Monthly) shows a bar with a tick for the pace, "% left"
+  and "Resets in …". When the current pace would reach the limit before the
+  reset, a red flame and "Limit in …" tell when. A chevron opens Today and Last
+  30 Days as dollars and tokens. A small pane gets a compact form. The "This
+  Mac" CPU and memory section is removed. The range and the open providers are
+  saved per pane.
+- Cost comes from the logs on this Mac: Claude Code (`~/.claude/projects`, or
+  `CLAUDE_CONFIG_DIR`), Codex (`~/.codex/sessions`, or `CODEX_HOME`) and
+  OpenCode (`opencode.db`, read-only through the system `sqlite3`, with the
+  cost OpenCode recorded). Prices come from a table in the binary
+  (`internal/usage/cost/price.go`): Claude uses Anthropic's list, and the
+  prices of other models are estimates. Reads are incremental. A compact
+  binary cache, `plugin-data/usage/cost-cache.bin` in the data folder, is
+  saved at most every 30 minutes and when the pane closes. The plugin reads
+  only while a pane is visible: every 5 minutes, at midnight and on refresh.
+  Nothing reads or stores the text of a message.
+- Plugin trees have new parts: `segmented` and `donut` nodes; `surface: "card"`
+  on a row or column; `marker` on a progress bar; `icon` and `mark` on text;
+  a `strong` text role; the colour roles danger, warning, success, orange,
+  green, teal, blue, purple and gray; the icons flame, dot, warning and info;
+  and a `label` on icon-only text. Plugin text uses tabular digits, so numbers
+  do not jump.
 
 ### Fixed
 

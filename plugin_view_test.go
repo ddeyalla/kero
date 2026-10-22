@@ -12,6 +12,9 @@ import (
 	"image/color"
 	"image/png"
 	"math"
+	"os"
+	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -96,6 +99,25 @@ func pluginEveryPart() *protocol.Tree {
 		sdk.SearchField("search", "Search files"),
 		sdk.EmptyState("empty", "Nothing here", "A detail line").Action("Create"),
 		sdk.Divider("divider"),
+		sdk.Column("card",
+			sdk.Segmented("range",
+				protocol.Item{ID: "today", Title: "Today", Active: true},
+				protocol.Item{ID: "yesterday", Title: "Yesterday"},
+				protocol.Item{ID: "30d", Title: "30 Days"},
+			),
+			sdk.Row("cost",
+				sdk.Donut("donut",
+					protocol.Segment{ID: "claude", Label: "Claude", Value: 3, Color: protocol.ColorOrange},
+					protocol.Segment{ID: "codex", Label: "Codex", Value: 1, Color: protocol.ColorBlue},
+				).Center("$4.6K", "dollars").Width(96),
+				sdk.Column("legend",
+					sdk.Text("leg-dot", "").Icon("dot").Color(protocol.ColorOrange),
+					sdk.Text("leg-name", "Claude").Mark("claude").Role(protocol.RoleStrong),
+					sdk.Text("flame", "Limit in 1d 4h").Icon("flame").Color(protocol.ColorDanger).Role(protocol.RoleCaption),
+				).Grow(1).Gap(6),
+			).Gap(12),
+			sdk.Progress("pace", 0.4).Marker(0.7).Color(protocol.ColorDanger).Label("Session"),
+		).Surface(protocol.SurfaceCard).Padding(12).Gap(10),
 	))
 }
 
@@ -123,12 +145,222 @@ func TestPluginPartsDraw(t *testing.T) {
 				t.Fatalf("dark %v: the tree does not show %q; it shows %q", dark, text, h.tt.Texts())
 			}
 		}
-		for _, label := range []string{"Slider", "Progress", "files", "Search files"} {
+		for _, text := range []string{
+			"Today", "Yesterday", "30 Days", "$4.6K", "dollars", "Claude", "Limit in 1d 4h",
+		} {
+			if !h.tt.HasText(text) {
+				t.Fatalf("dark %v: the tree does not show %q; it shows %q", dark, text, h.tt.Texts())
+			}
+		}
+		for _, label := range []string{"Slider", "Progress", "files", "Search files", "Session", "$4.6K dollars", "Today"} {
 			if _, ok := h.tt.Find(label); !ok {
 				t.Fatalf("dark %v: no part is labeled %q", dark, label)
 			}
 		}
 	}
+}
+
+// TestPluginMarksAreProgramIcons keeps the marks the protocol allows in
+// step with the logos the app has.
+func TestPluginMarksAreProgramIcons(t *testing.T) {
+	for _, mark := range protocol.KnownMarks {
+		if programIcons[mark] == nil {
+			t.Errorf("mark %q has no program icon", mark)
+		}
+	}
+	for name := range programIcons {
+		if !slices.Contains(protocol.KnownMarks, name) {
+			t.Errorf("program icon %q is not a known mark", name)
+		}
+	}
+}
+
+// TestPluginIconsAreDrawn gives every icon of the protocol an SF Symbol,
+// and the icons of the usage parts an SVG to fall back on as well.
+func TestPluginIconsAreDrawn(t *testing.T) {
+	for _, name := range protocol.KnownIcons {
+		if _, ok := pluginSymbols[name]; !ok {
+			t.Errorf("icon %q has no SF Symbol", name)
+		}
+	}
+	for _, name := range []string{"flame", "dot", "warning", "info", "chevron-up", "chevron-down"} {
+		if _, ok := pluginIcons[name]; !ok {
+			t.Errorf("icon %q has no SVG", name)
+		}
+	}
+}
+
+// TestPluginSegmentedChoosesAtOnce switches a segmented control on a
+// click, sends a select with the item's id, and takes the plugin's choice
+// back when it changes.
+func TestPluginSegmentedChoosesAtOnce(t *testing.T) {
+	var mu sync.Mutex
+	var got []pluginEvent
+	send := func(ev pluginEvent) {
+		mu.Lock()
+		got = append(got, ev)
+		mu.Unlock()
+	}
+	tree := func(active string) *protocol.Tree {
+		items := make([]protocol.Item, 0, 3)
+		for _, id := range []string{"today", "yesterday", "30d"} {
+			items = append(items, protocol.Item{ID: id, Title: "item " + id, Active: id == active})
+		}
+		return pluginTree(sdk.Column("root", sdk.Segmented("range", items...)))
+	}
+	h := newPluginHarness(t, tree("today"), send)
+	if st := h.view.segments["range"]; st == nil || st.index != 0 {
+		t.Fatalf("segments = %v, want the first chosen", h.view.segments)
+	}
+	if err := h.tt.Click("item 30d"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	ok := hasPluginEvent(got, "range", protocol.KindSelect, "30d")
+	mu.Unlock()
+	if !ok {
+		t.Fatalf("no select for the segment: %v", got)
+	}
+	if st := h.view.segments["range"]; st.index != 2 {
+		t.Fatalf("index = %d after a click, want 2", st.index)
+	}
+	// The plugin echoes the choice, then chooses another.
+	h.show(tree("30d"))
+	if st := h.view.segments["range"]; st.index != 2 {
+		t.Fatalf("index = %d after the echo, want 2", st.index)
+	}
+	h.show(tree("yesterday"))
+	if st := h.view.segments["range"]; st.index != 1 {
+		t.Fatalf("index = %d after the plugin chose, want 1", st.index)
+	}
+	h.show(pluginTree(sdk.Column("root", sdk.Text("t", "gone"))))
+	if len(h.view.segments) != 0 {
+		t.Fatalf("segments = %v, want the state of a removed control dropped", h.view.segments)
+	}
+}
+
+// TestPluginColorRolesDraw maps every color role to a color of its own in
+// both appearances.
+func TestPluginColorRolesDraw(t *testing.T) {
+	for _, pal := range []*palette{&lightPalette, &darkPalette} {
+		seen := map[ui.Color]string{}
+		for _, role := range protocol.KnownColorRoles {
+			col := pluginTextColor(pal, &protocol.Node{Color: role})
+			if col.A == 0 {
+				t.Errorf("dark %v: color %q is transparent", pal.dark, role)
+			}
+			if role == protocol.ColorText || role == protocol.ColorMuted || role == protocol.ColorAccent || role == protocol.ColorBlue || role == protocol.ColorGray {
+				continue
+			}
+			if other, dup := seen[col]; dup {
+				t.Errorf("dark %v: colors %q and %q are alike", pal.dark, role, other)
+			}
+			seen[col] = role
+		}
+	}
+}
+
+// TestPluginPartShots writes shots of a usage-like pane, at 300 wide, in
+// both appearances, into the directory PLUGIN_SHOT_DIR names.
+func TestPluginPartShots(t *testing.T) {
+	dir := os.Getenv("PLUGIN_SHOT_DIR")
+	if dir == "" {
+		t.Skip("PLUGIN_SHOT_DIR is not set")
+	}
+	for _, dark := range []bool{false, true} {
+		h := newPluginHarness(t, pluginUsageShot(), nil)
+		pal := lightPalette
+		if dark {
+			pal = darkPalette
+		}
+		// The pane draws on the card of the app's own background.
+		h.tt = ui.NewTester(func(c *ui.Context) {
+			ui.Column(c.Key("shot")).Fill().Background(pal.card).Children(func() {
+				drawPluginTree(c, h.view, &pal, h.tree, nil)
+			})
+		}, 300, 560)
+		h.frames()
+		name := "plugin-parts-light.png"
+		if dark {
+			name = "plugin-parts-dark.png"
+		}
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, h.tt.Image()); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), buf.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// pluginUsageShot is a pane in the look of the usage plugin's.
+func pluginUsageShot() *protocol.Tree {
+	legend := func(id, name string, color string, usd string, estimate bool) *sdk.Node {
+		amount := []*sdk.Node{sdk.Text("leg-usd-"+id, usd)}
+		if estimate {
+			amount = append([]*sdk.Node{sdk.Text("leg-approx-"+id, "≈").Color(protocol.ColorMuted)}, amount...)
+		}
+		return sdk.Row("leg-"+id,
+			sdk.Text("leg-dot-"+id, "").Icon("dot").Color(color),
+			sdk.Text("leg-name-"+id, name).Grow(1).Lines(1),
+			sdk.Row("leg-amount-"+id, amount...).Gap(0),
+		).Gap(6).Align(protocol.AlignCenter)
+	}
+	window := func(id, label string, used, pace float64, tone, left, resets string) *sdk.Node {
+		return sdk.Column("win-"+id,
+			sdk.Row("win-head-"+id,
+				sdk.Text("wlabel-"+id, label).Role(protocol.RoleStrong),
+				sdk.Spacer("wspace-"+id),
+				sdk.Text("pace-"+id, "Limit in 1d 4h").Icon("flame").Color(protocol.ColorDanger).Role(protocol.RoleCaption),
+			),
+			sdk.Progress("bar-"+id, used).Marker(pace).Color(tone).Label(label),
+			sdk.Row("win-foot-"+id,
+				sdk.Text("left-"+id, left).Role(protocol.RoleCaption).Color(protocol.ColorMuted).Grow(1),
+				sdk.Text("reset-"+id, resets).Role(protocol.RoleCaption).Color(protocol.ColorMuted),
+			),
+		).Gap(4)
+	}
+	return pluginTree(sdk.Column("usage-root",
+		sdk.Column("usage-cost",
+			sdk.Segmented("usage-range",
+				protocol.Item{ID: "today", Title: "Today", Active: true},
+				protocol.Item{ID: "yesterday", Title: "Yesterday"},
+				protocol.Item{ID: "30d", Title: "30 Days"},
+			),
+			sdk.Row("usage-cost-body",
+				sdk.Donut("usage-donut",
+					protocol.Segment{ID: "claude", Value: 3100, Color: protocol.ColorOrange},
+					protocol.Segment{ID: "codex", Value: 1400, Color: protocol.ColorGreen},
+					protocol.Segment{ID: "opencode", Value: 90, Color: protocol.ColorPurple},
+					protocol.Segment{ID: "deepseek", Value: 4.2, Color: protocol.ColorBlue},
+				).Center("$4.6K", "dollars").Width(96),
+				sdk.Column("usage-legend",
+					legend("claude", "Claude", protocol.ColorOrange, "$3,100.00", false),
+					legend("codex", "Codex", protocol.ColorGreen, "$1,400.00", true),
+					legend("opencode", "OpenCode Go", protocol.ColorPurple, "$90.00", false),
+					legend("deepseek", "DeepSeek", protocol.ColorBlue, "$4.20", false),
+				).Grow(1).Gap(6),
+			).Gap(12),
+			sdk.Text("usage-estimated", "Some amounts are estimates").Icon("info").Role(protocol.RoleCaption).Color(protocol.ColorMuted).Lines(1).Label("Includes estimates for unknown models: gpt-9"),
+		).Surface(protocol.SurfaceCard).Padding(12).Gap(10),
+		sdk.Column("sec-claude",
+			sdk.Row("head-claude",
+				sdk.Text("name-claude", "Claude").Mark("claude").Role(protocol.RoleStrong),
+				sdk.Text("plan-claude", "Max").Role(protocol.RoleCaption).Color(protocol.ColorMuted),
+				sdk.Spacer("head-space"),
+				sdk.IconButton("toggle-claude", "chevron-down").Label("Show details"),
+			).Gap(6),
+			sdk.Column("card-claude",
+				window("0", "Session", 0.62, 0.4, protocol.ColorDanger, "38% left", "Resets in 3h 12m"),
+				window("1", "Weekly", 0.2, 0.3, protocol.ColorBlue, "80% left", "Resets in 3d 6h"),
+			).Surface(protocol.SurfaceCard).Padding(12).Gap(12),
+		).Gap(6),
+		sdk.Row("usage-foot",
+			sdk.Text("usage-updated", "Updated just now").Role(protocol.RoleCaption).Color(protocol.ColorMuted).Grow(1),
+			sdk.IconButton("usage-refresh", "refresh").Label("Refresh"),
+		),
+	).Padding(12).Gap(12))
 }
 
 // TestPluginPartEvents sends one event of every kind, each naming its part.
@@ -1512,5 +1744,31 @@ func TestPluginActiveIconButtonPresses(t *testing.T) {
 	}
 	if !hasPluginEvent(got, "shuffle", protocol.KindPress, nil) {
 		t.Fatalf("no press for the active button: %v", got)
+	}
+}
+
+// An icon with no words is named by its label, and a long total in a donut
+// shrinks to the hole and is not cut.
+func TestPluginIconTextLabelAndDonutFit(t *testing.T) {
+	h := newPluginHarness(t, pluginTree(sdk.Column("root",
+		sdk.Text("flame", "").Icon("flame").Color(protocol.ColorDanger).Label("Limit in 1d 4h"),
+		sdk.Donut("donut", protocol.Segment{ID: "a", Value: 1, Color: protocol.ColorOrange}).Center("$1,234.5K", "dollars").Width(96),
+	)), nil)
+	if _, ok := h.tt.Find("Limit in 1d 4h"); !ok {
+		t.Error("the icon-only text has no label")
+	}
+	if !h.tt.HasText("$1,234.5K") {
+		t.Errorf("the donut total is cut: the tree shows %q", h.tt.Texts())
+	}
+}
+
+// A donut slice is a sector of the ring: it stays between its radii and
+// inside its angles.
+func TestPluginDonutSectorPath(t *testing.T) {
+	var v pluginView
+	v.sector(50, 50, 30, 40, 0, math.Pi/2)
+	b := v.ring.Bounds()
+	if b.X < 49.9 || b.X+b.W > 90.1 || b.Y < 9.9 || b.Y+b.H > 50.1 {
+		t.Errorf("a quarter sector at the top right is %+v", b)
 	}
 }

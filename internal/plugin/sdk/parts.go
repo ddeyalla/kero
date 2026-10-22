@@ -25,15 +25,16 @@ type Node struct {
 	width, height, radius int
 	tint                  bool
 
-	label, icon string
-	primary     bool
-	active      bool
-	enabled     *bool
-	action      string
-	placeholder string
+	label, icon, mark string
+	primary           bool
+	active            bool
+	enabled           *bool
+	action            string
+	placeholder       string
 
 	value, min, max, step, rate float64
 	at                          int64
+	marker                      *float64
 
 	grow    float64
 	gap     int
@@ -43,6 +44,9 @@ type Node struct {
 	title, detail string
 	items         []protocol.Item
 	variant       string
+
+	surface  string
+	segments []protocol.Segment
 }
 
 // Build returns the protocol node, with the children built.
@@ -64,6 +68,7 @@ func (n *Node) Build() *protocol.Node {
 		Tint:        n.tint,
 		Label:       n.label,
 		Icon:        n.icon,
+		Mark:        n.mark,
 		Primary:     n.primary,
 		Active:      n.active,
 		Enabled:     n.enabled,
@@ -75,6 +80,7 @@ func (n *Node) Build() *protocol.Node {
 		Step:        n.step,
 		Rate:        n.rate,
 		At:          n.at,
+		Marker:      n.marker,
 		Grow:        n.grow,
 		Gap:         n.gap,
 		Padding:     n.padding,
@@ -82,6 +88,8 @@ func (n *Node) Build() *protocol.Node {
 		Title:       n.title,
 		Detail:      n.detail,
 		Variant:     n.variant,
+		Surface:     n.surface,
+		Segments:    n.segments,
 	}
 	for _, child := range n.children {
 		out.Children = append(out.Children, child.Build())
@@ -212,10 +220,27 @@ func Spacer(id string) *Node {
 // Divider draws a thin line.
 func Divider(id string) *Node { return newNode(protocol.NodeDivider, id) }
 
-// Role sets a text's role: title, body, caption or mono.
+// Segmented draws a control of two or more choices, one chosen: the item
+// that is Active. Choosing another sends a select with the item's id.
+func Segmented(id string, items ...protocol.Item) *Node {
+	n := newNode(protocol.NodeSegmented, id)
+	n.items = items
+	return n
+}
+
+// Donut draws a ring cut into slices by their values. Center puts words
+// in its middle, and Width sets its diameter.
+func Donut(id string, segments ...protocol.Segment) *Node {
+	n := newNode(protocol.NodeDonut, id)
+	n.segments = segments
+	return n
+}
+
+// Role sets a text's role: headline, title, body, caption, mono or strong.
 func (n *Node) Role(role string) *Node { n.role = role; return n }
 
-// Color sets a part's color role: text, muted or accent.
+// Color sets a part's color role: text, muted, accent, danger, warning,
+// success, or one of the hues (orange, green, teal, blue, purple, gray).
 func (n *Node) Color(color string) *Node { n.color = color; return n }
 
 // Lines limits a text to a number of lines.
@@ -225,17 +250,41 @@ func (n *Node) Lines(lines int) *Node { n.lines = lines; return n }
 func (n *Node) Marquee() *Node { n.marquee = true; return n }
 
 // Size sets an image's size in points, or an icon button's, which is
-// square and takes the width.
+// square and takes the width. A donut's diameter is its width.
 func (n *Node) Size(width, height int) *Node {
 	n.width, n.height = width, height
 	return n
 }
 
-// Label names an icon button for its tooltip and for assistive
-// technology. Without it the app names the button by its icon.
+// Icon draws one of the protocol's icons before a text's words, in the
+// text's color. A text with an icon and no words is just the icon.
+func (n *Node) Icon(icon string) *Node { n.icon = icon; return n }
+
+// Mark draws a program's logo, such as claude, before a text's words.
+func (n *Node) Mark(mark string) *Node { n.mark = mark; return n }
+
+// Surface draws a row or column as a card.
+func (n *Node) Surface(surface string) *Node { n.surface = surface; return n }
+
+// Marker draws a tick across a progress bar at a fraction of its length,
+// from 0 to 1, such as where the usage of a window should be by now.
+func (n *Node) Marker(fraction float64) *Node { n.marker = &fraction; return n }
+
+// Center sets the words in a donut's middle and the caption under them.
+func (n *Node) Center(text, detail string) *Node {
+	n.text, n.detail = text, detail
+	return n
+}
+
+// Width sets a donut's diameter in points, or the width of a part that
+// has one of its own.
+func (n *Node) Width(width int) *Node { n.width = width; return n }
+
+// Label names an icon button, an icon with no words, or a bar, for its
+// tooltip and for assistive technology. Without it the app names the button by its icon.
 func (n *Node) Label(label string) *Node { n.label = label; return n }
 
-// Radius rounds a picture's corners.
+// Radius rounds a picture's corners, or a card's.
 func (n *Node) Radius(radius int) *Node { n.radius = radius; return n }
 
 // Tint draws a soft gradient behind the pane from the picture's own

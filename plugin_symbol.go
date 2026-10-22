@@ -42,6 +42,10 @@ var pluginSymbols = map[string]string{
 	"doc":           "doc",
 	"list":          "list.bullet",
 	"board":         "rectangle.split.3x1",
+	"flame":         "flame.fill",
+	"dot":           "circle.fill",
+	"warning":       "exclamationmark.triangle.fill",
+	"info":          "info.circle",
 }
 
 // symbolScale is how many pixels a symbol has for each point: the display

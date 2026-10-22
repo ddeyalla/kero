@@ -112,6 +112,15 @@ func pluginSliderTick(n *protocol.Node) time.Duration {
 // seek until the answer came; if none comes, it runs on again.
 const pluginSliderHold = 3 * time.Second
 
+// pluginSegments is a segmented control's choice while the pane shows it:
+// the index the user chose, which the plugin's own comes back to when it
+// changes.
+type pluginSegments struct {
+	index int
+	seen  string // the item the plugin last sent as chosen
+	known bool   // seen is set
+}
+
 // pluginSearch is a search field's text, and the change it owes the
 // plugin, which waits for the typing to pause.
 type pluginSearch struct {
@@ -131,6 +140,7 @@ type pluginView struct {
 	scroll   map[string]*ui.ScrollState
 	sliders  map[string]*pluginSlider
 	searches map[string]*pluginSearch
+	segments map[string]*pluginSegments
 	marquees map[string]*pluginMarquee
 	progress map[string]float64 // the value each bar shows this frame
 	pictures map[string]*pluginPicture
@@ -156,6 +166,10 @@ type pluginView struct {
 	// render draws an SF Symbol's shape, off the UI goroutine; tests
 	// replace it. It is nil where the system has none.
 	render func(name string, size, weight float64, scale int) (*image.RGBA, bool)
+
+	// ring is the path a donut strokes, rebuilt for each slice so that its
+	// storage is kept from one frame to the next.
+	ring ui.Path
 
 	// flow tells that the pane scrolls as one this frame, and its lists
 	// show all their rows, as the scroll around them moves them.
@@ -184,6 +198,7 @@ func newPluginView() *pluginView {
 		scroll:     map[string]*ui.ScrollState{},
 		sliders:    map[string]*pluginSlider{},
 		searches:   map[string]*pluginSearch{},
+		segments:   map[string]*pluginSegments{},
 		marquees:   map[string]*pluginMarquee{},
 		progress:   map[string]float64{},
 		pictures:   map[string]*pluginPicture{},
@@ -258,6 +273,11 @@ func (v *pluginView) forget() {
 			delete(v.searches, id)
 		}
 	}
+	for id := range v.segments {
+		if !v.ids[id] {
+			delete(v.segments, id)
+		}
+	}
 	for id := range v.marquees {
 		if !v.ids[id] {
 			delete(v.marquees, id)
@@ -297,6 +317,9 @@ func (v *pluginView) part(c *ui.Context, pal *palette, n *protocol.Node, horizon
 		if n.Grow > 0 {
 			e.Grow(float32(n.Grow))
 		}
+		if n.Surface == protocol.SurfaceCard {
+			pluginCard(e, pal, n)
+		}
 		row := n.Type == protocol.NodeRow
 		e.Children(func() {
 			for _, child := range n.Children {
@@ -315,7 +338,11 @@ func (v *pluginView) part(c *ui.Context, pal *palette, n *protocol.Node, horizon
 				c.After(next)
 			}
 		}
-		v.text(c, pal, n, horizontal)
+		if (n.Icon != "" || n.Mark != "") && !n.Marquee {
+			v.iconText(c, pal, n)
+		} else {
+			v.text(c, pal, n, horizontal)
+		}
 	case protocol.NodeImage:
 		v.image(c, pal, n)
 	case protocol.NodeButton, protocol.NodeIconButton:
@@ -328,6 +355,10 @@ func (v *pluginView) part(c *ui.Context, pal *palette, n *protocol.Node, horizon
 		v.list(c, pal, n, send)
 	case protocol.NodeSearchField:
 		v.searchField(c, pal, n, send)
+	case protocol.NodeSegmented:
+		v.segmented(c, pal, n, horizontal, send)
+	case protocol.NodeDonut:
+		v.donut(c, pal, n)
 	case protocol.NodeEmptyState:
 		v.emptyState(c, pal, n, send)
 	case protocol.NodeSpacer:
@@ -358,6 +389,24 @@ func pluginAlign(e ui.Element, a string) {
 	}
 }
 
+// pluginCard makes a row or column a card: a soft panel, lighter than the
+// pane, with a hairline edge in the dark, where a fill alone is faint. It
+// has no shadow, so cards stack without noise.
+func pluginCard(e ui.Element, pal *palette, n *protocol.Node) {
+	radius := float32(10)
+	if n.Radius > 0 {
+		radius = float32(n.Radius)
+	}
+	fill := pal.text.Alpha(0.045)
+	if pal.dark {
+		fill = ui.RGBA(255, 255, 255, 0.06)
+	}
+	e.Background(fill).Radius(radius)
+	if pal.dark {
+		e.Border(1, pal.text.Alpha(0.08))
+	}
+}
+
 // pluginText is a role's size and weight, and the family it draws in, if
 // not the system's.
 func pluginText(role string) (size float32, weight int, family string) {
@@ -368,6 +417,8 @@ func pluginText(role string) (size float32, weight int, family string) {
 		return 17, 600, ""
 	case protocol.RoleCaption:
 		return 11.5, 400, ""
+	case protocol.RoleStrong:
+		return 13, 600, ""
 	case protocol.RoleMono:
 		if fontsLoaded {
 			return 12, 400, bundledFont
@@ -387,11 +438,96 @@ func pluginTextColor(pal *palette, n *protocol.Node) ui.Color {
 		return pal.accent
 	case protocol.ColorText:
 		return pal.text
+	case protocol.ColorDanger:
+		return pal.danger
+	case protocol.ColorWarning:
+		return pal.attention
+	case protocol.ColorSuccess:
+		if pal.dark {
+			return ui.Hex("#3FBF6F")
+		}
+		return ui.Hex("#2F9E5B")
+	}
+	if col, ok := pluginHue(pal, n.Color); ok {
+		return col
 	}
 	if n.Role == protocol.RoleCaption {
 		return pal.textMuted
 	}
 	return pal.text
+}
+
+// pluginHue is the color of one of the hues a chart tells its slices apart
+// by, in the pair for the appearance, and whether name is one. The dark
+// ones are lifted a step so that they hold against a dark card.
+func pluginHue(pal *palette, name string) (ui.Color, bool) {
+	pick := func(light, dark string) (ui.Color, bool) {
+		if pal.dark {
+			return ui.Hex(dark), true
+		}
+		return ui.Hex(light), true
+	}
+	switch name {
+	case protocol.ColorOrange:
+		return pick("#D97757", "#E58F72")
+	case protocol.ColorGreen:
+		return pick("#10A37F", "#2BB896")
+	case protocol.ColorTeal:
+		return pick("#14B8A6", "#2DD4BF")
+	case protocol.ColorBlue:
+		return pick("#2F6FED", "#5B9BFF")
+	case protocol.ColorPurple:
+		return pick("#8B5CF6", "#A78BFA")
+	case protocol.ColorGray:
+		return pal.textMuted, true
+	}
+	return ui.Transparent, false
+}
+
+// iconText draws a text part that has an icon or a program's logo before
+// its words, in a row of its own: the icon in the text's color, at the
+// size of its words. A text with no words is the icon alone.
+func (v *pluginView) iconText(c *ui.Context, pal *palette, n *protocol.Node) {
+	size, _, _ := pluginText(n.Role)
+	col := pluginTextColor(pal, n)
+	row := ui.Row(c.Key(n.ID)).AlignItems(ui.Center).Gap(4).MinWidth(0)
+	if n.Label != "" {
+		// An icon with no words, or words a longer text explains, is named
+		// by its label, for assistive technology and on hover.
+		row.Label(n.Label).Tooltip(n.Label)
+	}
+	if n.Width > 0 {
+		row.Width(float32(n.Width))
+	}
+	if n.Height > 0 {
+		row.Height(float32(n.Height))
+	}
+	if n.Grow > 0 {
+		row.Grow(float32(n.Grow))
+	}
+	row.Children(func() {
+		if n.Mark != "" {
+			if logo := programIcons[n.Mark]; logo != nil {
+				ui.Icon(c.Key("mark"), logo).Size(size, size).TextColor(col).Shrink(0)
+			}
+		} else if sym, scale := v.symbol(c, n.Icon, float64(size), symbolMedium); sym != nil {
+			drawSymbol(c, "symbol", sym, scale, col)
+		} else if svg, ok := pluginIcon(n.Icon); ok {
+			ui.Icon(c.Key("icon"), svg).Size(size, size).TextColor(col).Shrink(0)
+		}
+		if n.Text == "" {
+			return
+		}
+		words := *n
+		words.ID, words.Icon, words.Mark, words.Label = "text", "", "", ""
+		words.Width, words.Height, words.Grow = 0, 0, 0
+		if n.Grow > 0 || n.Width > 0 {
+			// The words take the row's room, so that a long text ends in
+			// an ellipsis where the row does.
+			words.Grow = 1
+		}
+		v.text(c, pal, &words, true)
+	})
 }
 
 // image draws a picture part: the picture once it is loaded, at its own
@@ -699,7 +835,257 @@ func (v *pluginView) progressBar(c *ui.Context, pal *palette, n *protocol.Node) 
 		if value > 0 {
 			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: max(r.W*float32(value), h), H: r.H}, fill, h/2)
 		}
+		if n.Marker != nil {
+			// A tick over the fill, a little taller than the bar.
+			x := r.X + r.W*float32(*n.Marker) - 1
+			p.Fill(ui.Rect{X: x, Y: r.Y - 2, W: 2, H: r.H + 4}, pal.text.Alpha(0.6), 1)
+		}
 	})
+}
+
+// segmented draws a segmented control: the choices of its items, the
+// chosen one raised. A click chooses at once and sends a select that
+// names the item; the plugin's own choice wins when it changes.
+func (v *pluginView) segmented(c *ui.Context, pal *palette, n *protocol.Node, horizontal bool, send func(pluginEvent)) {
+	if len(n.Items) == 0 {
+		return
+	}
+	st := v.segments[n.ID]
+	if st == nil {
+		st = &pluginSegments{}
+		v.segments[n.ID] = st
+	}
+	chosen, chosenID := -1, ""
+	for i, item := range n.Items {
+		if item.Active {
+			chosen, chosenID = i, item.ID
+		}
+	}
+	if !st.known || chosenID != st.seen {
+		if chosen >= 0 {
+			st.index = chosen
+		}
+		st.seen, st.known = chosenID, true
+	}
+	st.index = min(max(st.index, 0), len(n.Items)-1)
+	i := st.index
+
+	track, thumb := ui.RGBA(0, 0, 0, 0.06), ui.Hex("#ffffff")
+	if pal.dark {
+		track, thumb = ui.RGBA(255, 255, 255, 0.07), ui.RGBA(255, 255, 255, 0.2)
+	}
+	label := n.Label
+	if label == "" {
+		label = n.Items[i].Title
+	}
+	seg := ui.SegmentedBase(c.Key(n.ID), &st.index, len(n.Items))
+	seg.Track.Height(24).Padding(2).Radius(7).Background(track).AlignItems(ui.Center).MinWidth(0).Label(label)
+	if !horizontal {
+		seg.Track.AlignSelf(ui.Stretch)
+	}
+	seg.Track.Children(func() {
+		for k, item := range n.Items {
+			if k > 0 {
+				// A separator, where neither segment beside it is chosen.
+				sep := ui.Box(c).Width(1).Height(12).Shrink(0)
+				if k != i && k-1 != i {
+					sep.Background(pal.text.Alpha(0.14))
+				}
+			}
+			// The segments share the room alike, but none gives up the width
+			// of its own title.
+			natural, _ := c.MeasureText(0, ui.Span{Text: item.Title, Size: 12.5})
+			s := seg.Segment(k).FillHeight().Padding(0, 12).Radius(5).Center().Grow(1).Shrink(0).MinWidth(natural + 24)
+			if k == i {
+				s.Background(thumb)
+				if pal.dark {
+					s.Shadow(0, 1, 1, 0, ui.RGBA(0, 0, 0, 0.25))
+				} else {
+					s.Shadow(0, 0.5, 1.5, 0, ui.RGBA(0, 0, 0, 0.16)).Shadow(0, 0, 0, 0.5, ui.RGBA(0, 0, 0, 0.04))
+				}
+			}
+			s.Children(func() {
+				ui.Text(c, item.Title).FontSize(12.5).SingleLine().TextColor(pal.text)
+			})
+		}
+	})
+	if n.Enabled != nil && !*n.Enabled {
+		seg.Track.Disabled(true).Opacity(0.45)
+		return
+	}
+	// The choice lands after this runs: take it then.
+	seg.Track.OnChange(func() {
+		if st.index >= 0 && st.index < len(n.Items) {
+			v.emit(send, n.ID, protocol.KindSelect, n.Items[st.index].ID)
+		}
+	})
+}
+
+// donut draws a donut part: a track ring, a slice of it for each segment
+// by its share of the total, and words in the middle. The slices start at
+// twelve o'clock and run clockwise. With more than one they are sectors with
+// flat ends and a hairline between; a ring of no segments, or of values
+// that are all zero, is the track alone.
+func (v *pluginView) donut(c *ui.Context, pal *palette, n *protocol.Node) {
+	d := float32(n.Width)
+	if d <= 0 {
+		d = 96
+	}
+	label := n.Label
+	if label == "" {
+		label = strings.TrimSpace(n.Text + " " + n.Detail)
+	}
+	track := pal.text.Alpha(0.1)
+	if pal.dark {
+		track = ui.RGBA(255, 255, 255, 0.12)
+	}
+	var total float64
+	shown := 0
+	for _, seg := range n.Segments {
+		if seg.Value > 0 {
+			total += seg.Value
+			shown++
+		}
+	}
+	box := ui.Column(c.Key(n.ID)).Size(d, d).Shrink(0).Center().Label(label)
+	box.Draw(func(p *ui.Painter, r ui.Rect) {
+		w := d * 0.13
+		radius := d/2 - w/2
+		cx, cy := r.X+r.W/2, r.Y+r.H/2
+		v.ringPath(cx, cy, radius)
+		p.StrokePath(&v.ring, w, track)
+		if total <= 0 {
+			return
+		}
+		col := func(seg protocol.Segment) ui.Color {
+			return pluginTextColor(pal, &protocol.Node{Color: seg.Color})
+		}
+		if shown == 1 {
+			// One slice is the whole ring; there are no ends to draw.
+			for _, seg := range n.Segments {
+				if seg.Value > 0 {
+					p.StrokePath(&v.ring, w, col(seg))
+				}
+			}
+			return
+		}
+		// Each slice is a sector of the ring, filled, so that its ends are
+		// flat and a tiny slice is a sliver and not a dot as wide as the
+		// ring. The slices part by a hairline of angle; one too thin to see
+		// is widened to least, and the largest gives up what that takes, so
+		// that the ring still adds up to a full turn.
+		gap := pluginDonutGap / float64(radius)
+		least := pluginDonutLeast / float64(radius)
+		var largest float64
+		for _, seg := range n.Segments {
+			largest = max(largest, seg.Value)
+		}
+		var extra float64
+		for _, seg := range n.Segments {
+			if seg.Value > 0 {
+				extra += max(0, least-(2*math.Pi*seg.Value/total-gap))
+			}
+		}
+		at := 0.0
+		taken := false
+		for _, seg := range n.Segments {
+			if seg.Value <= 0 {
+				continue
+			}
+			sweep := 2*math.Pi*seg.Value/total - gap
+			if !taken && seg.Value == largest {
+				taken = true
+				sweep = max(sweep-extra, least)
+			} else {
+				sweep = max(sweep, least)
+			}
+			v.sector(cx, cy, radius-w/2, radius+w/2, at+gap/2, at+gap/2+sweep)
+			p.FillPath(&v.ring, col(seg))
+			at += sweep + gap
+		}
+	})
+	box.Children(func() {
+		inner := d * 0.7
+		if n.Text != "" {
+			// The total keeps to the hole: it steps down from 20 points to
+			// 13 until it fits, and ends in an ellipsis only then.
+			room := d*0.74 - 8
+			size := float32(20)
+			for ; size > 13; size-- {
+				if w, _ := c.MeasureText(0, ui.Span{Text: n.Text, Size: size, Weight: 600, Features: "tnum"}); w <= room {
+					break
+				}
+			}
+			ui.Text(c.Key("text"), n.Text).FontSize(size).FontWeight(600).FontFeatures("tnum").TextColor(pal.text).SingleLine().Ellipsis("…").MaxWidth(room)
+		}
+
+		if n.Detail != "" {
+			ui.Text(c.Key("detail"), n.Detail).FontSize(11).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MaxWidth(inner)
+		}
+	})
+}
+
+// pluginDonutGap and pluginDonutLeast are the part between two slices of a
+// donut, and the least a slice shows, as lengths along the middle of the
+// ring in DIPs.
+const (
+	pluginDonutGap   = 1.75
+	pluginDonutLeast = 2
+)
+
+// sector sets v.ring to the part of a ring between the radii inner and
+// outer, from the angle a0 to a1, in radians clockwise from twelve o'clock.
+func (v *pluginView) sector(cx, cy, inner, outer float32, a0, a1 float64) {
+	v.ring.Reset()
+	x, y := arcPoint(cx, cy, outer, a0)
+	v.ring.MoveTo(x, y)
+	v.arc(cx, cy, outer, a0, a1)
+	x, y = arcPoint(cx, cy, inner, a1)
+	v.ring.LineTo(x, y)
+	v.arc(cx, cy, inner, a1, a0)
+	v.ring.Close()
+}
+
+// arcPoint is the point at the angle a on the circle of radius r.
+func arcPoint(cx, cy, r float32, a float64) (x, y float32) {
+	return cx + r*float32(math.Sin(a)), cy - r*float32(math.Cos(a))
+}
+
+// arc adds the arc of the circle from the angle a0 to a1, either way round,
+// to v.ring in cubic pieces of at most a quarter turn. The path is already
+// at the arc's start.
+func (v *pluginView) arc(cx, cy, r float32, a0, a1 float64) {
+	pieces := int(math.Ceil(math.Abs(a1-a0) / (math.Pi / 2)))
+	if pieces < 1 {
+		pieces = 1
+	}
+	step := (a1 - a0) / float64(pieces)
+	k := float32(4.0 / 3.0 * math.Tan(step/4))
+	for i := 0; i < pieces; i++ {
+		from := a0 + float64(i)*step
+		to := from + step
+		x0, y0 := arcPoint(cx, cy, r, from)
+		x1, y1 := arcPoint(cx, cy, r, to)
+		// The tangent of a clockwise turn at the angle a is (cos a, sin a).
+		v.ring.CubeTo(
+			x0+k*r*float32(math.Cos(from)), y0+k*r*float32(math.Sin(from)),
+			x1-k*r*float32(math.Cos(to)), y1-k*r*float32(math.Sin(to)),
+			x1, y1)
+	}
+}
+
+// ringPath sets v.ring to a circle that starts at twelve o'clock and runs
+// clockwise, as a donut's slices are measured along it. Path.Circle starts
+// at three o'clock, so the circle is built by hand.
+func (v *pluginView) ringPath(cx, cy, r float32) {
+	const k = 0.5522847498
+	v.ring.Reset()
+	v.ring.MoveTo(cx, cy-r)
+	v.ring.CubeTo(cx+r*k, cy-r, cx+r, cy-r*k, cx+r, cy)
+	v.ring.CubeTo(cx+r, cy+r*k, cx+r*k, cy+r, cx, cy+r)
+	v.ring.CubeTo(cx-r*k, cy+r, cx-r, cy+r*k, cx-r, cy)
+	v.ring.CubeTo(cx-r, cy-r*k, cx-r*k, cy-r, cx, cy-r)
+	v.ring.Close()
 }
 
 // list draws a list part: its rows scroll in the pane, and keep where they
@@ -1249,4 +1635,8 @@ var pluginIcons = map[string]*ui.SVG{
 	"doc":           glyph("f7-doc"),
 	"list":          glyph("f7-list-bullet"),
 	"board":         glyph("f7-rectangle-split-3x1"),
+	"flame":         icon(`<path d="M8 1.8c.4 2 2.6 3.2 2.6 5.6 0 .9-.3 1.5-.7 2 .1-.8-.3-1.6-.9-2-.3 1-1 1.5-1.4 2.2-.5.8-.3 1.6.2 2.2-1.6-.3-2.8-1.6-2.8-3.4 0-2 1.7-3 2.3-4.6z"/>`),
+	"dot":           icon(`<circle cx="8" cy="8" r="3.5" fill="currentColor"/>`),
+	"warning":       icon(`<path d="M8 2.5l6 10.5H2zM8 6.5v3M8 11.2v.1"/>`),
+	"info":          icon(`<circle cx="8" cy="8" r="6"/><path d="M8 7.2v3.6M8 5.2v.1"/>`),
 }

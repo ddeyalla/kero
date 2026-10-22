@@ -42,6 +42,11 @@ func (v *pluginView) text(c *ui.Context, pal *palette, n *protocol.Node, horizon
 		return
 	}
 	e := ui.Text(c.Key(n.ID), n.Text).FontSize(size).FontWeight(weight).TextColor(pluginTextColor(pal, n)).MinWidth(0)
+	// Digits keep one width, so that figures in a column line up.
+	e.FontFeatures("tnum")
+	if n.Label != "" {
+		e.Label(n.Label).Tooltip(n.Label)
+	}
 	if n.Width > 0 {
 		e.Width(float32(n.Width))
 	}
