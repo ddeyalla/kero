@@ -105,6 +105,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Files and images dropped on a terminal insert their paths | Drag and drop | 2.0.5-local.1 | Untried |
 | Faster redraws after a synchronized frame (55.9 ms → 16.9 ms transport median) | Automatic | 2.0.5-local.2 | Shipped |
 | Native ARM64 build, no constant status animation | Automatic | 2.0.5-local.1 | Shipped |
+| Scrollback budget: the app's terminals keep the Scrollback setting (not 10 MB), 8 stay attached (every pane of the shown session kept), the 10 s history save writes the last 256 KB | Settings › Shell › Scrollback; automatic | Unreleased | Untried |
 
 ## Window
 

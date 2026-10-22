@@ -493,6 +493,40 @@ Probe: [`scripts/measure-terminal-latency.py`](../scripts/measure-terminal-laten
 See [Herdr comparison](herdr-porting.md) for architecture and future candidates;
 those candidate ports are not implemented.
 
+## Scrollback budget
+
+One setting, Settings › Shell › Scrollback (`scrollback`, 4 MB by
+default), bounds both copies of a session's history: kerod's terminal and
+the app's attached one. `Settings.ScrollbackBytes`
+([`internal/settings/scrollback.go`](../internal/settings/scrollback.go))
+turns it into what `terminal.Options.Scrollback` takes, -1 for none,
+because a 0 there means MyGo's default of 10 MB. `newPane` in
+[`internal/daemon/session.go`](../internal/daemon/session.go) and
+`termOptions` in [`app.go`](../app.go) both use it. The setting counts the
+emulator's memory, not text: a full 4 MB scrollback is about 350 KB of
+history on disk, a full 16 MB one about 1.5 MB.
+
+The app keeps at most `maxTerms` (8) terminals attached
+([`term_budget.go`](../term_budget.go)). Every terminal that attaches is
+counted (`noteTerm`), not only the pane in focus, which used to leave the
+other panes of a session attached for good. `touch` drops those shown
+longest ago (`trimTerms`), never a pane of the selected session, and never
+while a frame builds. A dropped pane attaches again when it shows; kerod
+kept it meanwhile.
+
+kerod saves a pane's history (`terminal.History`) to `sessions/<id>.vt`
+when it changed. The 10-second save writes only its tail: the last 256 KB,
+cut right after a row's `\r\n` (`historyTail` in
+[`internal/daemon/history.go`](../internal/daemon/history.go)). The whole
+history goes only when kerod ends on a signal (`saveHistories(true)`). The
+restore format did not change: a short file or an empty one restores, and
+a crash restores the last screen with what fits above it. `History` still
+serializes the whole scrollback before the cut; only the bytes written
+shrink. Tests: `internal/daemon/history_test.go` (the tail restores the
+same last screen as the whole history; short and empty files restore;
+`BenchmarkSaveHistories`, `BenchmarkPaneHistory`) and
+[`term_budget_test.go`](../term_budget_test.go).
+
 ## Title bar and traffic lights
 
 The title bar is macOS's compact title bar and toolbar, and the traffic

@@ -74,7 +74,7 @@ const (
 	minSidebar     = 200
 	maxSidebar     = 440
 	defaultFont    = 13
-	maxTerms       = 12 // terminals kept attached, most recently shown
+	maxTerms       = 8 // terminals kept attached, most recently shown
 )
 
 // termEntry is a session's terminal in the app: attached to kerod, which
@@ -657,13 +657,11 @@ func (a *App) reportView() {
 }
 
 // touch moves a terminal to the front of those kept attached, dropping
-// the one shown longest ago past the limit.
+// those shown longest ago past the limit (trimTerms).
 func (a *App) touch(id string) {
 	a.lru = slices.DeleteFunc(a.lru, func(x string) bool { return x == id })
 	a.lru = append(a.lru, id)
-	for len(a.lru) > maxTerms {
-		a.dropTerm(a.lru[0])
-	}
+	a.trimTerms()
 }
 
 func (a *App) dropTerm(id string) {
@@ -744,6 +742,7 @@ func (a *App) ensureTerm(id string) {
 	}
 	e := &termEntry{started: time.Now()}
 	a.terms[id] = e
+	a.noteTerm(id)
 	go func() {
 		stream, err := client.Attach(id)
 		if err != nil {
@@ -828,6 +827,7 @@ func (a *App) termOptions(id string, conn *gated) terminal.Options {
 	light, dark := a.termThemes()
 	o := terminal.Options{
 		Conn:          conn,
+		Scrollback:    a.set.ScrollbackBytes(),
 		Font:          a.termFont(),
 		Theme:         light,
 		DarkTheme:     dark,

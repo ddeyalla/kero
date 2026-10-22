@@ -130,7 +130,9 @@ func (d *Daemon) saveState() {
 	writeAtomic(d.statePath(), data)
 }
 
-// saveHistories writes the panes' histories that changed, or all.
+// saveHistories writes the panes' histories that changed, or all. What
+// changed goes as its tail (historyTail); all, as the daemon ends, goes
+// whole.
 func (d *Daemon) saveHistories(force bool) {
 	d.mu.Lock()
 	panes := make([]*pane, 0, len(d.panes))
@@ -143,6 +145,9 @@ func (d *Daemon) saveHistories(force bool) {
 			continue
 		}
 		if h := p.history(force); h != nil {
+			if !force {
+				h = historyTail(h, historyTailBytes)
+			}
 			writeAtomic(d.historyPath(p.info.ID), h)
 		}
 	}

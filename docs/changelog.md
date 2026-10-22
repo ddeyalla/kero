@@ -132,6 +132,17 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- A session's scrollback costs less memory and disk. The app's terminals
+  keep the scrollback that Settings › Shell › Scrollback sets, as the
+  terminal service does, instead of MyGo's 10 MB each; at the default of
+  4 MB that is up to 6 MB less per attached pane. The app keeps 8 terminals
+  attached instead of 12, and counts every pane of a session, not only the
+  one in focus, so the panes of sessions shown long ago are let go; the
+  panes of the session on screen always stay. The terminal service writes
+  at most the last 256 KB of a pane's history every 10 seconds, and the
+  whole of it only as it ends, so a crash restores the last screen and a
+  little above it. A history file of any length, or an empty one, still
+  restores.
 - A restart of the terminal service no longer loses the sessions' marks:
   what was unread stays unread, the ages keep their times, and a failure
   stays failed, as does a shell that crashed unseen ("Exited with code N").
