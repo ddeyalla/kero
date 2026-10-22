@@ -112,10 +112,29 @@ func TestGlassPanelsOverTerminal(t *testing.T) {
 // opaque panel is one color where it has no text; over the terminals'
 // colored text, the glass is not.
 func TestPaletteIsGlass(t *testing.T) {
+	if lo, hi := paletteShades(t, false); hi-lo < 6 {
+		t.Errorf("the palette is one shade, %d to %d, where the terminal's text is under it: not glass", lo, hi)
+	}
+}
+
+// Under Reduce Transparency the palette is opaque: one shade where it
+// has no text, whatever is under it.
+func TestPaletteOpaqueUnderReduceTransparency(t *testing.T) {
+	if lo, hi := paletteShades(t, true); hi-lo > 1 {
+		t.Errorf("the palette shows what is under it, %d to %d, under Reduce Transparency", lo, hi)
+	}
+}
+
+// paletteShades opens the palette, in the dark, over two terminals full
+// of colored text, and returns the darkest and the lightest luma of an
+// empty stretch of a command's row.
+func paletteShades(t *testing.T, reduceTransparency bool) (lo, hi int) {
+	t.Helper()
 	a := settingsTestApp(t)
 	glassTerms(t, a)
 	tt := ui.NewTester(a.view, 1100, 720)
 	tt.SetDark(true)
+	tt.SetPreferences(ui.Preferences{ReduceTransparency: reduceTransparency, TextScale: 1})
 	tt.Frame()
 	a.pal.open = true
 	tt.Frame()
@@ -128,7 +147,7 @@ func TestPaletteIsGlass(t *testing.T) {
 	}
 	img := tt.Image()
 	s := float32(img.Bounds().Dx()) / 1100
-	lo, hi := 255, 0
+	lo, hi = 255, 0
 	for y := int((r.Y + 2) * s); y < int((r.Y+r.H-2)*s); y++ {
 		for x := int((r.X + r.W + 40) * s); x < int((r.X+r.W+200)*s); x++ {
 			c := img.RGBAAt(x, y)
@@ -136,9 +155,7 @@ func TestPaletteIsGlass(t *testing.T) {
 			lo, hi = min(lo, l), max(hi, l)
 		}
 	}
-	if hi-lo < 6 {
-		t.Errorf("the palette is one shade, %d to %d, where the terminal's text is under it: not glass", lo, hi)
-	}
+	return lo, hi
 }
 
 // The palette's muted text keeps 4.5 to 1 against the glass under it,

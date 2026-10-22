@@ -365,13 +365,17 @@ builds only. What each feature is and where it stands is tracked in the
   later draw their popovers, alerts and sheets: regular glass that frosts
   the terminals under it, tinted in the dark so that muted text keeps 4.5
   to 1, with its lit rim and a soft shadow. The window
-  under them is no longer dimmed, as macOS dims no window under a sheet.
+  under them is no longer dimmed, as macOS dims no window under a sheet,
+  except under a confirmation, which asks before something that cannot be
+  undone.
   Settings is a sheet of glass around its opaque page, its corner
   concentric with the page's, and the chooser's rows are rounded
-  concentric with it too. The glass does not yet follow Reduce
-  Transparency, which the MyGo this build pins does not report; one switch
-  (`glassShows` in `glass_ui.go`) turns every panel back to the opaque look
-  once it does.
+  concentric with it too. Under Reduce Transparency every panel is
+  opaque again, over the dimmed window, as before.
+- Liquid Glass follows Reduce Transparency and Increase Contrast (MyGo
+  `1c5a2cea`): opaque with a hairline rim under the first, a stronger rim
+  and less show-through under the second. The same MyGo blinks a focused
+  terminal's cursor by painting the window again, without building it.
 
 ### Fixed
 

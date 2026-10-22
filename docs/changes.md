@@ -1543,15 +1543,17 @@ swaps one call:
   swells a little while it is held.
 - `glassScrim` is what a panel's backdrop lays over the window: nothing
   over glass, as macOS dims no window under a sheet, an alert or
-  Spotlight, and the glass needs the panes under it as they are.
+  Spotlight, and the glass needs the panes under it as they are. The
+  confirmation dialog (`confirmView` in `palette.go`) dims the window
+  anyway: it asks before something that cannot be undone.
 - `concentric` gives a panel the radius of its content's plus the inset:
   Settings is 22, its page's 14 plus the 8 around it, and the chooser's
   rows are 8, its 14 less its padding of 6.
-- `glassShows` is the one switch for Reduce Transparency. The MyGo this
-  build pins does not report it to views (`ui.Preferences` has no
-  `ReduceTransparency`), so it says yes; once MyGo does, it returns
-  `!c.Preferences().ReduceTransparency`, and every panel falls back to the
-  opaque `floating` look over the dimmed window, and Settings to its wash.
+- `glassShows` is the one switch for Reduce Transparency: it returns
+  `!c.Preferences().ReduceTransparency`, which MyGo reads again as the
+  setting changes. Under it every panel falls back to the opaque
+  `floating` look over the dimmed window, and Settings to its wash
+  (`TestPaletteOpaqueUnderReduceTransparency`).
 
 Settings keeps its page as an opaque card; the sidebar beside it is now
 the sheet's glass rather than the window's wash. The image peek stays a

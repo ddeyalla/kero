@@ -21,14 +21,9 @@ import (
 // glassShows reports whether the floating panels of c's window are of
 // glass, or opaque, as they must be while the desktop asks for less
 // transparency (macOS's Reduce Transparency). It is the one switch every
-// panel follows. The MyGo this build pins does not report the setting to
-// views yet (ui.Preferences has no ReduceTransparency), so the glass
-// always shows; once it does, this returns
-// !c.Preferences().ReduceTransparency, and the opaque look below is the
-// fallback.
+// panel follows; MyGo reads the setting again as it changes.
 func glassShows(c *ui.Context) bool {
-	_ = c
-	return true
+	return !c.Preferences().ReduceTransparency
 }
 
 // glassPanel puts a floating panel, as e, on regular glass shaped by its
@@ -84,7 +79,8 @@ func concentric(inner, inset float32) float32 { return inner + inset }
 // Over glass, nothing: macOS dims no window under a sheet, an alert or
 // Spotlight, and the glass needs the panes under it as they are to bend
 // and frost them; its shadow and rim set it apart. The opaque fallback
-// keeps kero's dimming.
+// keeps kero's dimming, and so does a confirmation (confirmView), which
+// asks before something that cannot be undone.
 func glassScrim(c *ui.Context, pal *palette) ui.Color {
 	if !glassShows(c) {
 		return pal.overlay

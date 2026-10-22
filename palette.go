@@ -224,7 +224,10 @@ func (a *App) confirmView(c *ui.Context, pal *palette) {
 	}
 	run := false
 	ui.DialogBase(c.Key("confirm"), &cf.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(glassScrim(c, pal))
+		// The window dims under a confirmation, glass or not: it asks
+		// before something that cannot be undone, and holds the window
+		// until it is answered.
+		backdrop.Background(pal.overlay)
 		glassPanel(c, panel.Width(380).Padding(22).Gap(8).Radius(14), pal).Label(cf.title)
 		ui.Text(c, cf.title).FontSize(15).FontWeight(650).TextColor(pal.text)
 		ui.Text(c, cf.detail).FontSize(13).TextColor(pal.textMuted).LineHeight(1.4)

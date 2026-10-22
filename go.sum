@@ -1,7 +1,7 @@
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
-github.com/ddeyalla/mygo v0.5.6-0.20261022111251-910f18265cdb h1:ZPQwKUyY6FdmPe+4d92MNeCIvevQ/WKTUBnvLfi2+wA=
-github.com/ddeyalla/mygo v0.5.6-0.20261022111251-910f18265cdb/go.mod h1:daHGetyAlBkHhIZOOIcAI7C82yLUY7HgeT2+Z6w2VPU=
+github.com/ddeyalla/mygo v0.5.6-0.20261022150239-1c5a2ceafb39 h1:pgkKEtFnvPBmyMla8pTG1TWXiZ9HICy2YQMPjLE6cE0=
+github.com/ddeyalla/mygo v0.5.6-0.20261022150239-1c5a2ceafb39/go.mod h1:daHGetyAlBkHhIZOOIcAI7C82yLUY7HgeT2+Z6w2VPU=
 github.com/ebitengine/purego v0.11.1 h1:2zpWRSQNVKN4eKsKO9eM1ILDgWfYMY9GwqRmK6XeQ/0=
 github.com/ebitengine/purego v0.11.1/go.mod h1:DCHPP08djqhNSoTfImcnHYQRZmd0qhakvrozqaEYhGQ=
 github.com/go-text/typesetting v0.3.5 h1:XZPUooClHY0Vf/rFyUyuPRNEkawARaFzLMQcXLSEyPk=
