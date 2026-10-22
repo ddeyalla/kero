@@ -155,6 +155,13 @@ builds only. What each feature is and where it stands is tracked in the
   pane's chip keep their own times moving then. A time ago may now read up
   to a minute late ("now" for up to two minutes). The cursor blink is
   unchanged (BRU-225, in part).
+- Status detection no longer reads a pane's whole scrollback several times
+  a second. kerod reads the text of the last rows of the terminal alone, so
+  each look at an agent's screen costs the same with any scrollback: about
+  10 µs and 4 KB rather than 0.75 ms and 387 KB with the default 4 MB, or
+  12.6 ms and 6.2 MB with 64 MB, while the session's lock is held. `kero
+  read` reads its lines the same way. Detection sees the same text, byte for
+  byte. It needs MyGo's `Terminal.TailText`, from the fork.
 - A restart of the terminal service no longer loses the sessions' marks:
   what was unread stays unread, the ages keep their times, and a failure
   stays failed, as does a shell that crashed unseen ("Exited with code N").

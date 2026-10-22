@@ -601,6 +601,44 @@ Probe: [`scripts/measure-terminal-latency.py`](../scripts/measure-terminal-laten
 See [Herdr comparison](herdr-porting.md) for architecture and future candidates;
 those candidate ports are not implemented.
 
+## Status detection from the last rows
+
+kerod looks at every agent pane's screen on its 400 ms tick, with the
+session's lock held, the lock its input takes too. The screen was the last
+rows of the terminal's whole text: MyGo formatted all of the scrollback,
+and kerod split it and joined its end, a copy of the scrollback each time.
+
+Now `pane.tail` reads the text of the terminal's last rows alone, through
+MyGo's `Terminal.TailText` (the fork's `plugins/terminal/terminal.go`).
+That formats a selection of those rows (`vt.Terminal.TextFrom`) as `Text`
+formats everything: soft-wrapped lines joined, trailing spaces trimmed. It
+is the end of `Text`, but for its first line, which may be the rest of one
+wrapped from above. `tail` reads twice as many rows as the screen has, and
+twice as many again while they hold no more lines than it has rows, as
+when blank rows end the screen or long lines wrap over many rows. It then
+trims and takes the last lines as before (`lastLines`), so `look` and
+`detect.Detect` see the same text, byte for byte. Once the rows reach the
+top, `TailText` returns `Text` itself. `kero read` (`readText`) uses `tail`
+too, unless it reads the whole scrollback.
+
+`BenchmarkScreen` (Apple M4 Pro, a 96×28 pane with a full scrollback):
+
+| Scrollback | Before | After |
+| --- | --- | --- |
+| 4 MB (default) | 0.75 ms, 387 KB, 16 allocs | 10 µs, 4.4 KB, 37 allocs |
+| 64 MB | 12.6 ms, 6.2 MB, 18 allocs | 11 µs, 4.4 KB, 37 allocs |
+
+The tests keep the old implementation as an oracle and compare the screen
+and `kero read` with it, byte for byte: a full scrollback, blank rows at
+the bottom, a cleared scrollback, soft-wrapped and wide lines, a text
+shorter than the screen, the alternate screen and 400 random steps at
+several sizes. Claude Code's recorded screens are detected as before.
+Typing latency with a long scrollback was not measured by hand.
+
+Code: [`internal/daemon/session.go`](../internal/daemon/session.go)
+(`screen`, `tail`, `lastLines`, `readText`),
+[`internal/daemon/screen_test.go`](../internal/daemon/screen_test.go).
+
 ## Title bar and traffic lights
 
 The title bar is macOS's compact title bar and toolbar, and the traffic
