@@ -82,22 +82,47 @@ func (d *Daemon) attention() []attention {
 	return out
 }
 
+// paneRead is what one look at a pane gave the fold: whether it was
+// closed, its own attention and its id.
+type paneRead struct {
+	closed bool
+	pa     attention
+	id     string
+}
+
+// readPane looks at a pane once, under its lock; the same look can then
+// serve both the fold and the pane's row (sessionInfo).
+func readPane(p *pane) paneRead {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return paneRead{closed: true}
+	}
+	return paneRead{pa: paneAttention(p), id: p.info.ID}
+}
+
 // sessionAttention folds one session's panes into its state: the most
 // urgent of what they say, and of two as urgent, the first's. It reads
 // them as they are, under their locks; d.mu is held.
 func sessionAttention(s *session) attention {
+	reads := make(map[*pane]paneRead, len(s.panes))
+	for _, p := range s.panes {
+		reads[p] = readPane(p)
+	}
+	return foldAttention(s, reads)
+}
+
+// foldAttention folds one session's panes from what a look at each gave,
+// in the order of the session's panes; d.mu is held.
+func foldAttention(s *session, reads map[*pane]paneRead) attention {
 	var a attention
 	for i, p := range s.panes {
-		p.mu.Lock()
-		if p.closed {
-			p.mu.Unlock()
+		r := reads[p]
+		if r.closed {
 			continue
 		}
-		pa := paneAttention(p)
-		id := p.info.ID
-		p.mu.Unlock()
-		if i == 0 || pa.State.rank() > a.State.rank() {
-			a = attention{State: pa.State, Msg: pa.Msg, Since: pa.Since, Pane: id}
+		if i == 0 || r.pa.State.rank() > a.State.rank() {
+			a = attention{State: r.pa.State, Msg: r.pa.Msg, Since: r.pa.Since, Pane: r.id}
 		}
 	}
 	if a.State == "" {
@@ -265,8 +290,13 @@ func scanWaitMsg(tool string) string {
 
 // scanPass reads every pane's transcript once. The tick loop calls it
 // every few of its ticks, and the daemon's start once, so that the
-// panes of the last daemon say at once what ended before it.
+// panes of the last daemon say at once what ended before it. Two passes
+// do not overlap: one that finds another running leaves its work to it.
 func (d *Daemon) scanPass(now time.Time) {
+	if !d.scanning.CompareAndSwap(false, true) {
+		return
+	}
+	defer d.scanning.Store(false)
 	d.mu.Lock()
 	panes := make([]*pane, 0, len(d.panes))
 	for _, p := range d.panes {
@@ -280,52 +310,130 @@ func (d *Daemon) scanPass(now time.Time) {
 	}
 }
 
-// scanTranscript reads the pane's agent's transcript and applies what it
-// tells, as the soft record a hook would; s.mu is held. The hooks and
-// the screen say most of a pane's state, and what they have said stands:
-// the scan speaks only for a pane with no other word, and takes back
-// what it said when the transcript does.
-func (s *pane) scanTranscript(now time.Time) bool {
+// scanJob is what a pass needs of a pane to read its transcript, taken
+// under the pane's lock so that the reading itself can go without it.
+type scanJob struct {
+	agent, dir, id string
+	path           string // "" where none is known yet
+	key            string // of the file as the pane last read it
+}
+
+// scanRead is what reading a job found: where the transcript is, and, of
+// a file that changed, what its tail tells.
+type scanRead struct {
+	path   string
+	key    string
+	missed bool // no file was found
+	gone   bool // the file was known, and is not there
+	parsed bool // the file changed: v and ends are of its tail
+	v      scanVerdict
+	ends   int
+}
+
+// scanAgent is the agent session whose transcript the scan may read for
+// the pane, or nil where it may not: a pane closed, a view, an agent of
+// no two, or a record of another's, a hook's or a program's own, which
+// owns the pane's status until it is dismissed (it knows more, and
+// sooner); s.mu is held.
+func (s *pane) scanAgent() *proto.AgentSession {
 	if s.closed || s.isView() {
-		return false
+		return nil
 	}
 	a := s.info.AgentSession
 	if a == nil || a.ID == "" || a.Agent != "claude" && a.Agent != "codex" {
-		return false
+		return nil
 	}
-	// A record of another's, a hook's or a program's own, owns the
-	// pane's status until it is dismissed: it knows more, and sooner.
 	for id := range s.records {
 		if id != scanRecordID {
-			return false
+			return nil
 		}
 	}
-	path := s.transcriptPath
-	if path == "" {
-		if !s.scanMissed.IsZero() && now.Sub(s.scanMissed) < scanMissHold {
-			return false
-		}
-		path = findTranscript(a.Agent, s.info.Dir, a.ID)
-		if path == "" {
-			s.scanMissed = now
-			return false
-		}
-		s.transcriptPath, s.scanMissed = path, time.Time{}
+	return a
+}
+
+// scanTranscript reads the pane's agent's transcript and applies what it
+// tells, as the soft record a hook would. It takes s.mu itself, and only
+// for what it reads and applies of the pane: the lookup of the file, its
+// stat and its tail go without the lock, so that a slow disk never holds
+// the pane's output, its hooks or its calls. The hooks and the screen
+// say most of a pane's state, and what they have said stands: the scan
+// speaks only for a pane with no other word, and takes back what it said
+// when the transcript does.
+func (s *pane) scanTranscript(now time.Time) bool {
+	s.mu.Lock()
+	a := s.scanAgent()
+	if a == nil {
+		s.mu.Unlock()
+		return false
 	}
-	st, err := os.Stat(path)
+	job := scanJob{agent: a.Agent, dir: s.info.Dir, id: a.ID, path: s.transcriptPath, key: s.scanKey}
+	if job.path == "" && !s.scanMissed.IsZero() && now.Sub(s.scanMissed) < scanMissHold {
+		s.mu.Unlock()
+		return false
+	}
+	s.mu.Unlock()
+
+	read := job.read(now)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// The pane may have changed while the file was read: closed, given
+	// another record or session, or read by a pass of its own.
+	if a := s.scanAgent(); a == nil || a.ID != job.id || a.Agent != job.agent || s.scanKey != job.key {
+		return false
+	}
+	return s.scanApply(now, job, read)
+}
+
+// read finds the transcript, as far as the job knows it, and reads its
+// tail if the file changed since the pane's last pass; the pane's lock
+// is not held.
+func (j scanJob) read(now time.Time) scanRead {
+	r := scanRead{path: j.path}
+	if r.path == "" {
+		if r.path = findTranscript(j.agent, j.dir, j.id); r.path == "" {
+			r.missed = true
+			return r
+		}
+	}
+	st, err := os.Stat(r.path)
 	if err != nil {
+		r.gone = true
+		return r
+	}
+	if r.key = scanKeyOf(st); r.key != j.key {
+		r.v, r.ends = parseScanEnds(j.agent, tailLines(r.path, scanTail), now)
+		r.parsed = true
+	}
+	return r
+}
+
+// scanApply keeps what a read found and says what it tells of the pane;
+// s.mu is held.
+func (s *pane) scanApply(now time.Time, job scanJob, read scanRead) bool {
+	a := s.info.AgentSession
+	switch {
+	case read.missed:
+		s.scanMissed = now
+		return false
+	case read.gone:
 		// Gone, as of a session the user cleared: look again later.
 		s.transcriptPath, s.scanMissed = "", now
 		return false
 	}
-	if key := scanKeyOf(st); key != s.scanKey {
-		// Lines are new: read the tail, and keep what it told, so that
-		// a pass with none says again what this one said.
-		v := parseScan(a.Agent, tailLines(path, scanTail), now)
-		s.scanKey = key
-		s.scanState, s.scanMsg, s.scanCallAt = v.state, v.msg, v.callAt
+	s.transcriptPath, s.scanMissed = read.path, time.Time{}
+	if read.parsed {
+		// Lines are new: keep what the tail told, so that a pass with
+		// none says again what this one said. A tail that tells another
+		// thing, or another end, is another turn's: what was said of
+		// the one is no news of it.
+		s.scanKey = read.key
+		if read.v != s.scanV || read.ends != s.scanEnds {
+			s.scanTurn++
+		}
+		s.scanV, s.scanEnds = read.v, read.ends
 	}
-	state, msg := scanVerdictOf(scanVerdict{s.scanState, s.scanMsg, s.scanCallAt}, now.UnixMilli())
+	state, msg := scanVerdictOf(s.scanV, now.UnixMilli())
 	if state == "" {
 		// The transcript no longer says the pane works or waits: what
 		// the scan said of one goes, so that a turn the user stopped
@@ -337,18 +445,27 @@ func (s *pane) scanTranscript(now time.Time) bool {
 		}
 		return false
 	}
-	if state == s.scanTold && msg == s.scanToldMsg {
+	// A turn's end is told once, by which end it is (scanTurn), not by
+	// its words: two turns that end on the same last line ("Done.") are
+	// two ends, and the user's key between them does not make the first
+	// the second. The user's key leaves what was told as it is, so that
+	// an end the user has read is not told again.
+	if state == s.scanTold && msg == s.scanToldMsg && s.scanTurn == s.scanToldTurn {
 		return false // said, and it stands
 	}
+	// The work the scan itself said of stands, until the transcript says
+	// otherwise or the screen overrules it (overrule).
+	ownWork := s.soft[scanRecordID] && s.records[scanRecordID].State == "working"
 	// What the screen holds comes first of a working pane: only a wait
-	// may join it (a call gone old under the work); and nothing at all
-	// of a pane that waits or has failed, whose state a key of the
-	// user's, or the program's own word, ends — but for a wait the scan
-	// itself said, which it may take back when its call ended and the
-	// screen has said no wait of its own.
+	// may join it (a call gone old under the work), or the end of work
+	// the scan itself began; and nothing at all of a pane that waits or
+	// has failed, whose state a key of the user's, or the program's own
+	// word, ends — but for a wait the scan itself said, which it may
+	// take back when its call ended and the screen has said no wait of
+	// its own.
 	switch s.info.Status {
 	case proto.Working:
-		if state != "blocked" {
+		if state != "blocked" && !(state == "done" && ownWork) {
 			return false
 		}
 	case proto.Waiting:
@@ -358,14 +475,18 @@ func (s *pane) scanTranscript(now time.Time) bool {
 	case proto.Failed, proto.Exited:
 		return false
 	}
-	if state == "done" && !s.info.Unread {
-		return false // said once, of a pane the user has seen
+	// A done of a pane the user has seen is no news: the scan does not
+	// mark a pane unread that no other signal marked, which a transcript
+	// older than the daemon would do to every pane it restored. Work the
+	// scan began is the exception, whose end nothing else tells.
+	if state == "done" && !s.info.Unread && !ownWork {
+		return false
 	}
 	if (state == "working" || state == "blocked") && s.proc == nil {
 		return false // no program runs, for all the transcript says
 	}
 	s.applySoft(proto.Record{ID: scanRecordID, State: state, App: a.Agent, Progress: -1, Msg: msg, Updated: now.UnixMilli()})
-	s.scanTold, s.scanToldMsg = state, msg
+	s.scanTold, s.scanToldMsg, s.scanToldTurn = state, msg, s.scanTurn
 	return true
 }
 
@@ -504,13 +625,21 @@ func tailLines(path string, n int64) []byte {
 // says what its end tells; now is the pass's time, for lines that say
 // none of their own.
 func parseScan(agent string, data []byte, now time.Time) scanVerdict {
+	v, _ := parseScanEnds(agent, data, now)
+	return v
+}
+
+// parseScanEnds is parseScan, and how many turn ends the tail told: with
+// the verdict, what tells one turn's end from another's of the same
+// words.
+func parseScanEnds(agent string, data []byte, now time.Time) (scanVerdict, int) {
 	switch agent {
 	case "claude":
-		return claudeScan(data, now)
+		return claudeScanEnds(data, now)
 	case "codex":
-		return codexScan(data, now)
+		return codexScanEnds(data, now)
 	}
-	return scanVerdict{}
+	return scanVerdict{}, 0
 }
 
 // parsedScan is what a transcript's tail says, as a scan reads it
@@ -528,6 +657,8 @@ type parsedScan struct {
 	// calls counts the calls the tail added, so that two of an age pick
 	// the one written first, not whichever a map's walk finds first.
 	calls int
+	// ends counts the turn ends the tail told.
+	ends int
 }
 
 // scanCall is a call the transcript shows under way: what it runs, when
@@ -598,6 +729,12 @@ func (m claudeMsg) content(fn func(claudeItem)) {
 // lines say what it wrote and what it runs; its user lines, of results
 // and of the user's own word; its system lines, of a turn's end.
 func claudeScan(data []byte, now time.Time) scanVerdict {
+	v, _ := claudeScanEnds(data, now)
+	return v
+}
+
+// claudeScanEnds is claudeScan, with the count of the turn ends it read.
+func claudeScanEnds(data []byte, now time.Time) (scanVerdict, int) {
 	ps := &parsedScan{pending: map[string]scanCall{}}
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		if len(line) == 0 {
@@ -656,11 +793,12 @@ func claudeScan(data []byte, now time.Time) scanVerdict {
 			case "turn_duration", "stop_hook_summary":
 				// The turn ended, its calls with it.
 				ps.turnEnd = true
+				ps.ends++
 				clear(ps.pending)
 			}
 		}
 	}
-	return ps.claudeEnd()
+	return ps.claudeEnd(), ps.ends
 }
 
 // claudeEnd is what the tail's end tells, its calls first: one under
@@ -697,6 +835,12 @@ type codexPayload struct {
 // began, ended, or was stopped; its response items say of calls and of
 // messages.
 func codexScan(data []byte, now time.Time) scanVerdict {
+	v, _ := codexScanEnds(data, now)
+	return v
+}
+
+// codexScanEnds is codexScan, with the count of the turn ends it read.
+func codexScanEnds(data []byte, now time.Time) (scanVerdict, int) {
 	ps := &parsedScan{pending: map[string]scanCall{}}
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		if len(line) == 0 {
@@ -722,6 +866,7 @@ func codexScan(data []byte, now time.Time) scanVerdict {
 				clear(ps.pending)
 			case "task_complete":
 				ps.done, ps.doneSeen = p.LastAgentMessage, true
+				ps.ends++
 				ps.started, ps.aborted = false, false
 			case "turn_aborted":
 				// The turn was stopped: its calls are over.
@@ -750,7 +895,7 @@ func codexScan(data []byte, now time.Time) scanVerdict {
 			}
 		}
 	}
-	return ps.codexEnd()
+	return ps.codexEnd(), ps.ends
 }
 
 // codexEnd is what the tail's end tells, as a Claude one does: its

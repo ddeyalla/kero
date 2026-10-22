@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -69,8 +70,6 @@ func paneInfo(p *pane) proto.Pane {
 // applied what it read.
 func runScan(t *testing.T, p *pane, now time.Time) bool {
 	t.Helper()
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	return p.scanTranscript(now)
 }
 
@@ -766,4 +765,131 @@ func TestScanClaimsAWaitOfCodex(t *testing.T) {
 	runScanIs(t, p, late, true)
 	claimState(t, p, proto.Waiting, true, "Waiting on shell")
 	claimRecord(t, p, "blocked")
+}
+
+// Passes run beside the pane's output, its hooks and its calls without
+// holding its lock across the reads: this runs them all at once, for
+// the race detector to say whether the pane's fields are touched with
+// no lock (BRU-258), and the status's wake closed twice.
+func TestScanPassRacesNothing(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	p, path := claimPane(t, "claude")
+	scanFakeProc(p)
+	d := p.d
+	d.panes = map[string]*pane{p.info.ID: p}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	spin := func(fn func(i int)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+					fn(i)
+				}
+			}
+		}()
+	}
+	// The transcript changes under the passes, between work and an end.
+	spin(func(i int) {
+		if i%2 == 0 {
+			scanBurn(t, path, clA(ts, "Thinking it over…"))
+		} else {
+			scanBurn(t, path, clA(ts, "Done."), clS(ts, "turn_duration"))
+		}
+		time.Sleep(time.Millisecond)
+	})
+	// Two passes overlap, as the start's and the tick's can; a pass
+	// straight on the pane too.
+	spin(func(int) { d.scanPass(scanBase) })
+	spin(func(int) { p.scanTranscript(scanBase) })
+	// The program and its hooks speak, the user types.
+	spin(func(i int) {
+		p.mu.Lock()
+		p.applySoft(proto.Record{ID: "claude", State: []string{"working", "blocked", "clear"}[i%3], App: "claude", Progress: -1})
+		p.mu.Unlock()
+	})
+	spin(func(int) { p.input(nil) })
+	spin(func(int) { p.show("output") })
+
+	time.Sleep(300 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+}
+
+// Two turns that end on the same last line are two ends, each told to
+// a pane the user has not seen, with the user's key between them; and
+// an end the user has read is not told again (BRU-260).
+func TestScanTellsTwoEndsOfTheSameWords(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	p, path := claimPane(t, "claude")
+	unread := func() {
+		p.mu.Lock()
+		p.info.Unread = true
+		p.mu.Unlock()
+	}
+	unread()
+	scanBurn(t, path, clA(ts, "Done."), clS(ts, "turn_duration"))
+	runScanIs(t, p, scanBase, true)
+	claimState(t, p, proto.Idle, true, "Done.")
+
+	// The key: the end is dismissed, and read.
+	p.input(nil)
+	claimRecord(t, p, "")
+	runScanIs(t, p, scanBase, false)
+
+	// The next turn ends on the same words, before a pass saw it run.
+	scanBurn(t, path, clA(ts, "Done."), clS(ts, "turn_duration"), clU(ts, "go on", false), clA(ts, "Done."), clS(ts, "turn_duration"))
+	runScanIs(t, p, scanBase, false) // seen: no news
+	unread()
+	runScanIs(t, p, scanBase, true)
+	claimState(t, p, proto.Idle, true, "Done.")
+	claimRecord(t, p, "done")
+
+	// And once more, when a pass saw the turn between: user, work, end.
+	p.input(nil)
+	scanBurn(t, path, clA(ts, "Done."), clS(ts, "turn_duration"), clU(ts, "again", false))
+	runScanIs(t, p, scanBase, false)
+	scanBurn(t, path, clA(ts, "Done."), clS(ts, "turn_duration"), clU(ts, "again", false), clA(ts, "Done."), clS(ts, "turn_duration"))
+	unread()
+	runScanIs(t, p, scanBase, true)
+	claimState(t, p, proto.Idle, true, "Done.")
+}
+
+// Work the scan itself said of ends with the scan's own end of it, of a
+// pane no other signal marked (BRU-263).
+func TestScanEndsItsOwnWork(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	p, path := claimPane(t, "claude")
+	scanFakeProc(p)
+	p.mu.Lock()
+	p.info.Status = proto.Idle
+	p.mu.Unlock()
+	scanBurn(t, path, clA(ts, "Thinking it over…"))
+	runScanIs(t, p, scanBase, true)
+	claimState(t, p, proto.Working, false, "")
+	claimRecord(t, p, "working")
+
+	scanBurn(t, path, clA(ts, "Thinking it over…"), clA(ts, "Shipped."), clS(ts, "turn_duration"))
+	runScanIs(t, p, scanBase, true)
+	claimState(t, p, proto.Idle, true, "Shipped.")
+	claimRecord(t, p, "done")
+}
+
+// A session's row and its attention are folded from one look at each
+// pane (BRU-263).
+func TestSessionInfoFoldsItsLook(t *testing.T) {
+	p := testPane(t)
+	s := &session{id: "s", panes: []*pane{p}}
+	p.mu.Lock()
+	p.info.Status, p.info.Message = proto.Working, "Building"
+	p.mu.Unlock()
+	info := p.d.sessionInfo(s)
+	if info.Attention == nil || info.Attention.State != string(attentionRunning) || info.Panes[0].Message != "Building" {
+		t.Fatalf("the row and its attention: %+v", info)
+	}
 }

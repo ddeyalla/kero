@@ -149,8 +149,9 @@ builds only. What each feature is and where it stands is tracked in the
   transcript on disk, locally and only as a fallback: a call that has run
   45 seconds with no result is taken for one waiting on the user. Hooks
   and the screen keep their say over it, and an end that came while the
-  app was away keeps its summary across a restart. Codex has no
-  permission-prompt hook, so this scan is its fallback for approvals.
+  app was away keeps its summary across a restart. Codex has a
+  permission-prompt hook, so this scan is its fallback for approvals only
+  when its hooks are not installed.
   **Restart the terminal service once** (when agents are idle) for the
   state to carry it; until then nothing changes for the app.
 - Notifications now follow that attention: a session that comes to need you

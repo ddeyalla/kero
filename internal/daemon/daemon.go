@@ -64,6 +64,8 @@ type Daemon struct {
 	viewed atomic.Pointer[string]
 	// branch follows the branches agents work on (branch.go).
 	branch branchWatch
+	// scanning holds that a transcript scan pass runs (scanPass).
+	scanning atomic.Bool
 	// theme is the colors of the client that last told them, which the
 	// panes answer programs' questions about the colors with.
 	theme    atomic.Pointer[terminal.Theme]
@@ -409,7 +411,8 @@ func (d *Daemon) tickLoopWith(pace tickPace) {
 		}
 		if now.Sub(scanned) >= scanEvery {
 			scanned = now
-			d.scanPass(now)
+			// On its own goroutine: a slow disk must not stall the tick.
+			go d.scanPass(now)
 		}
 		if now.Sub(branched) >= branchCheck {
 			branched = now
