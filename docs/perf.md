@@ -290,11 +290,59 @@ would need these steps:
   `NOTE_FORK`/`NOTE_EXEC`) instead of a slow poll.
 - In MyGo, make a frame of an idle window cheaper.
 
-Focused, the blink is the cost: a cursor that stops blinking after some
-seconds without a key, as GTK's `gtk-cursor-blink-timeout` (10 s) does,
-would take the focused case to about the unfocused one. That is a change
-of MyGo's terminal plugin, and of what the Blink setting means, so it is
-not done here.
+The focused numbers above precede MyGo `81afe923`, which now stops the
+blink after 10 seconds without a key or focus change and rests the cursor
+shown. The next key or focus change starts it again. These older numbers
+are the baseline, not a measurement of the timeout's saving. A focused
+window still reads its meters every five seconds; an unfocused one reads
+them every 30 seconds, so their remaining costs need not be equal.
+
+After the timeout, zero blink paints no longer distinguishes a focused
+window from an unfocused one. Record focus independently of the frame log.
+A hidden window is not evidence for either visible-window case.
+
+
+### After the cursor blink timeout (03a94a6)
+
+Measured on the same Mac on 2026-10-22–23, with the default feed, settle,
+idle and streaming durations. The checkout was fixed at `03a94a6` in a
+separate worktree while other sessions continued working. macOS window
+metadata and the frontmost application PID were sampled every five
+seconds to check visibility and focus independently of the frame log.
+The activation happens before the 15-second settle, so the cursor's
+10-second timeout has expired before the idle sample starts. The daily
+app and its terminal service were left running.
+
+| Panes | Window | kerod wakeups/min | app wakeups/min | Combined/min | Combined CPU | Builds / blink paints per minute | Streaming build p99 | App footprint, one pane shown |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | visible, unfocused | 63 | 1,133 | 1,196 | 0.17 % | 4 / 0 | 1.1 ms | 253.7 MB |
+| 4 | visible, unfocused | 61 | 730 | 790 | 0.08 % | 4 / 0 | 1.5 ms | 254.5 MB |
+| 8 | visible, unfocused | 100 | 1,395 | 1,494 | 0.17 % | 4 / 0 | 1.8 ms | 234.5 MB |
+| 4, repeat | visible, unfocused | 104 | 979 | 1,083 | 0.08 % | 3 / 0 | 1.0 ms | 121.8 MB |
+
+The visible, unfocused 4- and 8-pane samples meet the agreed combined
+2,000/min and individual 500/min kerod and 1,500/min app budgets. They
+also meet the CPU, rebuild and streaming build budgets. The repeat
+4-pane sample had 12 independent window-state observations during its
+60.07-second idle interval: all visible and unfocused. These are samples
+on a working Mac, not a statistical estimate of an improvement. App
+footprint still exceeds the 30 MB budget with one pane shown; BRU-333
+remains open. Key press to paint and the 12-pane case remain unmeasured.
+
+Hidden-window and mixed-focus runs were excluded. No focused attempt
+completed without focus changes, so the focused wakeup saving and the
+focused idle-frame acceptance remain unverified.
+
+`sh scripts/check.sh` also passed on the integrated `shibu` code at
+`3c05209`: all Go tests, MyGo vet, the 24 Python tests and the diff check.
+This includes the allocation guards; no new performance code was added
+for these measurements.
+
+The pinned MyGo regression test, `TestBlinkPaintsOnly`, was rerun on
+2026-10-23: 0 builds and 17 paints through the first 10 seconds, then
+0 builds and 0 paints over an idle minute after focus, after a key, and
+after focus returned. This proves the terminal timer behavior, separately
+from the whole app's native wakeups and meter rebuilds.
 
 ## Limits
 

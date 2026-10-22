@@ -631,10 +631,27 @@ whole window, grain shader included, with nothing to show are cut back
   nothing, so MyGo's paint culling should not draw its rings; no test
   checks that.
 
-Not done here: the cursor blink, which lives in MyGo's terminal plugin and
-still paints the window about every 600 ms, and the issue's acceptance in
-frames per minute. MyGo's `MYGO_FRAME_STATS=all` logs every frame, but no
-before and after frame counts were recorded on this branch.
+The cursor blink is handled by MyGo's terminal plugin, pinned to
+`81afe923`. It paints the last frame again every 600 ms without rebuilding
+the window, then stops 10 seconds after the last key or focus change and
+rests shown. The final paint is scheduled at the timeout even when it
+falls in the hidden half of the blink. A key or focus change starts it
+again. The no-blink setting and the hollow unfocused cursor keep their
+behavior. The implementation is in MyGo's `plugins/terminal/view.go`
+(`blinkTimeout`, `blinking` and the cursor painter); `blink_test.go`
+checks the phase, timeout, restart, and a minute without builds or paints
+after the timeout. Whole-app frame and wakeup measurements, including
+their visibility and focus limits, are in [Performance](perf.md).
+
+On `03a94a6`, visible and unfocused, the combined idle cost was 790 and
+1,083 wakeups/min at four panes, 1,196/min at one pane, and 1,494/min at
+eight panes, within the
+agreed 2,000/min budget. The earlier four-pane unfocused baseline was
+3,068–3,577/min. Rebuilds were 3–4/min and streaming frame-build p99
+1.0–1.8 ms. The app's footprint with one pane shown was still
+121.8–254.5 MB, above its 30 MB budget. These samples do not establish
+focused idle cost; no focused run kept its focus throughout sampling.
+
 
 Code: [`resources.go`](../resources.go), `agoTick` in
 [`view.go`](../view.go), [`attention_pane.go`](../attention_pane.go),
