@@ -218,6 +218,7 @@ func (a *App) attentionPane(c *ui.Context, pal *palette, s *proto.Session, p *pr
 		})
 		return
 	}
+	agoTick(c) // each row says since when, with the sidebar hidden too
 	list := ui.Scroll(c.Key("attention-list")).Grow(1).MinHeight(0).MinWidth(0).Padding(0, 8, 6, 8).TrackScroll(&st.scroll)
 	list.Children(func() {
 		for _, r := range shown {

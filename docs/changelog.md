@@ -132,6 +132,15 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- An idle window paints less. The CPU and RAM meters still read every two
+  seconds, but rebuild the window only when a label or a bar would change;
+  the bars fill in whole percents, as the labels read. The sidebar's
+  "5m ago" times move on once a minute instead of every 20 seconds, and
+  not at all while the sidebar is hidden; the Attention pane and a working
+  pane's chip keep their own times moving then. A time ago may now read up
+  to a minute late ("now" for up to two minutes). The cursor blink is
+  unchanged (BRU-225, in part).
+
 - A restart of the terminal service no longer loses the sessions' marks:
   what was unread stays unread, the ages keep their times, and a failure
   stays failed, as does a shell that crashed unseen ("Exited with code N").

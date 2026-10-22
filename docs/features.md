@@ -87,6 +87,7 @@ Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 | Optional private provider keys | Usage modal | 2.0.5-local.1 | Shipped |
 | Sidebar usage as a ring per installed harness (found on `PATH` or in the installers' folders), a currency sign for a balance, a dashed ring when not connected, an amber dot when a refresh failed; hovering highlights the harness and shows the plan, every window, its percentage and reset time, a balance or why it is not connected | Hover a ring; click it or press `Cmd+Shift+U` for the modal | Unreleased | Untried |
 | CPU and RAM meters for the whole Mac | Sidebar, `kero resources --json` | 2.0.5-local.2 | Shipped |
+| Idle window paints less: CPU and RAM meters redraw only when what they show changes; times ago tick once a minute, only while shown | Automatic | Unreleased | Untried |
 | The loading.dev ring wherever the app itself is busy: connecting, attaching a pane, reading Files or Linear; it and a working session's ring turn at 15 frames a second | Automatic | Unreleased | Untried |
 
 ## Settings

@@ -467,6 +467,46 @@ Code: [`resources.go`](../resources.go),
 [`internal/resources/`](../internal/resources/).
 Automation: `kero resources --json`.
 
+## Idle repaint floor
+
+An idle window should not paint. Three timers that built and painted the
+whole window, grain shader included, with nothing to show are cut back
+(BRU-225, in part):
+
+- **The CPU and RAM sampler** still reads every two seconds, off the main
+  thread, but calls `a.update` only when `showResources` — the meters'
+  labels, the tooltip's and the usage card's, the bars' fills and the
+  error — differs from what it last sent. The bars fill in whole percents
+  (`cpuPercent`, `memoryPercent`), so what is compared is what is drawn; a
+  repeated error sends nothing either. At rest a Mac's CPU percentage still
+  moves by a point now and then, so the saving depends on the machine.
+- **Times ago** ("5m ago") read in whole minutes at the finest (`ago`). The
+  sidebar asked for a rebuild every 20 seconds, shown or hidden; it now asks
+  through `agoTick`, once a minute, and only while the sidebar shows. A time
+  can read up to a minute late, so "now" can stay up to two minutes. The
+  sidebar's tick also kept the Attention pane's rows and a working pane's
+  chip moving; they now call `agoTick` themselves while they show times, and
+  `c.After` from the same frame coalesces into one rebuild. The Linear
+  views' times ("updated 5m ago") have no tick of their own: with the
+  sidebar hidden they move on with the next rebuild for another reason.
+- **The loading ring** needed no change: `turningRing` asks for its next
+  step (`Painter.After`, a repaint without a rebuild) only while it is
+  drawn on a working session with no progress, or on a busy view.
+  `TestLoadingRingThrottled` covers it. A hidden sidebar is clipped to
+  nothing, so MyGo's paint culling should not draw its rings; no test
+  checks that.
+
+Not done here: the cursor blink, which lives in MyGo's terminal plugin and
+still paints the window about every 600 ms, and the issue's acceptance in
+frames per minute. MyGo's `MYGO_FRAME_STATS=all` logs every frame, but no
+before and after frame counts were recorded on this branch.
+
+Code: [`resources.go`](../resources.go), `agoTick` in
+[`view.go`](../view.go), [`attention_pane.go`](../attention_pane.go),
+[`panes.go`](../panes.go). Tests: `idle_repaint_test.go` (what the sampler
+compares; the window builds about twice in two idle minutes for the
+sidebar, never with it hidden, and the Attention pane still ticks).
+
 ## Terminal responsiveness and attachments
 
 The local build targets the host architecture: Apple Silicon is `arm64`;

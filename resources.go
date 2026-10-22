@@ -27,18 +27,32 @@ func (a *App) startResources() {
 		}
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
+		// A read rebuilds and paints the window only when what the app
+		// shows of it changed: at rest the readings move by fractions that
+		// the labels and bars round away, and a window painted every 2 s
+		// for them costs power. shown is what the app shows, kept here so
+		// that the comparison does not read the app's state off its
+		// thread; at first it is nothing a reading shows.
+		var shown resourceShown
 		for {
 			reading, err := sampler.Read()
 			if ctx.Err() != nil {
 				return
 			}
-			a.update(func() {
-				if err != nil {
-					a.resources.err = err.Error()
-					return
-				}
-				a.resources = resourceState{sample: reading}
-			})
+			errText := ""
+			if err != nil {
+				errText = err.Error()
+			}
+			if next := showResources(reading, errText); next != shown {
+				shown = next
+				a.update(func() {
+					if err != nil {
+						a.resources.err = errText
+						return
+					}
+					a.resources = resourceState{sample: reading}
+				})
+			}
 			select {
 			case <-ctx.Done():
 				return
@@ -46,6 +60,46 @@ func (a *App) startResources() {
 			}
 		}
 	}()
+}
+
+// resourceShown is what the app shows of a reading: the labels of the
+// sidebar's meters, its tooltip and the usage card, the bars' whole
+// percents, and the error, if any. Two readings that show the same are
+// equal.
+type resourceShown struct {
+	cpu, memory, err string
+	cpuBar, memoryBar  float64
+}
+
+// showResources is what the app shows of reading, or of err where the read
+// failed: the app then keeps its last reading, and shows the error.
+func showResources(reading resources.Sample, err string) resourceShown {
+	if err != "" {
+		return resourceShown{err: err}
+	}
+	return resourceShown{
+		cpu:       cpuLabel(reading),
+		memory:    memoryLabel(reading, true),
+		cpuBar:    cpuPercent(reading),
+		memoryBar: memoryPercent(reading),
+	}
+}
+
+// cpuPercent is the CPU bar's fill, in whole percents as its label says it.
+func cpuPercent(s resources.Sample) float64 {
+	if s.CPU == nil {
+		return 0
+	}
+	return math.Round(*s.CPU)
+}
+
+// memoryPercent is the RAM bar's fill, in whole percents, so that a reading
+// a few bytes apart fills it the same.
+func memoryPercent(s resources.Sample) float64 {
+	if s.MemoryTotal == 0 {
+		return 0
+	}
+	return math.Round(float64(s.MemoryUsed) / float64(s.MemoryTotal) * 100)
 }
 
 func cpuLabel(s resources.Sample) string {
@@ -79,16 +133,8 @@ func (a *App) resourceSidebar(c *ui.Context, pal *palette) {
 			return
 		}
 		ui.Row(c).Fill().Gap(16).Children(func() {
-			cpu := float64(0)
-			if s.CPU != nil {
-				cpu = *s.CPU
-			}
-			resourceMeter(c.Key("cpu"), pal, "CPU", strings.TrimPrefix(cpuLabel(s), "CPU "), cpu, s.CPU != nil)
-			memory := float64(0)
-			if s.MemoryTotal > 0 {
-				memory = float64(s.MemoryUsed) / float64(s.MemoryTotal) * 100
-			}
-			resourceMeter(c.Key("memory"), pal, "RAM", strings.TrimPrefix(memoryLabel(s, false), "RAM "), memory, s.MemoryTotal > 0)
+			resourceMeter(c.Key("cpu"), pal, "CPU", strings.TrimPrefix(cpuLabel(s), "CPU "), cpuPercent(s), s.CPU != nil)
+			resourceMeter(c.Key("memory"), pal, "RAM", strings.TrimPrefix(memoryLabel(s, false), "RAM "), memoryPercent(s), s.MemoryTotal > 0)
 		})
 	})
 	if button.Clicked() {
