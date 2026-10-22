@@ -20,6 +20,22 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Added
 
+- Project groups can be reordered by dragging their header or using Move
+  Project Up / Down in the context menu, Session menu, palette or CLI. The
+  existing daemon persists their order without a protocol or state change.
+- Sidebar drag feedback uses a lifted glass preview and a neutral insertion
+  rule, with an opaque fallback under Reduce Transparency. The cue does not
+  shift row text. Dragging a session preserves the active terminal, and
+  dragging a project leaves its collapse state unchanged.
+
+- Sessions can be pinned within their project and reordered within their pin
+  section by dragging or using Move Session Up / Down. Pins and order survive
+  restarts; the command palette and session navigation follow the same order.
+- Source update checks now live in Settings > General > Updates as **Check
+  Upstream & Build**, with progress and the last result. **Check for App
+  Updates** checks published builds. The fourth sidebar footer icon is removed;
+  the source command remains in the palette and `kero do updates.sync`.
+
 - Linear is a built-in plugin. Its pane shows the team's issues as a list or a
   board, in the sections Current, Done, Todo and Backlog, each with nested
   folds (section, project, parent issue, sub-issues). Current follows the

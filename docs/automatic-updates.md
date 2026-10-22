@@ -26,17 +26,19 @@ changes without a newer Kero release, use **mode: release**. **publish: false**
 builds/tests a candidate artifact without changing the branch or update feed.
 Scheduled checks publish automatically after passing the same gates.
 
-## Manual update button and Codex repairs
+## Manual update controls and Codex repairs
 
-The circular-arrow button beside Settings in the sidebar starts an immediate
-Kero source check. The same action is in the command palette and available as
+In **Settings > General > Updates**, **Check for App Updates** checks published
+Shibu builds. **Check Upstream & Build** starts an immediate Kero source check
+and shows its progress and last result. The source action is also in the
+command palette and available as
 `kero do updates.sync`. Repeated clicks while a check runs are ignored.
 Work happens off the UI thread and the selected coding session stays selected.
 
-The button uses the existing GitHub CLI login for **ddeyalla**, dispatches only
+The source action uses the existing GitHub CLI login for **ddeyalla**, dispatches only
 the `shibu` branch's guarded workflow in `ddeyalla/kero`, and follows its result.
 It never switches the default CLI account or stores that token. Install `gh`
-and authenticate that account to use the button. Ordinary signed app downloads
+and authenticate that account to use the source action. Ordinary signed app downloads
 do not require `gh`.
 
 - Success: open the existing signed update checker, which offers the available

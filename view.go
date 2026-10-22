@@ -327,6 +327,12 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 }
 
 func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
+	group := ui.Column(c.Key("group-" + g.project.ID)).Shrink(0).Transition(headerTransition)
+	a.projectGroupDrag(pal, group, g.project.ID)
+	group.Children(func() { a.projectGroupRows(c, pal, g, gi, n) })
+}
+
+func (a *App) projectGroupRows(c *ui.Context, pal *palette, g group, gi int, n *int) {
 	id := g.project.ID
 	collapsed := a.prefs.Collapsed[id]
 	needs := 0
@@ -347,6 +353,13 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 		Transition(headerTransition)
 	hovered := a.hoverIntent(c, "project-"+id, hdr.Hovered())
 	renaming := id != "" && a.renamingProject == id
+	if !renaming && id != "" && a.conn == connReady {
+		hdr.Drag(projectDrag{id}).Cursor(ui.CursorGrab)
+		sidebarDragSource(c, hdr, pal)
+		if hdr.Dragging() {
+			hovered = false
+		}
+	}
 	if hdr.Clicked() && !renaming {
 		a.toggleProject(id)
 	}
@@ -362,6 +375,7 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 		if m.Item(label).Chosen() {
 			a.toggleProject(id)
 		}
+		a.projectOrderMenu(m, &g.project)
 		if m.Item(locales.SessionRename()).Disabled(id == "").Chosen() {
 			a.startProjectRename(id)
 		}
@@ -454,7 +468,8 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 		bg = pal.rowHover
 	}
 	row.Background(row.AnimateColor("bg", bg, hover))
-	if (row.Pressed() || row.Clicked()) && !selected {
+	dropOver := a.sessionDrag(c, pal, row, s)
+	if row.Clicked() && !selected {
 		a.selectSession(s.ID)
 	}
 	if row.DoubleClicked() {
@@ -470,39 +485,48 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 	pointerTooltip(c, row, "tip-"+s.ID, tip)
 	row.ContextMenu(func(m *ui.Menu) { a.sessionMenu(m, s) })
 	row.Children(func() {
-		if a.renaming == s.ID {
-			in := ui.TextInputBase(c.Key("rename"), &a.renameBuf).Grow(1).MinWidth(0).FontSize(13.5).AutoFocus()
-			if in.Submitted() || in.Shortcut(0, ui.KeyEscape) {
-				if in.Shortcut(0, ui.KeyEscape) {
-					a.renaming = ""
-					a.focusTerminal()
-				} else {
+		content := ui.Row(c.Key("session-content")).Grow(1).MinWidth(0).Gap(10).AlignItems(ui.Center)
+		if dropOver {
+			content.Opacity(0.15)
+		}
+		content.Children(func() {
+			if a.renaming == s.ID {
+				in := ui.TextInputBase(c.Key("rename"), &a.renameBuf).Grow(1).MinWidth(0).FontSize(13.5).AutoFocus()
+				if in.Submitted() || in.Shortcut(0, ui.KeyEscape) {
+					if in.Shortcut(0, ui.KeyEscape) {
+						a.renaming = ""
+						a.focusTerminal()
+					} else {
+						a.commitRename()
+					}
+				} else if !in.Focused() && !in.Pressed() && in.Valid() && a.renameStarted(c) {
 					a.commitRename()
 				}
-			} else if !in.Focused() && !in.Pressed() && in.Valid() && a.renameStarted(c) {
-				a.commitRename()
+				return
 			}
-			return
-		}
-		// The title's mark (title_marks.go) keeps its place at the head;
-		// the title gives way to the time and the status glyph.
-		ui.Row(c).Grow(1).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
-			titleMarkView(c, pal, titleMark(s, a.st.Linear))
-			name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13.5).SingleLine().Ellipsis("…").Grow(1).MinWidth(0).TextColor(pal.text)
-			if s.Unread {
-				name.FontWeight(650)
+			// The title's mark (title_marks.go) keeps its place at the head;
+			// the title gives way to the time and the status glyph.
+			ui.Row(c).Grow(1).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
+				if a.prefs.SessionPins[s.ID] {
+					symbolMark(c, "pin.fill", 11, pal.textMuted, pal.dark)
+				}
+				titleMarkView(c, pal, titleMark(s, a.st.Linear))
+				name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13.5).SingleLine().Ellipsis("…").Grow(1).MinWidth(0).TextColor(pal.text)
+				if s.Unread {
+					name.FontWeight(650)
+				}
+				if inactive(s.Status, s.Unread, s.Since, c.Now()) {
+					name.TextColor(pal.textMuted)
+				}
+			})
+			cmd := c.Modifiers() == ui.Cmd
+			if cmd && index <= 9 {
+				ui.Text(c, actions.Glyphs(fmt.Sprintf("CmdOrCtrl+%d", index))).FontSize(12).TextColor(pal.textMuted).FontFeatures("tnum").SingleLine()
+			} else {
+				ui.Text(c, ago(s.Since, c.Now())).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine()
 			}
-			if inactive(s.Status, s.Unread, s.Since, c.Now()) {
-				name.TextColor(pal.textMuted)
-			}
+			statusIconP(c, pal, s.Status, s.Unread, s.Progress, s.Since, 15)
 		})
-		cmd := c.Modifiers() == ui.Cmd
-		if cmd && index <= 9 {
-			ui.Text(c, actions.Glyphs(fmt.Sprintf("CmdOrCtrl+%d", index))).FontSize(12).TextColor(pal.textMuted).FontFeatures("tnum").SingleLine()
-		} else {
-			ui.Text(c, ago(s.Since, c.Now())).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine()
-		}
-		statusIconP(c, pal, s.Status, s.Unread, s.Progress, s.Since, 15)
 	})
 }
 
@@ -519,6 +543,8 @@ func (a *App) renameStarted(c *ui.Context) bool {
 
 func (a *App) sessionMenu(m *ui.Menu, s *proto.Session) {
 	id := s.ID
+	a.sessionOrderMenu(m, s)
+	m.Separator()
 	if a.menuShortcut(m.Item(locales.SessionRename()), "session.rename").Chosen() {
 		a.startRename(id)
 	}
@@ -569,11 +595,6 @@ func (a *App) sidebarFooter(c *ui.Context, pal *palette) {
 		iconButton(c, "open-project", folderIcon, a.tip(locales.ActionOpenProject(), "project.open"), pal, a.openProject)
 		iconButton(c, "palette", searchIcon, a.tip(locales.ActionGoToSession(), "palette.open"), pal, a.openPalette)
 		iconButton(c, "settings", gearIcon, a.tip(locales.SettingsTitle(), "settings.open"), pal, func() { a.openSettings("") })
-		updateTip := "Update Shibu from Kero"
-		if a.maintenance.status != "" {
-			updateTip += " · " + a.maintenance.status
-		}
-		iconButton(c, "source-update", updateIcon, updateTip, pal, func() { a.startSourceUpdate() })
 		ui.Spacer(c)
 		switch a.conn {
 		case connReady:

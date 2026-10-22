@@ -624,6 +624,7 @@ func (a *App) updatesGroup(c *ui.Context, pal *palette) {
 				updater.CheckForUpdates()
 			}
 		})
+		a.sourceUpdatesRow(c, pal)
 		settingRow(c, pal, locales.SetAutoCheck(), locales.SetAutoCheckDetail(), func() {
 			toggle(c.Key("auto-check"), &u.automatic, pal).OnChange(func() { updater.SetAutomaticChecks(u.automatic) })
 		})

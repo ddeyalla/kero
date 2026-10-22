@@ -154,13 +154,20 @@ plugin panes), and an older build cannot open the migrated panes.
 | First run: a ~900 ms reveal of the real shell, covering the window from its first frame, skipped after 2 s or on a connection error, cancellable, Reduce Motion aware, silent, shown once | Automatic, on the first launch | Unreleased | Untried |
 | Floating panels on Liquid Glass: the command palette, the confirmation dialog, the New Pane chooser, Settings and a pane's drag chip; no dimming under them except a confirmation; concentric corners; opaque under Reduce Transparency | `Cmd+P`, `Cmd+,`, `Cmd+Alt+N` (New Pane chooser), closing a busy session, dragging a pane's title | Unreleased | Untried |
 
+## Session organization
+
+| Feature | How to use it | Since | Status |
+| --- | --- | --- | --- |
+| Pin sessions inside each project; reorder within pinned or unpinned sessions with a lifted glass preview and neutral placement cue; saved order shared with palette and navigation | Session context menu, drag above/below another session, palette, `kero do session.pin\|session.unpin\|session.moveUp\|session.moveDown` | Unreleased | Tested locally; not installed |
+| Reorder whole project groups without moving their sessions between projects | Drag project headers, project context menu, Session menu, palette, `kero do project.moveUp\|project.moveDown` | Unreleased | Tested locally; native hand test pending |
+
 ## Updates and releases
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
 | Daily check for stable Kero releases, merged, tested and signed | Automatic (GitHub Actions on the fork) | 2.0.5-local.6 | Shipped |
 | Signed background updates that apply on the next launch | Settings › General › Updates | 2.0.5-local.6 | Shipped |
-| Check Kero now | Sidebar update button, palette, `kero do updates.sync` | 2.0.5-local.7 | Shipped |
+| Check Kero now, with progress and result; separate from published app updates | Settings › General › Updates › Check Upstream & Build, palette, `kero do updates.sync` | Unreleased (moved from sidebar; action since 2.0.5-local.7) | Tested locally; not installed |
 | Codex repair session in its own worktree when an update build fails | Automatic, review before release | 2.0.5-local.7 | Shipped |
 
 ## Identity and safety

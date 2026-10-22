@@ -30,6 +30,38 @@ resume it, also across a restart.
 
 Name sessions after their task, such as `fix-login-redirect` or `review-pr-42`, so you can find them in the sidebar and target them from the [CLI](./cli.md).
 
+### Pin and reorder sessions
+
+Right-click a session and choose **Pin Session in Project**. It appears before
+unpinned sessions in that same project, marked with a pin. Choose **Unpin
+Session** to return it to the unpinned section. A collapsed project continues
+to show only its selected session.
+
+Drag a session onto the upper or lower half of another session to place it
+before or after that session. A neutral insertion line shows where it will land.
+The carried row lifts on glass; dragging leaves your active terminal selected.
+Reordering stays inside the same project and pin section. The context menu's
+**Move Session Up** and **Move Session Down** provide the same control without
+dragging. The Session menu and command palette offer these actions too; keys
+can be assigned in Settings > Keyboard Shortcuts.
+
+Pins and order survive restart. New sessions start unpinned and keep the app's
+normal placement after the selected session. Moving a session to another project keeps its pin and places it last in that section.
+The palette, number shortcuts and next/previous session shortcuts follow the
+sidebar order. Session organization does not change its panes or running work.
+
+Agents can run the same actions:
+
+```sh
+kero do session.pin session=<session-id>
+kero do session.unpin session=<session-id>
+kero do session.moveUp session=<session-id>
+kero do session.moveDown session=<session-id>
+```
+
+Omit `session=<session-id>` to act on the selected session. Reordering requires
+a connected terminal service; pinning is saved in the app's preferences.
+
 ### Where a new session starts
 
 The `new-session-directory` setting picks the folder:
@@ -53,6 +85,22 @@ A **project** is a folder. Kero groups sessions under their project in the sideb
 ```sh
 kero projects            # list projects
 kero new -p my-app       # start a session in a project by name
+```
+
+### Reorder projects
+
+Drag a project's header above or below another project group. The insertion
+line marks the boundary of the entire group, including its sessions. Sessions
+keep their project and internal order. Project order survives daemon restart.
+The synthetic **Other** group stays last and cannot be moved.
+
+Right-click a project for **Move Project Up** / **Move Project Down**, also
+available in the Session menu, palette and configurable shortcuts. Commands
+use an explicit project id, or the selected session's project when omitted:
+
+```sh
+kero do project.moveUp project=<project-id>
+kero do project.moveDown project=<project-id>
 ```
 
 ## kerod

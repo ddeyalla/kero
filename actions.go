@@ -81,6 +81,10 @@ func (a *App) run(id string, args map[string]string) {
 		a.toggleSettings()
 	case "updates.sync":
 		a.startSourceUpdate()
+	case "project.moveUp", "project.moveDown":
+		a.projectOrderAction(id, args)
+	case "session.pin", "session.unpin", "session.moveUp", "session.moveDown":
+		a.sessionOrderAction(id, args)
 	case "usage.open":
 		a.openUsage()
 	case "usage.refresh":
@@ -202,6 +206,12 @@ var actionTitles = map[string]func() string{
 	"session.previous":   locales.ActionPreviousSession,
 	"session.rename":     locales.ActionRenameSession,
 	"session.silence":    locales.ActionSilenceSession,
+	"project.moveUp":     locales.ProjectMoveUp,
+	"project.moveDown":   locales.ProjectMoveDown,
+	"session.pin":        locales.SessionPin,
+	"session.unpin":      locales.SessionUnpin,
+	"session.moveUp":     locales.SessionMoveUp,
+	"session.moveDown":   locales.SessionMoveDown,
 	"pane.restart":       locales.ActionRestartPane,
 	"pane.close":         locales.ActionClose,
 	"session.close":      locales.ActionCloseSession,
@@ -289,6 +299,8 @@ func (a *App) menu() *mygo.Menu {
 		{Label: locales.MenuSession(), Submenu: a.items("Session",
 			[]string{"session.new", "session.newHome", "project.open"},
 			[]string{"palette.open", "session.attention", "session.next", "session.previous"},
+			[]string{"project.moveUp", "project.moveDown"},
+			[]string{"session.pin", "session.unpin", "session.moveUp", "session.moveDown"},
 			[]string{"session.rename", "session.silence", "pane.restart"},
 			[]string{"pane.close", "session.close"})},
 		// The Edit menu's own items, then finding.

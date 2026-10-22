@@ -3,6 +3,65 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Session organization and update controls
+
+`session_sidebar.go` owns project-local session pins, the stable partition
+that puts pins first, context-menu actions, drop targets, and the conversion
+from a visible position to the existing daemon `move` RPC's project index.
+`app.go` applies that partition in `groups()`, so the sidebar, command palette,
+number shortcuts and next/previous navigation agree. The pin indicator is the
+native `pin.fill` SF Symbol. The Session menu, palette, configurable shortcuts,
+and `kero do` expose `session.pin`, `session.unpin`, `session.moveUp` and
+`session.moveDown`; commands accept `session=<id>` and otherwise use the
+selected session.
+
+Pins are stored separately from plugin pins in `app.json`'s `sessionPins` map.
+Asynchronous preference snapshots clone that map. Session order uses the
+existing daemon state and persistence, without a protocol or state-version
+change. Drops and menu moves stay within the same project and pin section;
+only a confirmed daemon state changes the displayed order. Failed writes use
+the existing error toast. New sessions are unpinned and retain the existing insertion after the selected
+session. Moving a session to
+another project keeps its pin and appends it to that section. Unpinning returns
+it to its underlying daemon-order position among unpinned sessions.
+
+Pins are removed when a session observed in this daemon disappears. Unknown
+pins are retained across connection and daemon changes: background restoration
+sends partial session lists, so absence on connection is not proof of deletion.
+A pin for a session deleted while this app was disconnected can therefore
+remain dormant in the preferences; it is never displayed without that session.
+
+The fourth footer icon is removed in `view.go`. `source_updates_settings.go`
+puts its existing off-thread action in Settings > General > Updates, beside
+published app update controls. While a source check runs, its button becomes a
+busy label; Settings keeps the current progress and last result. Settings
+search finds the action by upstream, source, GitHub, build and repair.
+`updates.sync`, its palette entry, duplicate-run guard and repair behavior stay
+with the existing source-update implementation.
+
+Regression coverage: `session_sidebar_test.go` exercises the rendered menus,
+drag requests over a private fixture socket, pin persistence, navigation,
+section boundaries and partial restoration. `internal/daemon/session_order_test.go`
+proves project-relative ordering survives daemon save/restore.
+`source_updates_test.go` checks the footer and Settings idle/busy/result states.
+
+`sidebar_drag.go` shares drag feedback between session rows and project
+headers. A carried item uses tinted interactive glass with an opaque fallback
+under Reduce Transparency. The placement rule is neutral paint drawn over the
+row, so it changes neither the border nor the text layout. A session is chosen
+on click, not press: dragging it leaves the active terminal alone. MyGo owns
+the drag threshold, Escape cancellation, edge scrolling and reduced-motion
+behavior. No new animation loop is introduced.
+
+`project_sidebar.go` reuses `project.move` and its saved project order. The
+whole project group is the drop target, so the marker appears outside its
+sessions. Only its header is a drag source. Project menus, the Session menu,
+palette, configurable shortcuts and `kero do project.moveUp|project.moveDown`
+provide equivalent moves. Synthetic Other, missing ids, self drops and
+unchanged placements are rejected. Group position transitions preserve the
+existing collapse animation. Regression tests cover these gestures and the
+existing daemon save/restore path.
+
 ## Linear plugin
 
 The scope, setup and limits are recorded in
