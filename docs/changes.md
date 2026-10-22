@@ -1329,6 +1329,46 @@ kerod saves the fields with every change of status (`changed` queues a
 save), and every restart after keeps them. Tests:
 `internal/daemon/store_test.go`.
 
+## Startup and restore
+
+After a terminal service restart, the app connects before the saved sessions
+finish restoring (BRU-229). This uses the existing pane and session model;
+there is no protocol or saved-state format change.
+
+- `Run` in `internal/daemon/daemon.go` reads a restore plan, starts the accept
+  loop, then restores sessions in a background goroutine. The initial
+  transcript scan runs only after that restore returns; `scanPass` in
+  `internal/daemon/attention.go` locks each pane while reading its transcript.
+- `restore` in `internal/daemon/store.go` loads the state, workspace, projects
+  and task runs. `restoreInBackground` uses up to four workers. History feeds
+  and shell forks run outside `d.mu`; `restoreRun.publish` inserts a whole
+  session and its panes under that lock, then announces the change.
+- `restorePlan.place` supplies saved order. Insertion counts only sessions
+  still present, so failed or closed sessions cannot cause an out-of-bounds
+  insertion. Sessions created during restore stay after the restored ones, including
+  requests to create one after a specific session.
+- While `restoreDone` is open, `saveState` skips writes, including shutdown
+  saves, and the idle timer cannot exit. History saves visit only published
+  panes, leaving histories of panes still restoring untouched. The restore
+  queues a final save after closing the gate.
+- After workers finish, task cleanup uses their immutable results. It keeps
+  resumed agents and restored session stand-ins, ends other unchanged runs
+  from the saved state, and leaves conversations created or resumed by clients
+  during restoration alone. With session restoration disabled, projects and
+  workspace still load and the previous daemon's runs end.
+
+Tests in `internal/daemon/restore_test.go` cover socket access, real daemon
+startup and shutdown, saved order, client-created and closed sessions, partial
+and total failures, save and idle gates, task cleanup, worker limits and scan
+locking. Existing store and migration tests still wait for the full restore.
+
+An isolated three-run probe with eight terminal panes, each with 4 MB of
+history and `/bin/sh` (`CGO_ENABLED=0`), measured from restore start to the
+first answered control `state`: median **107.58 ms** with serial restore
+before accepting clients, versus **0.47 ms** with background restore. Ranges
+were 104.30–180.38 ms and 0.38–11.12 ms respectively. This excludes process
+launch and state-file preparation; the probe was removed after verification.
+
 ## Plugins
 
 Shibu Code moves towards an app where every capability is a pane or a plugin.

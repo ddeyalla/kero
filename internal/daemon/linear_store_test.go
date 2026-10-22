@@ -56,7 +56,7 @@ func TestLinearMovesOutOfState(t *testing.T) {
 	if want.Linear == nil || len(want.Tasks) == 0 {
 		t.Fatal("the fixture has no workspace or tasks")
 	}
-	d.restore()
+	restoreAll(t, d)
 	check := func(d *Daemon, when string) {
 		t.Helper()
 		if got := asJSON(t, d.linear); got != asJSON(t, want.Linear) {
@@ -95,7 +95,7 @@ func TestLinearMovesOutOfState(t *testing.T) {
 
 	d2 := linearTestDaemon(t)
 	d2.dir, d2.linear, d2.sessions, d2.panes = d.dir, nil, nil, map[string]*pane{}
-	d2.restore()
+	restoreAll(t, d2)
 	t.Cleanup(func() {
 		for _, p := range d2.panes {
 			p.close()
@@ -140,21 +140,21 @@ func TestLinearWrittenAsItChanges(t *testing.T) {
 func TestLinearPicksTheNewer(t *testing.T) {
 	d, want := fixtureDaemon(t, "state-linear-v2.json")
 	os.WriteFile(d.linearPath(), []byte(`{"status":"ok","team":"BRU","fetchedAt":1}`), 0o600)
-	d.restore()
+	restoreAll(t, d)
 	if d.linear == nil || d.linear.FetchedAt != want.Linear.FetchedAt || d.linearSaved != nil {
 		t.Fatalf("an older linear.json won: %+v", d.linear)
 	}
 
 	d, _ = fixtureDaemon(t, "state-linear-v2.json")
 	os.WriteFile(d.linearPath(), []byte(`{"status":"ok","team":"BRU","fetchedAt":9999999999999}`), 0o600)
-	d.restore()
+	restoreAll(t, d)
 	if d.linear == nil || d.linear.FetchedAt != 9999999999999 || d.linearSaved != d.linear {
 		t.Fatalf("a newer linear.json lost: %+v", d.linear)
 	}
 
 	d, _ = fixtureDaemon(t, "state-linear-v2.json")
 	os.WriteFile(d.linearPath(), []byte(`{`), 0o600)
-	d.restore()
+	restoreAll(t, d)
 	if d.linear == nil || d.linear.FetchedAt != want.Linear.FetchedAt {
 		t.Fatalf("a broken linear.json: %+v", d.linear)
 	}
@@ -162,7 +162,7 @@ func TestLinearPicksTheNewer(t *testing.T) {
 	d = linearTestDaemon(t)
 	d.linear = nil
 	os.WriteFile(d.linearPath(), []byte(`{"status":"ok","team":"BRU","fetchedAt":7}`), 0o600)
-	d.restore()
+	restoreAll(t, d)
 	if d.linear == nil || d.linear.FetchedAt != 7 {
 		t.Fatalf("linear.json alone did not load: %+v", d.linear)
 	}

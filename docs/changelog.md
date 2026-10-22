@@ -401,6 +401,9 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- The app connects at once after a terminal service restart. Sessions appear
+  as they come back, in their saved order, with up to four restoring at a
+  time. The saved state stays intact until restoration finishes (BRU-229).
 - The terminal service no longer sends the Linear workspace with every state,
   and a pane's title no longer writes the saved state. An agent's spinner,
   renaming its pane many times a second, rebuilt the app's window and its

@@ -495,7 +495,8 @@ func (d *Daemon) create(p proto.CreateParams) (proto.Session, error) {
 	s.panes, s.focus = []*pane{pn}, pn.info.ID
 	d.mu.Lock()
 	i := len(d.sessions)
-	if p.After != "" {
+	// New sessions follow the saved ones while they are still coming back.
+	if p.After != "" && !d.restoring() {
 		if after := d.findSessionLocked(p.After); after != nil {
 			i = slices.Index(d.sessions, after) + 1
 		}

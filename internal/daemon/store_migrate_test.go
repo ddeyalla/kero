@@ -82,7 +82,7 @@ func TestRestoreMigratesAndSaveWritesV3(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(d.dir, "state.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	d.restore()
+	restoreAll(t, d)
 	if len(d.sessions) != 1 {
 		t.Fatalf("restored %d sessions", len(d.sessions))
 	}
@@ -110,7 +110,7 @@ func TestRestoreMigratesTasksPaneAndMovesLinear(t *testing.T) {
 	if want.Linear == nil || len(want.Linear.Issues) != 2 || want.Version != 2 {
 		t.Fatalf("the fixture is not a version 2 file with a workspace: %+v", want)
 	}
-	d.restore()
+	restoreAll(t, d)
 	if len(d.sessions) != 1 || len(d.sessions[0].panes) != 2 {
 		t.Fatalf("restored: %+v", d.sessions)
 	}

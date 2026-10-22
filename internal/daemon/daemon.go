@@ -93,6 +93,11 @@ type Daemon struct {
 	// dropAt is when the log last said so (dropEvent).
 	dropped atomic.Int64
 	dropAt  atomic.Int64
+	// restoreDone is closed when the sessions of the last daemon are back
+	// (restoreInBackground), and nil when there is nothing to bring back:
+	// nothing is saved before it closes (saveState), and the daemon is not
+	// idle with none of the sessions (tickLoop).
+	restoreDone chan struct{}
 }
 
 // Run runs the daemon until it is told to shut down, or has had no session
@@ -146,10 +151,9 @@ func Run() error {
 	d.viewed.Store(&empty)
 	lg.Printf("kerod %d started (pid %d, %s)", proto.Version, os.Getpid(), exe)
 	d.linkCLI()
-	d.restore()
-	// What the transcripts of the panes say, once at the start: the
-	// ends of turns that came while nothing watched.
-	go d.scanPass(time.Now())
+	// What the last daemon left, its sessions to come back in the
+	// background once the socket takes clients (restoreInBackground).
+	plan := d.restore()
 
 	signal.Ignore(syscall.SIGHUP, syscall.SIGPIPE)
 	sigs := make(chan os.Signal, 1)
@@ -175,6 +179,12 @@ func Run() error {
 			}
 			go d.serve(conn)
 		}
+	}()
+	go func() {
+		d.restoreInBackground(plan)
+		// What the transcripts of the panes say, once at the start: the
+		// ends of turns that came while nothing watched.
+		d.scanPass(time.Now())
 	}()
 	<-d.quit
 	ln.Close()
@@ -379,7 +389,7 @@ func (d *Daemon) tickLoopWith(pace tickPace) {
 		for _, p := range d.panes {
 			panes = append(panes, p)
 		}
-		idle := len(d.sessions) == 0 && d.conns == 0
+		idle := len(d.sessions) == 0 && d.conns == 0 && !d.restoring()
 		if !idle {
 			d.idleAt = now
 		}

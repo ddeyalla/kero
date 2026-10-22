@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"kero/internal/plugin/protocol"
@@ -186,6 +188,12 @@ func (d *Daemon) saveLoopWith(wait, history time.Duration, save, snap func()) {
 }
 
 func (d *Daemon) saveState() {
+	// The sessions of the last daemon come back in the background: a save
+	// now would write them away, and a crash after it would lose those not
+	// back yet. The restore asks for one as it ends.
+	if d.restoring() {
+		return
+	}
 	d.mu.Lock()
 	// The Linear workspace is kept in a file of its own, written only
 	// as it changes (linear_store.go).
@@ -260,18 +268,48 @@ func writeAtomic(path string, data []byte) error {
 	return os.Rename(tmp, path)
 }
 
-// restore starts again the sessions of the last daemon, which ended
-// without closing them.
-func (d *Daemon) restore() {
+// restoreWorkers is how many sessions a restore brings back at a time: each
+// feeds a history and forks a shell, and more at once take the machine from
+// what the user does meanwhile.
+const restoreWorkers = 4
+
+// restoringPane, when set, is a test's hold on a pane of a restore: it runs
+// as the pane comes back, and may hold it (a history that takes its time) or
+// fail it (a shell that will not start).
+var restoringPane func(sp savedPane) error
+
+// restorePlan is what a restore leaves for the background: the sessions as
+// saved, and the gate on them. done is closed once every one is back, so
+// that no save writes less than the whole state (saveState) and an idle
+// daemon does not go while they come (tickLoop).
+type restorePlan struct {
+	sessions []savedSession
+	// place is where the state file had each session, by its id: it comes
+	// back there, whatever order the sessions finish in.
+	place   map[string]int
+	when    string
+	saved   int64
+	resume  bool // resume the agents the panes ran
+	done    chan struct{}
+	oldRuns map[proto.TaskRun]bool // only runs read from the last daemon
+}
+
+// restore reads what the last daemon left: its workspace, its projects and
+// the conversations that worked on the tasks. The panes are not started
+// here: they come back in the background (restoreInBackground), so that the
+// socket takes clients at once and the app is not left blank while every
+// history is fed and every shell forked. It returns nil when there is
+// nothing to bring back.
+func (d *Daemon) restore() *restorePlan {
 	lin := d.loadLinear()
 	d.linear, d.linearSaved = lin, lin
 	data, err := os.ReadFile(d.statePath())
 	if err != nil {
-		return
+		return nil
 	}
 	var st savedState
 	if json.Unmarshal(data, &st) != nil {
-		return
+		return nil
 	}
 	// A state file of before keeps the workspace in it: it is taken
 	// from there, and moves to its own file with the next save. The
@@ -282,58 +320,174 @@ func (d *Daemon) restore() {
 		d.linearSaved = nil
 	}
 	d.tasks = st.Tasks
+	// The projects stay whether or not the sessions come back.
+	d.projects = st.Projects
 	set := settings.Load()
+	p := &restorePlan{when: time.UnixMilli(st.Saved).Format("Mon Jan 2 15:04"), saved: st.Saved, done: make(chan struct{})}
+	if set.RestoreSessions {
+		// The sessions come back as they were saved; those of a daemon
+		// that keeps none stay away, though its conversations still end
+		// (restoreInBackground).
+		p.sessions, p.resume = st.Sessions, set.ResumeAgents
+		p.place = make(map[string]int, len(st.Sessions))
+		for i, ss := range st.Sessions {
+			p.place[ss.ID] = i
+		}
+	}
+	p.oldRuns = map[proto.TaskRun]bool{}
+	for _, tl := range st.Tasks {
+		if tl != nil {
+			for _, run := range tl.Runs {
+				p.oldRuns[run] = true
+			}
+		}
+	}
+	d.restoreDone = p.done
+	return p
+}
+
+// restoring tells that the sessions of the last daemon are still coming
+// back: a state saved now would drop those not back yet, and the daemon is
+// not idle with none of them.
+func (d *Daemon) restoring() bool {
+	if d.restoreDone == nil {
+		return false
+	}
+	select {
+	case <-d.restoreDone:
+		return false
+	default:
+		return true
+	}
+}
+
+// restoreRun is one restore in the background: the sessions still to bring
+// back, and what came of them.
+type restoreRun struct {
+	d    *Daemon
+	plan *restorePlan
+	next atomic.Int64
+	// made is what each saved session came back as: a worker writes the
+	// one of its own session, and none is read before they are all done
+	// (restoreInBackground).
+	made []restoredSession
+}
+
+// restoredSession is a session that came back, and whether each of its
+// panes' agents resumed, which ends the runs of the last daemon.
+type restoredSession struct {
+	id      string
+	resumed map[string]bool
+}
+
+// restoreInBackground brings back the sessions of the last daemon, up to
+// restoreWorkers at a time, and publishes each one whole as it comes: the
+// app shows them arrive one by one, and nothing sees a pane half made, with
+// no emulator or no program under it.
+func (d *Daemon) restoreInBackground(p *restorePlan) {
+	if p == nil {
+		return
+	}
+	r := &restoreRun{d: d, plan: p, made: make([]restoredSession, len(p.sessions))}
+	var wg sync.WaitGroup
+	for range min(restoreWorkers, len(p.sessions)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(r.next.Add(1) - 1)
+				if i >= len(p.sessions) {
+					return
+				}
+				r.restore(i)
+			}
+		}()
+	}
+	wg.Wait()
 	// The conversations of the last daemon end, but those of the panes
 	// restored with their agents resumed, and the stand-ins of the
 	// sessions restored: none runs any more.
-	resumed, sessions := map[string]bool{}, map[string]bool{}
-	defer func() {
-		d.taskEndWhere(func(r proto.TaskRun) bool {
-			return !(r.Pane != "" && resumed[r.Pane] || r.Pane == "" && sessions[r.Session])
-		})
-	}()
-	if !set.RestoreSessions {
-		// The projects stay; the sessions of the last daemon do not.
-		d.projects = st.Projects
-		return
-	}
-	d.projects = st.Projects
-	when := time.UnixMilli(st.Saved).Format("Mon Jan 2 15:04")
-	for _, ss := range st.Sessions {
-		s := &session{id: ss.ID, project: ss.Project, name: ss.Name, agentNamed: ss.AgentNamed, created: ss.Created, restored: true, focus: ss.Focus}
-		for _, t := range ss.Unlinked {
-			if s.unlinked == nil {
-				s.unlinked = map[string]bool{}
-			}
-			s.unlinked[t] = true
-		}
-		for _, sp := range ss.Panes {
-			if !set.ResumeAgents {
-				sp.Agent = nil
-			}
-			if p := d.restorePane(s.id, sp, when, st.Saved); p != nil {
-				s.panes = append(s.panes, p)
-				d.panes[p.info.ID] = p
-				resumed[p.info.ID] = sp.Agent != nil
-			}
-		}
-		if len(s.panes) == 0 {
+	resumed, standing := map[string]bool{}, map[string]bool{}
+	for _, m := range r.made {
+		if m.id == "" {
 			continue
 		}
-		if sameLeaves(ss.Layout, s.panes) {
-			s.layout = ss.Layout
-		} else {
-			for _, p := range s.panes[1:] {
-				if s.layout == nil {
-					s.layout = &proto.Layout{Pane: s.panes[0].info.ID}
-				}
-				s.layout = s.layout.Split(s.panes[0].info.ID, p.info.ID, "right", 0.5)
-			}
+		standing[m.id] = true
+		for id, agent := range m.resumed {
+			resumed[id] = agent
 		}
-		d.sessions = append(d.sessions, s)
-		sessions[s.id] = true
-		d.log.Printf("session %s restored, %d panes", s.id, len(s.panes))
 	}
+	d.taskEndWhere(func(t proto.TaskRun) bool {
+		return p.oldRuns[t] && !(t.Pane != "" && resumed[t.Pane] || t.Pane == "" && standing[t.Session])
+	})
+	close(p.done)
+	// The saves asked for as the sessions came, and this one, were dropped
+	// (saveState): the state with them all goes to disk now.
+	d.save()
+}
+
+// restore brings back saved session i, outside d.mu: a fork and a history
+// take their time, and the clients go on meanwhile.
+func (r *restoreRun) restore(i int) {
+	d := r.d
+	ss := r.plan.sessions[i]
+	s := &session{id: ss.ID, project: ss.Project, name: ss.Name, agentNamed: ss.AgentNamed, created: ss.Created, restored: true, focus: ss.Focus}
+	for _, t := range ss.Unlinked {
+		if s.unlinked == nil {
+			s.unlinked = map[string]bool{}
+		}
+		s.unlinked[t] = true
+	}
+	agents := map[string]bool{} // private results, never read from published panes
+	for _, sp := range ss.Panes {
+		if !r.plan.resume {
+			sp.Agent = nil
+		}
+		p := d.restorePane(s.id, sp, r.plan.when, r.plan.saved)
+		if p == nil {
+			continue
+		}
+		s.panes = append(s.panes, p)
+		agents[sp.ID] = sp.Agent != nil
+	}
+	if len(s.panes) == 0 {
+		return
+	}
+	if sameLeaves(ss.Layout, s.panes) {
+		s.layout = ss.Layout
+	} else {
+		for _, p := range s.panes[1:] {
+			if s.layout == nil {
+				s.layout = &proto.Layout{Pane: s.panes[0].info.ID}
+			}
+			s.layout = s.layout.Split(s.panes[0].info.ID, p.info.ID, "right", 0.5)
+		}
+	}
+	r.made[i] = restoredSession{id: s.id, resumed: agents}
+	r.publish(i, s)
+}
+
+// publish puts a session that is whole into the daemon's, after the last
+// session the state file had before it, and tells the app. The place is
+// looked for in d.sessions itself, so that a session whose panes all failed,
+// or one the user closed while the others came, counts for nothing.
+func (r *restoreRun) publish(i int, s *session) {
+	d := r.d
+	d.mu.Lock()
+	at := 0
+	for j, o := range d.sessions {
+		if n, ok := r.plan.place[o.id]; ok && n < i {
+			at = j + 1
+		}
+	}
+	for _, p := range s.panes {
+		d.panes[p.info.ID] = p
+	}
+	d.sessions = slices.Insert(d.sessions, at, s)
+	n := len(s.panes)
+	d.mu.Unlock()
+	d.changed()
+	d.log.Printf("session %s restored, %d panes", s.id, n)
 }
 
 // restoredStatus is the status a pane of the last daemon comes back with,
@@ -377,6 +531,12 @@ func restoredStatus(sp savedPane, saved, now int64) (st proto.Status, since int6
 // restorePane starts a pane of the last daemon again, under its
 // scrollback, in its directory, with the agent it ran resumed.
 func (d *Daemon) restorePane(sid string, sp savedPane, when string, saved int64) *pane {
+	if restoringPane != nil {
+		if err := restoringPane(sp); err != nil {
+			d.log.Printf("restoring %s: %v", sp.ID, err)
+			return nil
+		}
+	}
 	now := time.Now().UnixMilli()
 	status, since, unread, msg := restoredStatus(sp, saved, now)
 	if sp.View != "" {
@@ -411,12 +571,12 @@ func (d *Daemon) restorePane(sid string, sp savedPane, when string, saved int64)
 	}
 	// The shell alone: what ran in it may not want to run again unasked.
 	// But an agent's conversation, which only waits for the user.
+	p.dirty = true
 	if err := p.start(resumeCommand(sp.Agent), nil); err != nil {
 		d.log.Printf("restoring %s: %v", sp.ID, err)
 		p.term.Close()
 		return nil
 	}
-	p.dirty = true
 	return p
 }
 
