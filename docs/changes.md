@@ -44,6 +44,10 @@ as `scripts/check.sh`, using the toolchain installed by `actions/setup-go`
 rather than the local wrapper's checkout-specific `.toolchain`. The growing UI suite uses Go's
 default ten-minute timeout instead of a separate two-minute CI timeout;
 runtime performance budgets remain independently tested.
+The complete native UI gate runs on macOS, where AppKit glass, native menu
+shortcuts and the app's allocation budgets apply. A separate Linux job tests
+the internal backend and plugin packages. Native UI budgets are retained,
+not raised to accommodate Linux's different renderer and menu conventions.
 
 ## Session organization and update controls
 

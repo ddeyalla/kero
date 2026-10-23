@@ -17,6 +17,14 @@ import (
 
 var treeNow = time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
 
+// The widget shows local times in production. Give the package's fixtures
+// one local zone before tests start, so snapshots agree on every machine
+// without changing time.Local while plugin worker goroutines run.
+func TestMain(m *testing.M) {
+	time.Local = time.UTC
+	os.Exit(m.Run())
+}
+
 // outline writes a tree as one line for each node, so a golden file shows
 // what changed.
 func outline(n *protocol.Node, depth int, b *strings.Builder) {

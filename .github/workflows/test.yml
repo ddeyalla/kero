@@ -7,6 +7,24 @@ permissions:
   contents: read
 jobs:
   tests:
+    # Native AppKit materials, shortcuts and allocation budgets belong to macOS.
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    env:
+      CGO_ENABLED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: |
+          shibu_go=$(command -v go)
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" "$shibu_go" test ./...
+      - run: go tool mygo vet .
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - run: git diff --check
+  linux-backend:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -17,7 +35,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - run: go test ./...
-      - run: go tool mygo vet .
+      - run: |
+          shibu_go=$(command -v go)
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" "$shibu_go" test ./internal/...
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
-      - run: git diff --check

@@ -67,5 +67,5 @@ column usage-root
       text error-deepseek "Not connected" color=muted
       text help-deepseek "Direct DeepSeek API credit. For DeepSeek through OpenCode Go, use the OpenCode allowance instead." color=muted
   row usage-foot
-    text usage-updated "Updated Wed 5:30 PM" color=muted
+    text usage-updated "Updated Wed 12:00 PM" color=muted
     iconButton usage-refresh icon=refresh

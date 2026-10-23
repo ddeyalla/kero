@@ -471,6 +471,10 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- CI runs native AppKit UI checks on macOS and backend/plugin checks on Linux.
+  Usage snapshot fixtures use UTC without changing the user's local-time
+  display, so snapshots are stable across runner timezones.
+
 - Notification silence choices survive incremental daemon restore. Only a
   session observed to disappear in the same daemon epoch is pruned.
 - Identical transcript completions remain distinct after earlier events
