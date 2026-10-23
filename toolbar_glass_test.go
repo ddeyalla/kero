@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// Toolbar grouping preserves compact hit targets and the system's opaque
-// fallback; material changes do not change the navigation's actions.
+// Toolbar grouping preserves hit targets and actions in both accessibility
+// modes. The rendered faces are checked by the opaque fallback tests.
 func TestGlassToolbarActionsAndFallback(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		for _, reduce := range []bool{false, true} {
@@ -39,6 +39,38 @@ func TestGlassToolbarActionsAndFallback(t *testing.T) {
 			tt.Frame()
 			if clicked != 1 {
 				t.Fatalf("action count = %d", clicked)
+			}
+		}
+	}
+}
+
+// The toolbar capsule has its own material helper, separate from buttons'
+// controlFace. Both must ignore the backdrop under Reduce Transparency.
+func TestGlassToolbarOpaqueFallback(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		pal := lightPalette
+		if dark {
+			pal = darkPalette
+		}
+		var first ui.Color
+		for i, background := range []ui.Color{ui.Hex("#ff0000"), ui.Hex("#0000ff")} {
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Column(c).Fill().Background(background).Children(func() {
+					toolbarGroup(c, "tools", &pal, func() {
+						iconButton(c, "back", goBackIcon, "Back", &pal, func() {})
+						iconButton(c, "next", goFwdIcon, "Forward", &pal, func() {})
+					})
+				})
+			}, 100, 50)
+			tt.SetDark(dark)
+			tt.SetPreferences(ui.Preferences{ReduceTransparency: true, TextScale: 1})
+			tt.Frame()
+			pixel := tt.Image().RGBAAt(30, 14)
+			got := ui.Color{R: pixel.R, G: pixel.G, B: pixel.B, A: pixel.A}
+			if i == 0 {
+				first = got
+			} else if got != first {
+				t.Errorf("dark=%v: toolbar face depends on backdrop: %v and %v", dark, first, got)
 			}
 		}
 	}

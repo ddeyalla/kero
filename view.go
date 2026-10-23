@@ -437,10 +437,12 @@ func (a *App) projectGroupRows(c *ui.Context, pal *palette, g group, gi int, n *
 			ui.Box(c).Size(20, 20).Shrink(0)
 		} else {
 			b := ui.ButtonBase(c.Key("add")).Size(20, 20).Radius(5).Center().TextColor(pal.textMuted).Label(locales.NewSessionIn(g.project.Name)).Tooltip(locales.ActionNewSession())
+			tint := pal.textMuted
 			if b.Hovered() {
 				b.Background(pal.rowHover).TextColor(pal.text)
+				tint = pal.text
 			}
-			b.Children(func() { controlIcon(c, plusIcon, 13, pal.textMuted, pal.dark) })
+			b.Children(func() { controlIcon(c, plusIcon, 13, tint, pal.dark) })
 			if b.Clicked() {
 				a.newSession(id)
 			}

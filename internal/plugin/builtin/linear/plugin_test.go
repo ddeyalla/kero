@@ -657,3 +657,15 @@ func TestCloseForgetsThePane(t *testing.T) {
 		t.Fatal("a closed pane was drawn")
 	}
 }
+
+// A detail can outlive its linked session. The daemon validates the live
+// target at action time and the existing notice path must show its error.
+func TestOpenClosedSessionShowsNotice(t *testing.T) {
+	r := openIssueRig(t)
+	r.d.handlers["do"] = func(any, any) error { return errors.New(`no session "s1"`) }
+	r.press("p1", "run0-open")
+	waitFor(t, "closed session notice", func() bool {
+		notice := find(r.out.last(t, "p1"), "notice")
+		return notice != nil && notice.Text == `no session "s1"`
+	})
+}

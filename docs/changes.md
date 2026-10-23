@@ -5,6 +5,13 @@ and credential configuration see the [local edition guide](local-fork.md).
 
 ## Delivery review corrections
 
+A failed Spotify refresh leaves saved track and queue rows visible with a
+warning and Retry. Retry is suppressed while that list's request is in
+flight. Engine and desktop-monitor callbacks carry their source and generation,
+checked atomically with playback application, so replacing a player also
+retires already dispatched callbacks. `main.go` initializes focus and resource
+pacing from the native window instead of the headless fixture defaults.
+
 `actions.go` dispatches `pane.new.attention` separately from `pane.new.plugin`;
 `pane_action_dispatch_test.go` drives the action through its daemon split
 request. Spotify's `readNow` in `internal/plugin/builtin/spotify/spotify.go`
@@ -32,6 +39,11 @@ scope and the remaining BRU-333 native-allocation ownership investigation.
 Release mode publishes the reviewed source on the pinned upstream base in
 `shibu-upstream.json`. A newer upstream release is considered only by check
 mode, keeping an unrelated upstream merge out of the final delivery step.
+An explicit `--upstream-tag` cannot change the baseline in release mode;
+review that upstream incorporation in check mode first. Every explicit
+`macos` value must contain the permitted consent declaration: empty or
+incorrectly typed values are rejected too. The guard approves metadata keys
+and identity, while the reviewed source owns the explanatory consent copy.
 Release preparation also stamps the feature tracker's release header and
 Unreleased feature rows, retaining their existing hand-test status.
 
@@ -44,7 +56,8 @@ as `scripts/check.sh`, using the toolchain installed by `actions/setup-go`
 rather than the local wrapper's checkout-specific `.toolchain`. The growing UI suite uses Go's
 default ten-minute timeout instead of a separate two-minute CI timeout;
 runtime performance budgets remain independently tested.
-The complete native UI gate runs on macOS, where AppKit glass, native menu
+The complete native UI gate runs on ARM64 macOS, matching the release target,
+where AppKit glass, native menu
 shortcuts and the app's allocation budgets apply. A separate Linux job tests
 the internal backend and plugin packages. Native UI budgets are retained,
 not raised to accommodate Linux's different renderer and menu conventions.
@@ -362,7 +375,9 @@ fallback for Codex's approvals only when its hooks are not installed — 45
 seconds after the call began, not the moment it asks. Claude Code reports
 the prompt itself.
 
-Codex transcript discovery reads at most 256 directory entries or directory
+Codex transcript discovery uses `CODEX_HOME/sessions` when configured,
+otherwise `~/.codex/sessions`, matching the hook installer and usage scanner.
+It reads at most 256 directory entries or directory
 opens for one pane in a pass (`transcript_discovery.go`). An unfinished
 search continues on the next pass, so an older session beyond the first
 slice remains discoverable. Only one directory descriptor stays open per
@@ -422,9 +437,10 @@ a press from a waiting session goes on to the next, and looking at a
 session that does not wait does not start the cycle over. With no session
 waiting it
 is a no-op and says "Nothing needs you", as Jump to Session Needing You
-does. A session that stops waiting leaves the cycle, and the next press
-goes on from where it was. A daemon of before this feature sends no
-attention state; `foldOf` then folds every terminal pane (waiting is
+does. A session that stops waiting leaves the cycle. If neither the
+selected session nor the last visited session remains in the waiting set,
+the next press resets to the longest remaining wait. A daemon that predates
+this feature sends no attention state; `foldOf` then folds every terminal pane (waiting is
 `Status == Waiting`), and such sessions have no `Since`, so they come first
 and are ordered by id.
 
@@ -433,8 +449,11 @@ to what a session needs; the issue detail and the cycle use it. It opens the ses
 session, and moves both the app's focus and kerod's (`focus`) to the pane
 the attention came from; the pane's terminal then takes the keyboard, as
 the app's pane focus does (`setFocus`). A pane named that has closed since
-the state came falls back to the pane the session was in last, so a stale
-row never focuses nothing.
+the state came falls back to the pane the session was in last; that fallback
+uses the same idempotent daemon focus request and local zoom update. A stale
+linked session rejected by the daemon produces the Linear pane's existing
+error notice. If it disappears after validation, the app shows a localized
+session-not-found message.
 
 A zoom follows the focus, exactly as it does when panes are cycled while
 zoomed: when the session is zoomed on another pane, the zoom moves to the
@@ -473,9 +492,10 @@ rest, a daemon with no fold); `attention_pane_test.go`
 
 The **Attention** pane shows what needs the user, of every session, in one
 list. It reads `Session.Attention` as kerod sends it and holds no state of
-its own beyond the list: it runs nothing in the daemon. A kerod that does
-not send the state leaves the list empty. The pane view itself is new to
-the protocol, though: `"attention"` joins `proto.PaneViews`, and a kerod
+its own beyond the list: it runs nothing in the daemon. When a supported
+kerod omits the folded state, the pane derives it with `foldOf`, just as
+navigation and notifications do. The pane view itself is new to the
+protocol, though: `"attention"` joins `proto.PaneViews`, and a kerod
 that predates it refuses the pane (`internal/daemon/sessions.go`), so the
 terminal service needs a restart once, when agents are idle. Its own
 state — the filter, the search, where it is scrolled to — is stored as
@@ -548,6 +568,12 @@ The Attention pane's mark and its rows' states are symbols:
 icons stay SVG, as they are. Tests: `symbols_test.go`.
 
 ## Notifications from attention
+
+Notification throttling starts only after native delivery acceptance. Native
+authorization stays off the UI thread, with one notice per session/state in
+flight and only the newest eligible event queued. Retired-connection results
+cannot charge the new watch. App closes clean saved pins and silence only
+after successful daemon acknowledgement, using existing serialized writers.
 
 The app tells of a session by comparing the attention kerod folded
 (`Session.Attention`) with the fold before it, in
@@ -814,7 +840,7 @@ Two equal-width sidebar meters show CPU busy percentage and RAM used. They
 open details in the usage modal. Bars are clamped to 0–100%, turn amber at
 90%, and stay empty when a measurement is unavailable.
 
-macOS Mach calls sample every five seconds in the background without shell
+macOS Mach calls sample every ten seconds while focused, in the background without shell
 processes, and every 30 seconds while the window does not have the focus
 (`resourceWait`); a window that gets the focus back reads at once
 (`resourcePace`, BRU-336). CPU covers all cores; RAM includes active, wired and compressed
@@ -831,16 +857,15 @@ An idle window should not paint. Three timers that built and painted the
 whole window, grain shader included, with nothing to show are cut back
 (BRU-225, in part):
 
-- **The CPU and RAM sampler** reads every five seconds (`resourcePeriod`),
-  as Activity Monitor does by default, off the main
-  thread, but calls `a.update` only when `showResources` — the meters'
+- **The CPU and RAM sampler** reads every ten seconds (`resourcePeriod`),
+  off the main thread, but calls `a.update` only when `showResources` — the meters'
   labels, the tooltip's and the usage card's, the bars' fills and the
   error — differs from what it last sent. The bars fill in whole percents
   (`cpuPercent`, `memoryPercent`), so what is compared is what is drawn; a
   repeated error sends nothing either. On a Mac at work the labels change
   with nearly every read (30 of 30 reads at 2 s on an M4 Pro running
   agents), so the period is what bounds the meters' rebuilds: 30 a minute
-  at 2 s, 12 at 5 s.
+  at 2 s and 12 at 5 s previously, now at most six per minute at 10 s.
 - **Times ago** ("5m ago") read in whole minutes at the finest (`ago`). The
   sidebar asked for a rebuild every 20 seconds, shown or hidden; it now asks
   through `agoTick`, once a minute, and only while the sidebar shows. A time

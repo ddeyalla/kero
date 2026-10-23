@@ -52,7 +52,7 @@ def validate_config(config):
     # Spotify's automation consent text belongs in the bundle. Allow that
     # declaration without permitting a signing or bundle identity override.
     macos = config.get("macos")
-    if macos:
+    if "macos" in config:
         if not isinstance(macos, dict) or set(macos) != {"infoPlist"}:
             raise ValueError("Unexpected macOS identity override")
         info = macos["infoPlist"]
@@ -94,7 +94,9 @@ def prepare(mode, tag=None):
     if mode == "release":
         # A release publishes reviewed Shibu source. Upstream incorporation
         # belongs to the separate check path, not this final delivery step.
-        tag = tag or baseline["tag"]
+        if tag is not None and tag != baseline["tag"]:
+            raise ValueError("release mode cannot change the upstream base; review it in check mode first")
+        tag = baseline["tag"]
     else:
         release = json.loads(run("gh", "api", "repos/egoist/kero/releases/latest").stdout)
         if release.get("draft") or release.get("prerelease"):
@@ -170,7 +172,7 @@ def prepare(mode, tag=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["check", "release"])
-    parser.add_argument("--upstream-tag", help="explicit stable tag for reviewed retries")
+    parser.add_argument("--upstream-tag", help="explicit stable tag for check-mode retries; release keeps its pinned base")
     args = parser.parse_args()
     try:
         prepare(args.mode, args.upstream_tag)

@@ -11,11 +11,13 @@
 # scrollback of 4 MB, so that every pane's scrollback is full), and then:
 #
 #   1. waits PERF_SETTLE seconds (15), past kerod's 10 s history save;
-#   2. samples kerod, and the app, over PERF_IDLE seconds (60) of idle:
-#      footprint, RSS, CPU and wakeups (scripts/perf_probe.py, without root);
-#   3. has the pane the app shows stream output for
+#   2. samples kerod and the app over separate focused and visible/unfocused
+#      PERF_IDLE second (60) windows, with native state checked independently;
+#   3. measures 100 native key dispatches through PTY echo to paint, with
+#      the paint-matching hook disabled during idle and frame timing;
+#   4. has the pane the app shows stream output for
 #      PERF_BUSY seconds (10), for the frame times of MYGO_FRAME_STATS;
-#   4. prints the table, and stops everything it started.
+#   5. prints the table, and stops everything it started.
 #
 # PERF_MEMORY=1 visits every terminal twice, streams all of them, then
 # collects settled footprint, Go heaps and native VM accounting. It uses
@@ -29,8 +31,9 @@
 # PERF_PPROF=127.0.0.1:6060 has that kerod serve its profiles there
 # (KERO_PPROF, internal/daemon/pprof.go) while the run lasts.
 #
-# The app is this build's, started as a plain executable named
-# shibu-perf, with HOME and TMPDIR of its own: its name and identity are not
+# The app is this build's, packaged in its own uniquely identified temporary
+# bundle and launched through LaunchServices, with HOME and TMPDIR of its own:
+# its name and identity are not
 # the daily app's, nor a dev app's, and its single-instance lock is in its
 # own TMPDIR. It opens a window for the run. PERF_APP=0 leaves it out, and
 # the table says so.
@@ -53,6 +56,7 @@ export PERF_GUI
 case ${PERF_MEMORY:-0} in 0|1) ;; *) echo "perf.sh: PERF_MEMORY must be 0 or 1" >&2; exit 2 ;; esac
 case ${PERF_GUI:-0} in 0|1) ;; *) echo "perf.sh: PERF_GUI must be 0 or 1" >&2; exit 2 ;; esac
 [ "${PERF_MEMORY:-0}${PERF_GUI:-0}" != 11 ] || { echo "perf.sh: choose PERF_MEMORY or PERF_GUI" >&2; exit 2; }
+[ "${PERF_APP:-1}${PERF_GUI:-0}" != 01 ] || { echo "perf.sh: PERF_APP=0 conflicts with PERF_GUI=1" >&2; exit 2; }
 case ${PERF_LAYOUT:-sessions} in
 sessions) ;;
 split) [ "${PERF_MEMORY:-0}" = 1 ] || { echo "perf.sh: PERF_LAYOUT=split requires PERF_MEMORY=1" >&2; exit 2; } ;;
@@ -66,14 +70,17 @@ busy=${PERF_BUSY:-10}
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 . scripts/dev-env.sh
+python3 -I scripts/perf_memory.py validate
 probe="python3 -I $root/scripts/perf_probe.py"
 
 # Nothing of the caller's reaches what this starts.
 unset KERO_HOME KERO_CONFIG KERO_SOCKET KERO_PANE KERO_SESSION KERO_PPROF \
-	LINEAR_API_KEY XDG_RUNTIME_DIR MYGO_FRAME_STATS MYGO_DEV MYGO_ENV
+	LINEAR_API_KEY XDG_RUNTIME_DIR MYGO_FRAME_STATS MYGO_DEV MYGO_ENV MYGO_GHOSTTY_VT
 
 tmp=$(mktemp -d /tmp/kero-perf.XXXXXX)
-bin=$tmp/shibu-perf
+tmp=$(cd "$tmp" && pwd -P)
+bundle="$tmp/Shibu Performance.app"
+bin="$bundle/Contents/MacOS/shibu-perf"
 kerod_pid=
 app_pid=
 cleanup() {
@@ -104,9 +111,33 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
+# A real, uniquely identified bundle lets AppKit establish native key-window
+# focus. The CLI link still resolves only to this run's executable.
+mkdir -p "$bundle/Contents/MacOS"
+cat >"$bundle/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>shibu-perf</string>
+<key>CFBundleIdentifier</key><string>dev.ddeyalla.shibu-perf.$(basename "$tmp")</string>
+<key>CFBundleName</key><string>Shibu Performance</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+</dict></plist>
+EOF
+ln -s "$bin" "$tmp/shibu-perf"
+mygo_module=$(go list -m -f '{{.Dir}}' github.com/egoist/mygo)
+python3 -I scripts/perf_memory.py bundle-native \
+	"$mygo_module/plugins/terminal/mygo-plugin.json" "$bundle/Contents/Resources"
+
 echo "perf.sh: building $(git rev-parse --short HEAD)$(git diff --quiet HEAD -- . ':!docs' || echo '+changes')" >&2
 if [ "${PERF_MEMORY:-0}" = 1 ] || [ "${PERF_GUI:-0}" = 1 ]; then
-	overlay=$(python3 -I scripts/perf_memory.py prepare "$root" "$tmp/diagnostics")
+	if [ "${PERF_GUI:-0}" = 1 ]; then
+		overlay=$(python3 -I scripts/perf_memory.py prepare "$root" "$tmp/diagnostics" --gui)
+	else
+		overlay=$(python3 -I scripts/perf_memory.py prepare "$root" "$tmp/diagnostics")
+	fi
 	CGO_ENABLED=0 go build -overlay "$overlay" -o "$bin" .
 else
 	CGO_ENABLED=0 go build -o "$bin" .
@@ -143,9 +174,32 @@ start_app() {
 		app_reason="PERF_APP=0"
 	else
 		mkdir -p "$tmp/apptmp"
-		SHIBU_PERF_DIAGNOSTICS="$tmp/diagnostics" TMPDIR="$tmp/apptmp/" MYGO_FRAME_STATS=all "$bin" </dev/null >"$tmp/app.log" 2>&1 &
-		app_pid=$!
-		sleep 5
+		if [ "${PERF_MEMORY:-0}" = 1 ] || [ "${PERF_GUI:-0}" = 1 ]; then
+			# LaunchServices grants this uniquely identified test bundle its
+			# normal activation lifecycle. It does not inherit routing from
+			# this shell, so supply every app/daemon identity explicitly.
+			/usr/bin/open -n -a "$bundle" --stdout "$tmp/app.log" --stderr "$tmp/app.log" \
+				--env "HOME=$HOME" --env "KERO_HOME=$KERO_HOME" \
+				--env "KERO_CONFIG=$KERO_CONFIG" --env "KERO_SOCKET=$KERO_SOCKET" \
+				--env KERO_PANE --env KERO_SESSION --env XDG_RUNTIME_DIR --env LINEAR_API_KEY \
+				--env MYGO_ENV --env MYGO_DEV --env MYGO_GHOSTTY_VT --env MYGO_FRAME_STATS=all \
+				--env "TMPDIR=$tmp/apptmp/" --env "SHIBU_PERF_DIAGNOSTICS=$tmp/diagnostics" \
+				--env "GOMEMLIMIT=${GOMEMLIMIT:-}" --env "GOGC=${GOGC:-}" --env "GODEBUG=${GODEBUG:-}"
+			for _ in $(seq 300); do
+				[ -s "$tmp/diagnostics/app-pid" ] && break
+				sleep 0.1
+			done
+			app_pid=$(cat "$tmp/diagnostics/app-pid" 2>/dev/null || true)
+			case $app_pid in ''|*[!0-9]*) echo "perf.sh: app did not publish its PID" >&2; exit 1 ;; esac
+			case $(ps -p "$app_pid" -o command=) in
+				"$bin"*) ;;
+				*) echo "perf.sh: diagnostic PID is not this test executable" >&2; app_pid=; exit 1 ;;
+			esac
+		else
+			TMPDIR="$tmp/apptmp/" MYGO_FRAME_STATS=all "$bin" </dev/null >"$tmp/app.log" 2>&1 &
+			app_pid=$!
+			sleep 5
+		fi
 		if ! kill -0 "$app_pid" 2>/dev/null; then
 			app_reason="it exited at start: $(tail -n 1 "$tmp/app.log" 2>/dev/null)"
 			app_pid=

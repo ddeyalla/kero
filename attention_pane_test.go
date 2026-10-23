@@ -398,7 +398,11 @@ func TestAttentionInputSavesTarget(t *testing.T) {
 	a := testAttention(t, attnFixture{state: proto.AttentionRunning, msg: "Working", agent: "codex"})
 	tt := ui.NewTester(a.view, 1280, 720)
 	frames(tt)
-	a.attentionViewOf("b").query = "Working"
+	if err := tt.Click("Search attention"); err != nil {
+		t.Fatal(err)
+	}
+	frames(tt)
+	tt.Type("Working")
 	frames(tt)
 	var saved struct {
 		Query string `json:"query"`
@@ -511,5 +515,16 @@ func TestAttentionTargetFailureWaitsForChangeOrReconnect(t *testing.T) {
 	case req := <-recovered:
 		t.Fatalf("acknowledged target resent: %+v", req)
 	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func TestAttentionRowsWithoutDaemonFold(t *testing.T) {
+	a := testAttention(t, attnFixture{state: proto.AttentionWaitingUser, agent: "codex"})
+	s := a.session("s2")
+	s.Attention = nil
+	s.Panes[0].Status, s.Panes[0].Message = proto.Waiting, "Needs permission"
+	rows := a.attentionRows()
+	if len(rows) != 1 || rows[0].session.ID != "s2" || rows[0].att.State != proto.AttentionWaitingUser || rows[0].att.Pane != "as2" || rows[0].agent != "codex" {
+		t.Fatalf("older-daemon wait omitted: %+v", rows)
 	}
 }

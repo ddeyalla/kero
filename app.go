@@ -115,7 +115,8 @@ type App struct {
 	// (attention_notify.go), and deliver shows one: a test's stub, else
 	// the system's notification.
 	watch   *attentionWatch
-	deliver func(id, pane, title, body string)
+	notices map[attentionKey]*attentionNotice
+	deliver func(id, pane, title, body string, done func(bool))
 	// attentionLast is the session `attention.next-blocked` went to last:
 	// where the next press goes on from.
 	attentionLast string
@@ -439,7 +440,7 @@ func (a *App) event(cl *client.Client, m proto.Message) {
 		if title == "" {
 			title = s.DisplayName(a.set.SessionName)
 		}
-		a.showNotification(n.Session, "", title, n.Body)
+		a.showNotification(n.Session, "", title, n.Body, nil)
 	}
 }
 
@@ -486,8 +487,11 @@ func (a *App) reconcileSelection(first bool) {
 
 // showNotification shows a notification about a session, which a click
 // on it selects, and moves into the pane it comes from, when it names one.
-func (a *App) showNotification(id, pane, title, body string) {
+func (a *App) showNotification(id, pane, title, body string, done func(bool)) {
 	if !mygo.NotificationsSupported() {
+		if done != nil {
+			done(false)
+		}
 		return
 	}
 	n := mygo.NewNotification(mygo.NotificationOptions{ID: "session/" + id, Group: id, Title: title, Body: body, Silent: !a.set.NotifySound})
@@ -499,7 +503,12 @@ func (a *App) showNotification(id, pane, title, body string) {
 		})
 		n.Close()
 	})
-	go n.Show()
+	go func() {
+		shown := n.Show() == nil
+		if done != nil {
+			a.update(func() { done(shown) })
+		}
+	}()
 }
 
 // notify tells about the sessions that came to need the user, or ended
@@ -515,9 +524,7 @@ func (a *App) notify(first bool) {
 		}
 	}
 	for _, e := range a.watch.watch(a.st.Sessions, first, a.silencedSet(), a.notifyWindow()) {
-		if a.tell(e) {
-			a.watch.shown(e)
-		}
+		a.notifyAttention(e)
 	}
 	if !a.set.DockBadge {
 		waiting = 0
@@ -541,13 +548,14 @@ func (a *App) looking(s *proto.Session, pane string) bool {
 }
 
 // tell shows one session's notification, if the user asked for its kind
-// and is not looking at it, and says whether it did. Its title and body say
+// and is not looking at it. It reports whether delivery was attempted;
+// done reports the eventual native result. Its title and body say
 // the session and what it needs. A wait or a failure carries the line the
 // hook or the screen gave, and a session's end never does: kerod can fold
 // that line from the agent's own transcript (the last message of a Codex
 // turn), and what an agent wrote is not for a notification. An end says the
 // agent and the folder instead.
-func (a *App) tell(e attentionEvent) bool {
+func (a *App) tell(e attentionEvent, done func(bool)) bool {
 	s := a.session(e.Session)
 	if s == nil {
 		return false
@@ -577,7 +585,7 @@ func (a *App) tell(e attentionEvent) bool {
 	if a.set.BounceDock && (e.State == attentionWaitingUser || e.Failed) {
 		mygo.App.Dock.Bounce(false)
 	}
-	a.deliver(s.ID, e.Pane, title, body)
+	a.deliver(s.ID, e.Pane, title, body, done)
 	return true
 }
 
@@ -1392,7 +1400,29 @@ func (a *App) closeSession(id string, ask bool) {
 		a.dropTerm(p.ID)
 	}
 	a.st.Sessions = slices.DeleteFunc(a.st.Sessions, func(x proto.Session) bool { return x.ID == id })
-	a.call("close", proto.IDParams{ID: id}, nil)
+	a.call("close", proto.IDParams{ID: id}, func(err error) { a.sessionClosed(id, err) })
+}
+
+// sessionClosed handles the daemon's acknowledgement of an app close.
+func (a *App) sessionClosed(id string, err error) {
+	if err != nil {
+		a.toast(err.Error())
+		return
+	}
+	if _, pinned := a.prefs.SessionPins[id]; pinned {
+		delete(a.prefs.SessionPins, id)
+		a.savePrefs()
+	}
+	next := slices.DeleteFunc(slices.Clone(a.set.SilencedSessions), func(session string) bool { return session == id })
+	if len(next) != len(a.set.SilencedSessions) {
+		a.set.SilencedSessions = next
+		a.applySettings(a.set)
+	}
+	for key := range a.notices {
+		if key.session == id {
+			delete(a.notices, key)
+		}
+	}
 }
 
 func (a *App) restartSession(id string) {

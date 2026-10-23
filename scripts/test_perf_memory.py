@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+import os
+import subprocess
+import hashlib
 
 spec = importlib.util.spec_from_file_location("perf_memory", Path(__file__).with_name("perf_memory.py"))
 memory = importlib.util.module_from_spec(spec)
@@ -12,6 +16,83 @@ spec.loader.exec_module(memory)
 
 
 class MemoryWorkloadTest(unittest.TestCase):
+    def test_bundle_stages_only_verified_pinned_native_asset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = b"pinned native fixture"
+            digest = hashlib.sha256(data).hexdigest()
+            cached = root / "Library/Caches/mygo/natives" / digest / "libghostty-vt.dylib"
+            cached.parent.mkdir(parents=True)
+            cached.write_bytes(data)
+            manifest = root / "manifest.json"
+            manifest.write_text(json.dumps({"libraries": [{"name": "libghostty-vt", "files": {
+                "darwin-arm64": {"name": cached.name, "sha256": digest, "url": "https://unused.invalid"}}}]}))
+            with patch.object(memory.platform, "machine", return_value="arm64"), patch.object(memory.Path, "home", return_value=root):
+                memory.bundle_native(manifest, root / "Resources")
+                self.assertEqual((root / "Resources" / cached.name).read_bytes(), data)
+                cached.write_bytes(b"wrong asset")
+                with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+                    memory.bundle_native(manifest, root / "Rejected")
+                self.assertFalse((root / "Rejected").exists())
+
+    def test_gui_rejects_invalid_idle_before_starting_work(self):
+        workload = object.__new__(memory.Workload)
+        for value in ("0", "-1", "nan", "inf"):
+            with self.subTest(value=value), patch.dict(os.environ, {"PERF_IDLE": value}):
+                with self.assertRaisesRegex(ValueError, "PERF_IDLE"):
+                    workload.gui()
+
+    def test_window_evidence_requires_observations_and_visible_focus(self):
+        focused = {"native_focused": True, "focused": True, "visible": True, "active": True}
+        self.assertFalse(memory.stable_window([], True))
+        self.assertFalse(memory.stable_window([None], True))
+        self.assertTrue(memory.stable_window([focused], True))
+        self.assertFalse(memory.stable_window([dict(focused, visible=False)], True))
+        self.assertFalse(memory.stable_window([dict(focused, active=False)], True))
+        self.assertFalse(memory.stable_window([focused], False))
+        self.assertTrue(memory.stable_window([dict(focused, native_focused=False, focused=False)], False))
+
+    def test_settle_override_allows_zero_but_rejects_nonfinite_values(self):
+        for value, expected in (("0", 0), (".25", .25)):
+            with patch.dict(os.environ, {"PERF_SETTLE": value}):
+                self.assertEqual(memory.duration_env("PERF_SETTLE", 15, allow_zero=True), expected)
+        for value in ("-1", "nan", "inf", "invalid"):
+            with patch.dict(os.environ, {"PERF_SETTLE": value}):
+                with self.assertRaisesRegex(ValueError, "PERF_SETTLE"):
+                    memory.duration_env("PERF_SETTLE", 15, allow_zero=True)
+
+    def test_readiness_retries_focus_after_control_registration(self):
+        workload = object.__new__(memory.Workload)
+        workload.sessions = ["fixture"]
+        ready = {"control_ready": True, "selected": "fixture", "focus_pane": "pane",
+                 "terms": {"pane": [80, 24]}, "native_focused": True,
+                 "focused": True, "visible": True, "active": True}
+        readings = iter([None, {"control_ready": False}, {"control_ready": True}, ready])
+        workload.state = lambda: next(readings)
+        calls = []
+        def cli(*args):
+            calls.append(args)
+            if len(calls) == 1:
+                raise subprocess.CalledProcessError(1, ["focus"])
+        workload.cli = cli
+        with patch.object(memory.time, "sleep"):
+            self.assertEqual(workload.focus_ready(), ready)
+        self.assertEqual(calls, [("focus", "fixture"), ("focus", "fixture")])
+
+    def test_daemon_only_gui_conflict_is_rejected_before_build(self):
+        root = Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory() as directory:
+            git = Path(directory) / "git"
+            git.write_text("#!/bin/sh\necho unexpected-git >&2\nexit 99\n")
+            git.chmod(0o755)
+            result = subprocess.run(["/bin/sh", str(root / "scripts/perf.sh"), "1"],
+                                    env=dict(os.environ, PERF_APP="0", PERF_GUI="1",
+                                             PATH=directory+":/usr/bin:/bin"),
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("PERF_APP=0", result.stderr)
+            self.assertNotIn("unexpected-git", result.stderr)
+
     def test_latency_nearest_rank_and_invalid_samples(self):
         result = memory.latency_summary(list(range(1, 101)))
         self.assertEqual(result, {"count": 100, "p50_ms": 50, "p99_ms": 99, "max_ms": 100})
@@ -118,7 +199,24 @@ class MemoryWorkloadTest(unittest.TestCase):
             replacements = json.loads(path.read_text())["Replace"]
             self.assertEqual(set(replacements), {str(root / name) for name in names})
             self.assertTrue(all(Path(value).is_file() for value in replacements.values()))
+            panes = Path(replacements[str(root / "panes.go")]).read_text()
+            self.assertIn("termView.DrawOver(", panes)
+            self.assertIn("perfPainted(p.ID, r, text)", panes)
+            self.assertIn("e.term.TailText(8)", panes)
         self.assertEqual(before, {name: (root / name).read_bytes() for name in names})
+
+    def test_gui_overlay_does_not_snapshot_views_or_scan_inactive_paints(self):
+        root = Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory() as directory:
+            path = memory.prepare(root, Path(directory) / "overlay", gui=True)
+            replacements = json.loads(path.read_text())["Replace"]
+            self.assertNotIn(str(root / "view.go"), replacements)
+            panes = Path(replacements[str(root / "panes.go")]).read_text()
+            self.assertIn("if perfPaintEnabled.Load() {", panes)
+            self.assertLess(panes.index("if perfPaintEnabled.Load() {"),
+                            panes.index("termView.DrawOver("))
+            self.assertLess(panes.index("if perfPaintEnabled.Load() {"),
+                            panes.index("e.term.TailText(8)"))
 
 
 if __name__ == "__main__":

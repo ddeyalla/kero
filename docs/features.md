@@ -10,6 +10,8 @@ Status:
 - **Shipped**: released and tested.
 - **Untried**: released and covered by tests, but not yet tried by hand in
   the installed app.
+- **Tested**: automated checks passed; installed-app manual acceptance is
+  not claimed. Rows that say **Measured** give their remaining limits explicitly.
 
 Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
 
@@ -21,12 +23,18 @@ The next release (Unreleased) needs one more restart of the terminal service:
 it changes the daemon protocol and saved state (Tasks panes become Linear
 plugin panes), and an older build cannot open the migrated panes.
 
+## Delivery recovery
+
+| Feature | How to use it | Since | Status |
+| --- | --- | --- | --- |
+| Spotify cached-list warning, pending retry suppression and retired-player callback isolation | Spotify pane | Unreleased | Fake HTTP/event/race regressions pass |
+
 ## Linear and tasks
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
 | Agent guide explains Attention state, pane creation, focus and session silence | `kero skill show`; `kero skill setup` installs the guide | Unreleased | Tested |
-| Performance verification with native input and independently observed focus | `sh scripts/perf.sh 1`, `4` or `8`; `PERF_MEMORY=1` profiles retained terminals | Unreleased | Native input/idle gates measured; exact native memory ownership investigation remains open |
+| Performance verification with native input and independently observed focus | `sh scripts/perf.sh 1`, `4` or `8`; `PERF_MEMORY=1` profiles retained terminals | Unreleased | Harness validated; native focus/idle acceptance awaits an unlocked desktop; native memory ownership remains open |
 | Release validation permits Spotify automation consent while guarding the app identity; CI runs all local delivery checks | `scripts/check.sh`, Shibu checks and Shibu updates workflows | Unreleased | Tested |
 | Linear plugin: list or board in the sections Current, Done, Todo and Backlog with nested folds; Current follows the focused session; filters for assignee, project, label, priority, search and canceled; full issue detail (Markdown, properties, status picker, runs with Resume, sub-issues, relations, activity) | The sidebar pin, the **Tasks** entry of the New Pane chooser (`Cmd+Alt+L`), `kero split --tasks` | Unreleased | Untried |
 | Sidebar pins: a plugin widget has a row in the sidebar; a click focuses its pane in the selected session or splits one in | Pane header menu, Settings › Plugins, command palette, `kero plugin pin\|unpin <plugin> [widget]` | Unreleased | Untried |
@@ -114,8 +122,8 @@ plugin panes), and an older build cannot open the migrated panes.
 | Sidebar project groups: room above each header, header close to its sessions, fixed order and places for the count, "needs you", chevron and add button; emoji in project titles kept and drawn whole | Sidebar; rename a project from its header's context menu | Unreleased | Untried |
 | Each session carries one attention state — running, waiting-user, unread, done or idle — with one line of what it says, the pane it comes from and its age; a transcript scan fills in where an agent reports nothing (Codex's approvals) | Automatic: it rides on the state kerod sends | Unreleased | Untried |
 | Go to the next session waiting on you, longest wait first, with the pane that needs you in front (a zoom follows it); the issue detail's session opens there too | Session › **Next Waiting Session**, the command palette, `kero do attention.next-blocked` | Unreleased | Untried |
-| Notifications from that attention: a session that needs you or ends unseen tells once, a turn that begins again clears it, and the same session and state inside `notify-throttle-minutes` is counted silently; every session kerod holds tells, in any profile or window | Automatic; `notify-on-waiting`, `notify-on-done`, `notify-on-error` and `notify-throttle-minutes` in the configuration, Settings › Notifications | Unreleased | Untried |
-| Silence one session's notifications, remembered across restarts | Session › Silence Notifications, the session's context menu, `kero do session.silence`; `silence-session` in the configuration | Unreleased | Untried |
+| Notifications from that attention: a session that needs you or ends unseen tells once, a turn that begins again clears it, and a short return within 30 seconds of leaving the same state is counted silently inside `notify-throttle-minutes`; only native-accepted delivery starts the throttle; every session kerod holds tells, in any profile or window | Automatic; `notify-on-waiting`, `notify-on-done`, `notify-on-error` and `notify-throttle-minutes` in the configuration, Settings › Notifications | Unreleased | Untried |
+| Silence one session's notifications, remembered across restarts and removed after a confirmed app close | Session › Silence Notifications, the session's context menu, `kero do session.silence`; `silence-session` in the configuration | Unreleased | Untried |
 
 ## Usage and the machine
 

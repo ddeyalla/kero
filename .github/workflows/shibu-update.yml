@@ -67,9 +67,8 @@ jobs:
   release:
     needs: [check, secrets]
     if: needs.check.outputs.changed == 'true'
-    # Intel hosted capacity can cross-build/sign the ARM64 app; the output
-    # architecture is explicitly pinned below, independent of this runner.
-    runs-on: macos-15-intel
+    # Match the shipped ARM64 architecture for native AppKit tests and builds.
+    runs-on: macos-15
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}

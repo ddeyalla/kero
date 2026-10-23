@@ -8,6 +8,18 @@ import (
 	"time"
 )
 
+// codexTranscriptRoot follows Codex's own configuration directory, as the
+// usage scanner and hook installer do.
+func codexTranscriptRoot() string {
+	if dir := os.Getenv("CODEX_HOME"); dir != "" {
+		return filepath.Join(dir, "sessions")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".codex", "sessions")
+	}
+	return ""
+}
+
 // transcriptDiscovery reads a Codex session tree in bounded slices. A
 // missing transcript in a large archive must not monopolize a scan pass,
 // nor make sessions beyond the first slice permanently undiscoverable.

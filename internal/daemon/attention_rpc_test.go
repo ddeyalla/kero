@@ -66,3 +66,31 @@ func TestAttentionTargetPersistsThroughDaemonRestore(t *testing.T) {
 		t.Fatalf("restored pane %+v", p)
 	}
 }
+
+func TestAttentionActionRejectsClosedSession(t *testing.T) {
+	d := linearTestDaemon(t)
+	sub := &controlConn{out: make(chan proto.Message, 2)}
+	d.subs = map[*controlConn]struct{}{sub: {}}
+	args, _ := json.Marshal(proto.DoParams{Action: "session.attention", Args: map[string]string{"session": "closed-session"}})
+	if _, err := d.call(nil, "do", args); err == nil {
+		t.Fatal("stale detail's closed session action accepted")
+	}
+	select {
+	case m := <-sub.out:
+		t.Fatalf("invalid action broadcast: %+v", m)
+	default:
+	}
+	// The same action still accepts a current session and canonicalizes its name.
+	args, _ = json.Marshal(proto.DoParams{Action: "session.attention", Args: map[string]string{"session": "working"}})
+	if _, err := d.call(nil, "do", args); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case m := <-sub.out:
+		if m.Args["session"] != "s" {
+			t.Fatalf("uncanonical target %q", m.Args["session"])
+		}
+	default:
+		t.Fatal("valid action not broadcast")
+	}
+}

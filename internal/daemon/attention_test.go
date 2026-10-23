@@ -458,6 +458,7 @@ func TestTailLinesKeepsWholeLines(t *testing.T) {
 // the session's id as a file name; an id of no file shape, or an agent
 // of no two, is no file.
 func TestScanToTheFile(t *testing.T) {
+	t.Setenv("CODEX_HOME", "")
 	t.Setenv("HOME", t.TempDir())
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -1002,5 +1003,25 @@ func TestScanCompletionSourceIDs(t *testing.T) {
 		if v.state != "done" || !one.present || one == two {
 			t.Fatalf("%s: numeric ids lost completion identity: verdict=%+v one=%+v two=%+v", agent, v, one, two)
 		}
+	}
+}
+
+func TestCodexDiscoveryHonorsHome(t *testing.T) {
+	p := testPane(t)
+	t.Setenv("HOME", t.TempDir())
+	codex := t.TempDir()
+	t.Setenv("CODEX_HOME", codex)
+	scanAgent(p, "codex", "configured-session")
+	path := filepath.Join(codex, "sessions", "2026", "10", "23", "rollout-demo-configured-session.jsonl")
+	scanBurn(t, path, cxE(scanBase.Format(time.RFC3339Nano), "task_complete", `,"last_agent_message":"Done."`))
+	if got := findTranscript("codex", "", "configured-session"); got != path {
+		t.Fatalf("direct discovery ignored CODEX_HOME: %q", got)
+	}
+	p.mu.Lock()
+	p.info.Unread = true
+	p.mu.Unlock()
+	runScanIs(t, p, scanBase, true)
+	if p.transcriptPath != path {
+		t.Fatalf("pane discovery ignored CODEX_HOME: %q", p.transcriptPath)
 	}
 }

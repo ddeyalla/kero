@@ -17,9 +17,9 @@ import (
 // resourcePeriod is how often the app reads the Mac's CPU and RAM while
 // its window has the focus, and resourceAway while it does not. A reading
 // that changes the meters rebuilds and paints the window, which costs the
-// app over a hundred wakeups: at 12 a minute, most of what the app woke for
-// at rest (docs/perf.md, BRU-336). The user's eyes are elsewhere while the
-// window does not have the focus, so the meters then move twice a minute, and
+// app over a hundred wakeups. Ten-second reads bound these meter rebuilds
+// to six a minute (docs/perf.md, BRU-225). The user's eyes are elsewhere while
+// the window does not have the focus, so the meters then move twice a minute, and
 // read again at once as it comes back.
 const (
 	resourcePeriod = 10 * time.Second

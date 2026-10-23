@@ -155,7 +155,7 @@ def _verdict(value, limit):
     return "ok" if value <= limit else "OVER"
 
 
-def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames=None, busy_frames=None, key_latency=None):
+def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames=None, busy_frames=None, key_latency=None, idle_window=None):
     """The table perf.sh prints, as lines. base is a sample of kerod with
     no pane, t0 and t1 bound the idle window; app is the app's pid.
 
@@ -194,12 +194,15 @@ def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames
         ra = idle_rates(t0, t1, app)
         if ra:
             row("app idle CPU", f"{ra['cpu']:.2f} %")
-            row("app idle wakeups", wakeups(ra))
+            judge_wakeups = idle_window != "focused"
+            row("app idle wakeups", wakeups(ra), "<= 1500/min" if judge_wakeups else "",
+                _verdict(ra["interrupt_wakeups"], 1500) if judge_wakeups else "")
             if r:
                 cpu = ra["cpu"] + r["cpu"]
                 woke = ra["interrupt_wakeups"] + r["interrupt_wakeups"]
                 row("app + kerod idle CPU", f"{cpu:.2f} %", "<= 1 %", _verdict(cpu, 1))
-                row("app + kerod idle wakeups", f"{woke:.0f}/min", "<= 2000/min", _verdict(woke, 2000))
+                row("app + kerod idle wakeups", f"{woke:.0f}/min", "<= 2000/min" if judge_wakeups else "focused: reported separately",
+                    _verdict(woke, 2000) if judge_wakeups else "")
         if idle_frames is not None and r:
             # The budget is for frames that build the window. A frame that
             # only paints the last one again, as a focused terminal's

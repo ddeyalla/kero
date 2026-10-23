@@ -391,9 +391,8 @@ func (s *pane) scanTranscript(now time.Time) bool {
 	}
 	s.scanAgentID = a.Agent + ":" + a.ID
 	if a.Agent == "codex" && s.transcriptPath == "" && s.discovery == nil {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			s.discovery = newTranscriptDiscovery(filepath.Join(home, ".codex", "sessions"))
+		if root := codexTranscriptRoot(); root != "" {
+			s.discovery = newTranscriptDiscovery(root)
 		}
 	}
 	job := scanJob{agent: a.Agent, dir: s.info.Dir, id: a.ID, path: s.transcriptPath, key: s.scanKey, discovery: s.discovery}
@@ -607,14 +606,14 @@ func claudeTranscript(dir, session string) string {
 }
 
 // codexTranscript is where Codex keeps a session's rollout:
-// ~/.codex/sessions/<year>/<month>/<day>/rollout-…-<session>.jsonl, or
-// any nesting of its dates.
+// CODEX_HOME/sessions/<year>/<month>/<day>/rollout-…-<session>.jsonl,
+// defaulting to ~/.codex/sessions, or any nesting of its dates.
 func codexTranscript(session string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	root := codexTranscriptRoot()
+	if root == "" {
 		return ""
 	}
-	search := newTranscriptDiscovery(filepath.Join(home, ".codex", "sessions"))
+	search := newTranscriptDiscovery(root)
 	defer search.close()
 	path, _ := search.next(session, scanDiscoveryBudget)
 	return path

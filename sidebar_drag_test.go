@@ -81,11 +81,7 @@ func TestSidebarSessionDragEscapeAndInvalidTargets(t *testing.T) {
 			if a.selected != "s1" {
 				t.Fatal("invalid drop changed selection")
 			}
-			select {
-			case p := <-moves:
-				t.Fatalf("invalid drop sent %+v", p)
-			default:
-			}
+			wantNoSidebarMove(t, moves)
 		})
 	}
 	a := sidebarTestApp(t)
@@ -101,11 +97,7 @@ func TestSidebarSessionDragEscapeAndInvalidTargets(t *testing.T) {
 	if a.selected != "s1" {
 		t.Fatal("cancel changed selection")
 	}
-	select {
-	case p := <-moves:
-		t.Fatalf("canceled drag sent %+v", p)
-	default:
-	}
+	wantNoSidebarMove(t, moves)
 	// Ordinary clicks must still select after removing selection on press.
 	if err := tt.Click("s3"); err != nil {
 		t.Fatal(err)

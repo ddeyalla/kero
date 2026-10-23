@@ -37,6 +37,11 @@ func TestLargeProjectCollapseReduceMotion(t *testing.T) {
 	if !tt.HasText("session-001") || tt.FramePending() {
 		t.Fatal("Reduce Motion expansion did not snap to its final rows")
 	}
+	first, ok1 := tt.Find("session-001")
+	second, ok2 := tt.Find("session-002")
+	if !ok1 || !ok2 || first.Y >= second.Y {
+		t.Fatal("expansion did not preserve session order")
+	}
 }
 
 // The tester cost includes layout and drawing through the software
@@ -60,7 +65,7 @@ func BenchmarkSidebar100SessionCollapse(b *testing.B) {
 	frames(tt)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		a.toggleProject("p1")
+		a.prefs.Collapsed["p1"] = !a.prefs.Collapsed["p1"]
 		tt.Advance(time.Second / 60)
 		tt.Frame()
 	}

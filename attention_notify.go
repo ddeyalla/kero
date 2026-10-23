@@ -132,14 +132,63 @@ type attentionEvent struct {
 	Failed  bool // an unseen end whose pane failed
 }
 
+// attentionNotice is one native delivery in flight. Permission can take
+// time; an eligible event arriving meanwhile replaces only the queued one.
+type attentionNotice struct {
+	watch *attentionWatch
+	next  *attentionEvent
+}
+
+// notifyAttention starts one delivery per session/state, charges throttle
+// only after native acceptance, and keeps a reconnect's watch independent
+// from results still arriving for an older connection.
+func (a *App) notifyAttention(e attentionEvent) {
+	// An eligible event queued during authorization may already be past.
+	if s := a.session(e.Session); s == nil || a.silenced(e.Session) || foldOf(s).State != e.State {
+		return
+	}
+	watch := a.watch
+	key := attentionKey{e.Session, e.State}
+	if pending := a.notices[key]; pending != nil && pending.watch == watch {
+		next := e
+		pending.next = &next
+		return
+	}
+	if a.notices == nil {
+		a.notices = map[attentionKey]*attentionNotice{}
+	}
+	pending := &attentionNotice{watch: watch}
+	a.notices[key] = pending
+	attempted := a.tell(e, func(shown bool) {
+		if a.notices[key] != pending {
+			return
+		}
+		delete(a.notices, key)
+		if a.watch != watch {
+			return
+		}
+		// A newer eligible event already exists: acknowledging an old prompt
+		// must not consume its throttle before that newer notice is delivered.
+		if shown && pending.next == nil && a.session(e.Session) != nil {
+			watch.shown(e)
+		}
+		if pending.next != nil {
+			a.notifyAttention(*pending.next)
+		}
+	})
+	if !attempted && a.notices[key] == pending {
+		delete(a.notices, key)
+	}
+}
+
 // attentionKey is one session's one state, as the throttle counts it.
 type attentionKey struct{ session, state string }
 
 // loopGap is how long a session must have been out of a state for its
 // return to it to count as a new turn. A session that asks again sooner
-// than this is a loop: one that asks, is answered, and asks at once. One
-// that asks again a minute or more after the answer is a real second ask,
-// and tells even inside the throttle window.
+// than this is a loop: the session leaves a state and returns at once.
+// Remaining outside the state for at least this long makes a genuine new
+// event, which tells even inside the throttle window.
 const loopGap = 30 * time.Second
 
 // attentionWatch turns the sessions' attention into what to tell: it keeps
@@ -173,7 +222,7 @@ func newAttentionWatch() *attentionWatch {
 	}
 }
 
-// shown records that an event reached the user, which starts its throttle.
+// shown records that the native backend accepted delivery, starting its throttle.
 func (w *attentionWatch) shown(e attentionEvent) {
 	w.told[attentionKey{session: e.Session, state: e.State}] = w.now()
 }

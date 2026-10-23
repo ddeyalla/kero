@@ -96,7 +96,8 @@ func (a *App) focusAttention(session, pane string) bool {
 	}
 	if pane == "" {
 		pane = a.focusOf(s)
-	} else {
+	}
+	if pane != "" {
 		// Even an unchanged local focus must reach kerod. Its zoom may have
 		// changed since this snapshot; focus follows that actual zoom without
 		// toggling it off when it already names the target.
@@ -122,6 +123,10 @@ func (a *App) focusAttention(session, pane string) bool {
 // only a wait moves the focus. It is the way back from an issue to its
 // session.
 func (a *App) focusAttentionOf(session string) bool {
+	if a.session(session) == nil {
+		a.toast(locales.SessionOrderMissing())
+		return false
+	}
 	pane := ""
 	if s := a.session(session); s != nil {
 		if f := foldOf(s); f.State == proto.AttentionWaitingUser {

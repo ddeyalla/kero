@@ -290,16 +290,19 @@ type session struct {
 	drill, drillName, drillURI, drillImage string
 	tracks                                 []web.ListTrack
 	tracksState                            trackState
+	tracksError                            libraryMode
 	// needScope says a refused playlist could be one the user collaborates
 	// on, which a sign-in with the collaborative scope reads.
-	needScope bool
-	tracksSeq int
+	needScope     bool
+	tracksSeq     int
+	tracksPending bool
 
 	// queue is the tracks of the Up next tab.
-	queue       []web.ListTrack
-	queueLoaded bool
-	queueFailed bool
-	queueSeq    int
+	queue        []web.ListTrack
+	queueLoaded  bool
+	queueFailed  bool
+	queueSeq     int
+	queuePending bool
 
 	// premute is the volume a press on the speaker took away, which a
 	// second press brings back.
@@ -499,8 +502,9 @@ func (p *plugin) runMonitor() {
 	}
 	ctx := p.ctx
 	monitor := transport.NewMonitor(p.desktop, p.source)
-	monitor.Emit = p.playback
-	monitor.OnError = p.playbackError
+	player, gen := p.player, p.engineGen
+	monitor.Emit = func(snap transport.Snapshot) { p.playbackFor(player, gen, snap) }
+	monitor.OnError = func(err error) { p.playbackErrorFor(player, gen, err) }
 	p.monitor = monitor
 	p.mu.Unlock()
 	// A source that cannot listen (on anything but macOS) is not an
@@ -686,7 +690,18 @@ func playbackState(err error, snap transport.Snapshot) playbackMode {
 
 // playback is the monitor's emit hook: a new snapshot goes to every pane.
 func (p *plugin) playback(snap transport.Snapshot) {
+	p.playbackFor(nil, 0, snap)
+}
+
+// Source identity and generation are checked under the same lock that
+// applies playback. A callback can already be dispatched when its engine
+// is replaced, before Close runs outside this lock.
+func (p *plugin) playbackFor(player transport.Player, gen int, snap transport.Snapshot) {
 	p.mu.Lock()
+	if player != nil && (p.player != player || p.engineGen != gen) {
+		p.mu.Unlock()
+		return
+	}
 	p.playbackSeq++
 	var queued []string
 	for pane, s := range p.panes {
@@ -754,10 +769,18 @@ func (g *shown) answeredBy(current, state transport.Snapshot) bool {
 
 // playbackError is the monitor's error hook.
 func (p *plugin) playbackError(err error) {
+	p.playbackErrorFor(nil, 0, err)
+}
+
+func (p *plugin) playbackErrorFor(player transport.Player, gen int, err error) {
 	if err == nil || errors.Is(err, transport.ErrBusy) {
 		return
 	}
 	p.mu.Lock()
+	if player != nil && (p.player != player || p.engineGen != gen) {
+		p.mu.Unlock()
+		return
+	}
 	// The engine's page reports a command or a track that failed, not a
 	// player that is gone: the player stays, with a notice.
 	starting := p.engine != nil && errors.Is(err, engine.ErrStarting)
@@ -1192,18 +1215,34 @@ func (p *plugin) event(conn *sdk.Conn, e protocol.EventParams) {
 		p.selectTrack(e, true)
 	case "state-tracks-failed":
 		p.mu.Lock()
+		s := p.panes[e.Pane]
+		if s == nil || p.library == nil {
+			p.mu.Unlock()
+			return
+		}
 		queue := s.drill == ""
+		if queue && s.queuePending || !queue && s.tracksPending {
+			p.mu.Unlock()
+			return
+		}
+		if queue {
+			s.queuePending = true
+		} else {
+			s.tracksPending = true
+		}
 		p.mu.Unlock()
 		if queue {
 			p.loadQueue(e.Pane)
 		} else {
 			p.loadTracks(e.Pane)
 		}
+		p.render(e.Pane)
 	case "state-library-failed", "state-offline":
 		p.mu.Lock()
 		delete(s.loaded, s.tab)
 		p.mu.Unlock()
 		p.syncLibrary(e.Pane)
+		p.render(e.Pane)
 	case "mute":
 		p.mute(e.Pane)
 	case "search":

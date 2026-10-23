@@ -20,6 +20,9 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Verification limits
 
+- Native focus and the separate focused/unfocused idle gates require an
+  unlocked desktop. The final harness correctly rejected this locked-desktop
+  run; earlier cached App focus flags do not establish native focus acceptance.
 - The eight-retained-terminal sample passed the 240 MiB RSS target, but the
   historical 1.22 GB growth and native allocator ownership remain under
   investigation (BRU-333). A separate four-pane sample exceeded the 120 MiB
@@ -177,7 +180,7 @@ builds only. What each feature is and where it stands is tracked in the
   issue detail's **Open the session**, and a running conversation's
   **Open**, go to the pane that needs you when the session waits on you,
   and leave the focus and zoom where they are when it does not. A daemon
-  of before this state folds every terminal pane instead, as the
+  that predates this state folds every terminal pane instead, as the
   notifications do. No state is saved for it.
 - A row of the **Attention** pane whose session works on a Linear issue has
   an **Open issue** button, which opens the Linear view on that issue: the
@@ -470,6 +473,23 @@ builds only. What each feature is and where it stands is tracked in the
   are. No protocol change.
 
 ### Fixed
+
+- Spotify keeps a visible warning and Retry action beside cached track or
+  queue results after a failed refresh. Repeated retries share pending work,
+  empty-search recovery redraws immediately, and callbacks from retired
+  players cannot replace current playback. Settings selections and project
+  add buttons use their intended native icon tints.
+- Window focus and resource pacing start from the native window state, so an
+  app launched in the background does not assume it has keyboard focus.
+- Notification throttling records native delivery acceptance, including
+  asynchronous macOS authorization. Pending notices stay single-flight;
+  old connection results cannot silence a newer ask after reconnect.
+- Closing a session in the app removes its saved pin and notification
+  silence only after the daemon confirms success. Failed closes preserve
+  both choices.
+- Attention navigation synchronizes fallback pane focus, derives rows when
+  a supported daemon omits its folded state, and reports stale linked
+  sessions instead of failing silently. Codex discovery honors CODEX_HOME.
 
 - CI runs native AppKit UI checks on macOS and backend/plugin checks on Linux.
   Usage snapshot fixtures use UTC without changing the user's local-time

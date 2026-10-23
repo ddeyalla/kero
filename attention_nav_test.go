@@ -385,3 +385,38 @@ func TestAttentionRowExplicitlyClearsStaleZoom(t *testing.T) {
 		}
 	}
 }
+
+func TestAttentionFallbackFocusSyncsDaemon(t *testing.T) {
+	a := testApp(t)
+	s := a.session("s1")
+	s.Focus, s.Zoomed = "b", "a"
+	a.focus["s1"] = "b"
+	requests := attentionRPC(t, a)
+	if !a.focusAttention("s1", "closed-pane") {
+		t.Fatal("fallback session missing")
+	}
+	if s.Zoomed != "b" {
+		t.Fatalf("fallback left zoom on %q", s.Zoomed)
+	}
+	select {
+	case req := <-requests:
+		var params proto.FocusParams
+		if req.Method != "focus" || json.Unmarshal(req.Params, &params) != nil || params.Pane != "b" {
+			t.Fatalf("fallback did not sync focus: %+v", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fallback did not reach daemon")
+	}
+}
+
+func TestAttentionMissingLinkedSessionHasFeedback(t *testing.T) {
+	a := testApp(t)
+	selected := a.selected
+	a.run("session.attention", map[string]string{"session": "session-closed"})
+	if a.selected != selected {
+		t.Fatal("missing linked session moved selection")
+	}
+	if a.pendingToast != "Session not found. Choose a current session and try again." {
+		t.Fatalf("missing session failed silently: %q", a.pendingToast)
+	}
+}

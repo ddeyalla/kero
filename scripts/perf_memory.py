@@ -14,6 +14,8 @@ import sys
 import time
 import urllib.request
 import math
+import hashlib
+import platform
 
 import importlib.util
 _spec = importlib.util.spec_from_file_location("perf_probe", Path(__file__).with_name("perf_probe.py"))
@@ -21,9 +23,12 @@ perf_probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(perf_probe)
 
 HOOK = r'''
+const perfMemoryWorkload = true
+var perfApp atomic.Pointer[App]
 var perfLastView atomic.Value
 var perfPaints sync.Map
 var perfPaintSequence atomic.Uint64
+var perfPaintEnabled atomic.Bool
 var perfKeys = struct {
     sync.Mutex
     expected string
@@ -33,9 +38,12 @@ var perfKeys = struct {
 }{}
 
 func perfPainted(id string, r ui.Rect, text string) {
-    perfPaints.Store(id, map[string]any{
-        "sequence": perfPaintSequence.Add(1), "width": r.W, "height": r.H, "fixture_ready": strings.Contains(text, "PERF-READY"),
-    })
+    if perfMemoryWorkload {
+        perfPaints.Store(id, map[string]any{
+            "sequence": perfPaintSequence.Add(1), "width": r.W, "height": r.H, "fixture_ready": strings.Contains(text, "PERF-READY"),
+        })
+        return
+    }
     perfKeys.Lock()
     ready := perfKeys.awaiting && strings.Contains(strings.ReplaceAll(text, "\n", ""), perfKeys.expected)
     if ready { perfKeys.awaiting = false }
@@ -54,6 +62,9 @@ var perfViewSequence uint64
 
 func perfViewed(a *App) {
     perfViewSequence++
+    perfLastView.Store(perfSnapshot(a))
+}
+func perfSnapshot(a *App) map[string]any {
     terms := map[string][2]int{}
     for id, e := range a.terms {
         if e.term != nil {
@@ -63,20 +74,34 @@ func perfViewed(a *App) {
     }
     focusedPane, zoomed := "", ""
     if s := a.session(a.selected); s != nil { focusedPane, zoomed = a.focusOf(s), s.Zoomed }
-    perfLastView.Store(map[string]any{
+    return map[string]any{
         "selected": a.selected, "show": a.show, "sequence": perfViewSequence,
         "focus_pane": focusedPane, "zoomed": zoomed,
         "terms": terms, "focused": a.focused, "active": a.active, "go_version": runtime.Version(),
-    })
+        "control_ready": a.conn == connReady && a.loaded,
+    }
 }
 
 func init() {
     dir := os.Getenv("SHIBU_PERF_DIAGNOSTICS")
     if dir == "" || len(os.Args) != 1 { return }
+    if err := os.WriteFile(filepath.Join(dir, "app-pid"), []byte(fmt.Sprint(os.Getpid())), 0600); err != nil { panic(err) }
     ln, err := net.Listen("tcp", "127.0.0.1:0")
     if err != nil { panic(err) }
     mux := http.NewServeMux()
     mux.HandleFunc("/state", func(w http.ResponseWriter, r *http.Request) {
+        if !perfMemoryWorkload {
+            var state map[string]any
+            mygo.RunOnMain(func() {
+                a := perfApp.Load()
+                if a == nil || a.win == nil { return }
+                state = perfSnapshot(a)
+                state["native_focused"] = a.win.IsFocused()
+                state["visible"] = a.win.IsVisible() && !a.win.IsMinimized()
+            })
+            json.NewEncoder(w).Encode(state)
+            return
+        }
         value := perfLastView.Load()
         if value == nil { json.NewEncoder(w).Encode(nil); return }
         state := map[string]any{}
@@ -86,6 +111,18 @@ func init() {
         state["paints"] = paints
         json.NewEncoder(w).Encode(state)
     })
+    mux.HandleFunc("/window", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != "POST" { http.Error(w, "POST required", http.StatusMethodNotAllowed); return }
+        mygo.RunOnMain(func() {
+            a := perfApp.Load()
+            if a == nil || a.win == nil { return }
+            if r.URL.Query().Get("focus") == "0" {
+                objc.ID(a.win.NativeHandle()).Send(objc.RegisterName("resignKeyWindow"))
+            } else {
+                a.win.Show(); a.win.Focus(); mygo.App.Focus()
+            }
+        })
+    })
     mux.HandleFunc("/memstats", func(w http.ResponseWriter, r *http.Request) {
         var m runtime.MemStats
         runtime.ReadMemStats(&m)
@@ -94,6 +131,11 @@ func init() {
     mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
         if r.Method == "POST" {
             mygo.RunOnMain(func() {
+                if r.URL.Query().Get("stop") == "1" {
+                    perfPaintEnabled.Store(false)
+                    if a := perfApp.Load(); a != nil && a.win != nil { a.win.Invalidate() }
+                    return
+                }
                 app := objc.ID(objc.GetClass("NSApplication")).Send(objc.RegisterName("sharedApplication"))
                 window := app.Send(objc.RegisterName("keyWindow"))
                 if window == 0 { return }
@@ -105,6 +147,7 @@ func init() {
                 if len(perfKeys.samples) == 0 { perfKeys.expected = ""; letter = '~' }
                 perfKeys.expected += string(rune(letter))
                 perfKeys.started, perfKeys.awaiting = time.Now(), true
+                perfPaintEnabled.Store(true)
                 perfKeys.Unlock()
                 event := perfCreateKey(0, 0, true)
                 perfKeyUnicode(event, 1, &letter)
@@ -140,8 +183,8 @@ func init() {
 '''
 
 
-def prepare(root, directory):
-    """Overlay two existing files, leaving the checkout unchanged."""
+def prepare(root, directory, gui=False):
+    """Overlay diagnostics without changing checkout or dependency sources."""
     root, directory = Path(root).resolve(), Path(directory).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     main = (root / "main.go").read_text()
@@ -156,19 +199,36 @@ def prepare(root, directory):
     "sync/atomic"
     "time"
     "github.com/ebitengine/purego"
-    "github.com/ebitengine/purego/objc"''', 1) + HOOK
-    view = (root / "view.go").read_text()
-    seam = 'func (a *App) view(c *ui.Context) {'
-    if view.count(seam) != 1:
-        raise ValueError("view.go instrumentation seam changed")
-    view = view.replace(seam, seam + '\n defer perfViewed(a)', 1)
+    "github.com/ebitengine/purego/objc"''', 1) + HOOK.replace(
+        "const perfMemoryWorkload = true", "const perfMemoryWorkload = "+str(not gui).lower())
+    sources = {"main.go": main}
+    if gui:
+        seam = 'a := newApp()'
+        if main.count(seam) != 1:
+            raise ValueError("main.go app instrumentation seam changed")
+        sources["main.go"] = main.replace(seam, seam+'\n perfApp.Store(a)', 1)
+    else:
+        view = (root / "view.go").read_text()
+        seam = 'func (a *App) view(c *ui.Context) {'
+        if view.count(seam) != 1:
+            raise ValueError("view.go instrumentation seam changed")
+        sources["view.go"] = view.replace(seam, seam + '\n defer perfViewed(a)', 1)
     panes = (root / "panes.go").read_text()
     paint_seam = 'termView := terminal.View(c.Key("term"), e.term).Fill().Bind(ref)'
     if panes.count(paint_seam) != 1:
         raise ValueError("panes.go paint seam changed")
-    panes = panes.replace(paint_seam, paint_seam + '\n termView.DrawOver(func(_ *ui.Painter, r ui.Rect) { text, _ := e.term.TailText(8); perfPainted(p.ID, r, text) })', 1)
+    hook = '''
+    if perfMemoryWorkload || perfPaintEnabled.Load() {
+        termView.DrawOver(func(_ *ui.Painter, r ui.Rect) {
+            if !perfMemoryWorkload && !perfPaintEnabled.Load() { return }
+            text, _ := e.term.TailText(8); perfPainted(p.ID, r, text)
+        })
+    }'''
+    if gui:
+        hook = hook.replace("if perfMemoryWorkload || perfPaintEnabled.Load() {", "if perfPaintEnabled.Load() {")
+    sources["panes.go"] = panes.replace(paint_seam, paint_seam + hook, 1)
     replacements = {}
-    for name, content in [("main.go", main), ("view.go", view), ("panes.go", panes)]:
+    for name, content in sources.items():
         overlay = directory / name
         overlay.write_text(content)
         replacements[str(root / name)] = str(overlay)
@@ -201,6 +261,41 @@ def wait_for(read, accepts, description, timeout=30):
             pass
         time.sleep(0.1)
     raise RuntimeError(f"timed out: {description}; last={last}")
+
+
+def duration_env(name, default, allow_zero=False):
+    try:
+        seconds = float(os.environ.get(name, default))
+    except ValueError as error:
+        raise ValueError(f"{name} must be a finite duration") from error
+    if not math.isfinite(seconds) or seconds < 0 or (not allow_zero and seconds == 0):
+        raise ValueError(f"{name} must be {'nonnegative' if allow_zero else 'positive'} and finite")
+    return seconds
+
+
+def stable_window(observations, focused):
+    return bool(observations) and all(
+        isinstance(s, dict) and s.get("visible") is True and s.get("native_focused") is focused
+        and s.get("focused") is focused and (not focused or s.get("active") is True)
+        for s in observations)
+
+
+def bundle_native(manifest, resources):
+    """Stage the pinned terminal plugin asset for this Mac, checking its hash."""
+    arch = {"arm64": "arm64", "x86_64": "amd64"}[platform.machine()]
+    libraries = json.loads(Path(manifest).read_text())["libraries"]
+    spec = next(item for item in libraries if item["name"] == "libghostty-vt")["files"]["darwin-"+arch]
+    cache = Path.home() / "Library/Caches/mygo/natives" / spec["sha256"] / spec["name"]
+    if cache.is_file():
+        data = cache.read_bytes()
+    else:
+        with urllib.request.urlopen(spec["url"], timeout=120) as response:
+            data = response.read()
+    if hashlib.sha256(data).hexdigest() != spec["sha256"]:
+        raise ValueError("pinned terminal library SHA-256 mismatch")
+    resources = Path(resources)
+    resources.mkdir(parents=True, exist_ok=True)
+    (resources / spec["name"]).write_bytes(data)
 
 
 def memory_cost(footprint, baseline, panes, confirmed_panes=None):
@@ -265,49 +360,74 @@ class Workload:
         with self.http.open(self.address + path, timeout=10) as response:
             return response.read()
 
+    def post(self, path):
+        with self.http.open(urllib.request.Request(self.address+path, method="POST"), timeout=10) as response:
+            return response.read()
+
     def state(self):
         return json.loads(self.get("/state"))
 
     def frames(self):
         return perf_probe.frames((self.directory / "app.log").read_text(errors="replace").splitlines())["count"]
 
-    def gui(self):
-        """Native AppKit key dispatch through the real PTY echo to a completed frame."""
-        self.cli("focus", self.sessions[0])
-        wait_for(self.state, lambda s: s and s["focused"] and s["active"] and s["terms"],
-                 "isolated native window focused")
-        time.sleep(float(os.environ.get("PERF_SETTLE", 15)))
+    def focus_ready(self):
+        wait_for(self.state, lambda s: s and s.get("control_ready"), "GUI subscribed to kerod")
+        def focus():
+            try:
+                self.cli("focus", self.sessions[0])
+            except subprocess.CalledProcessError:
+                return None
+            return self.state()
+        return wait_for(focus, lambda s: s and s.get("selected") == self.sessions[0]
+                        and stable_window([s], True)
+                        and all(n > 0 for n in s.get("terms", {}).get(s.get("focus_pane"), [0, 0])),
+                        "selected fixture attached and native key-window focus (requires an unlocked desktop)")
+
+    def idle_sample(self, focused, idle, settle):
+        self.post("/window?focus="+str(int(focused)))
+        wait_for(self.state, lambda s: s and stable_window([s], focused), "native window focus phase")
+        time.sleep(settle)
         log = self.directory / "app.log"
         lines_before = len(log.read_text().splitlines())
         before = perf_probe.sample([self.app, self.daemon])
-        observations = []
-        until = time.monotonic() + float(os.environ.get("PERF_IDLE", 60))
+        observations = [self.state()]
+        until = time.monotonic() + idle
         while time.monotonic() < until:
-            state = self.state()
-            observations.append({"time": time.time(), "focused": state["focused"], "active": state["active"]})
             time.sleep(min(5, max(0, until-time.monotonic())))
+            observations.append(self.state())
         after = perf_probe.sample([self.app, self.daemon])
-        idle_frames = perf_probe.frames(log.read_text().splitlines()[lines_before:])
-        stable = all(s["focused"] and s["active"] for s in observations)
+        return {"window_stable": stable_window(observations, focused),
+                "window_observations": observations, "before": before, "after": after,
+                "idle_frames": perf_probe.frames(log.read_text().splitlines()[lines_before:]),
+                "app_idle": perf_probe.idle_rates(before, after, self.app),
+                "daemon_idle": perf_probe.idle_rates(before, after, self.daemon)}
+
+    def gui(self):
+        """Native AppKit key dispatch through the real PTY echo to a completed frame."""
+        idle = duration_env("PERF_IDLE", 60)
+        settle = duration_env("PERF_SETTLE", 15, allow_zero=True)
+        self.focus_ready()
+        focused = self.idle_sample(True, idle, settle)
+        log = self.directory / "app.log"
         samples = []
-        if stable:
+        if focused["window_stable"]:
             for i in range(100):
-                request = urllib.request.Request(self.address+"/keys", method="POST")
-                with self.http.open(request, timeout=10) as response:
-                    response.read()
+                self.post("/keys")
                 result = wait_for(lambda: json.loads(self.get("/keys")),
                                   lambda r: len(r.get("samples_ms") or []) == i+1,
                                   f"native key {i+1} echo painted", timeout=5)
                 samples = result["samples_ms"]
                 time.sleep(.03)
-        result = {"window_stayed_focused": stable, "window_observations": observations,
-                  "before": before, "after": after, "idle_frames": idle_frames,
-                  "app_idle": perf_probe.idle_rates(before, after, self.app),
-                  "daemon_idle": perf_probe.idle_rates(before, after, self.daemon),
+        self.post("/keys?stop=1")
+        unfocused = self.idle_sample(False, idle, settle)
+        result = {**focused, "window_stayed_focused": focused["window_stable"],
+                  "unfocused_idle": unfocused,
                   "key_to_paint": latency_summary(samples) if samples else None,
                   "key_samples_ms": samples,
                   "key_scope": "Native NSEvent dispatch to this app's key window, through the normal terminal input, kerod and PTY echo, to the next UI-thread turn after the matching frame. Excludes hardware and OS event-queue latency; includes scheduler and completion-queue delay. No screenshot or compositor-presentation claim."}
         (self.directory / "gui.json").write_text(json.dumps(result, indent=2))
+        self.post("/window?focus=1")
+        wait_for(self.state, lambda s: s and stable_window([s], True), "focus before output streaming")
         lines_before = len(log.read_text().splitlines())
         self.cli("send", self.sessions[0], "", "--enter")
         time.sleep(self.busy+1)
@@ -315,14 +435,16 @@ class Workload:
         result["streaming_frames"] = busy_frames
         (self.directory / "gui.json").write_text(json.dumps(result, indent=2))
         base = json.loads((self.directory / "base.json").read_text())
-        print("\n".join(perf_probe.report(self.panes, (self.directory / "feed.txt").stat().st_size,
-                                       self.daemon, base, before, after, app=self.app,
-                                       idle_frames=idle_frames, busy_frames=busy_frames,
-                                       key_latency=result["key_to_paint"])), flush=True)
-        print("Window independently focused throughout idle:", stable, flush=True)
+        for label, phase in (("focused", focused), ("unfocused", unfocused)):
+            print("\nIdle phase:", label, "· independently visible and stable:", phase["window_stable"])
+            print("\n".join(perf_probe.report(self.panes, (self.directory / "feed.txt").stat().st_size,
+                                           self.daemon, base, phase["before"], phase["after"], app=self.app,
+                                           idle_frames=phase["idle_frames"], busy_frames=busy_frames,
+                                           key_latency=result["key_to_paint"], idle_window=label)), flush=True)
+        print("Paint/key matching hooks disabled during both idle phases and streaming; focus checks run every five seconds.")
         print(result["key_scope"], flush=True)
-        if not stable:
-            raise RuntimeError("native window lost focus: idle/key acceptance not established")
+        if not focused["window_stable"] or not unfocused["window_stable"]:
+            raise RuntimeError("native window state changed: idle/key acceptance not established")
 
     def cli(self, *args):
         return subprocess.check_output([self.bin, *args], text=True, timeout=30)
@@ -430,7 +552,7 @@ class Workload:
             wait_for(lambda: self.cli("read", target), lambda text: "PERF-STREAMED" in text,
                      f"fixture {target} completes", self.busy + 30)
         end = self.frames()
-        time.sleep(15)
+        time.sleep(duration_env("PERF_SETTLE", 15, allow_zero=True))
         self.capture("settled")
         t1 = perf_probe.sample([self.app, self.daemon])
         output = {"panes": self.panes, "layout": os.environ.get("PERF_LAYOUT", "sessions"),
@@ -456,6 +578,11 @@ def main():
     prepare_args = commands.add_parser("prepare")
     prepare_args.add_argument("root")
     prepare_args.add_argument("directory")
+    prepare_args.add_argument("--gui", action="store_true")
+    commands.add_parser("validate")
+    bundle_args = commands.add_parser("bundle-native")
+    bundle_args.add_argument("manifest")
+    bundle_args.add_argument("resources")
     for name in ("run", "baseline", "gui"):
         run_args = commands.add_parser(name)
         run_args.add_argument("directory")
@@ -464,8 +591,13 @@ def main():
         run_args.add_argument("panes", type=int)
         run_args.add_argument("busy", type=int)
     args = parser.parse_args()
-    if args.command == "prepare":
-        print(prepare(args.root, args.directory))
+    if args.command == "bundle-native":
+        bundle_native(args.manifest, args.resources)
+    elif args.command == "validate":
+        duration_env("PERF_IDLE", 60)
+        duration_env("PERF_SETTLE", 15, allow_zero=True)
+    elif args.command == "prepare":
+        print(prepare(args.root, args.directory, gui=args.gui))
     else:
         workload = Workload(args.directory, args.app, args.daemon, args.panes, args.busy)
         if args.command == "baseline":

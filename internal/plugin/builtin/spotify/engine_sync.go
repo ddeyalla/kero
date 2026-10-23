@@ -101,18 +101,22 @@ func (p *plugin) syncEngine() {
 // signed-in pane that only shows Spotify costs no web view. A pane shows
 // the player meanwhile: stopped, with the track played last.
 func (p *plugin) startEngine(conn *sdk.Conn, library *web.Client) {
-	eng := newLazyEngine(func(emit func(transport.Snapshot), onError func(error)) playerEngine {
+	var eng *lazyEngine
+	var gen int
+	eng = newLazyEngine(func(emit func(transport.Snapshot), onError func(error)) playerEngine {
 		return newEngine(conn, library, emit, onError)
-	}, p.playback, p.playbackError, p.engineIdled)
+	}, func(snap transport.Snapshot) {
+		p.playbackFor(eng, gen, snap)
+	}, func(err error) {
+		p.playbackErrorFor(eng, gen, err)
+	}, func() { p.engineIdled(eng, gen) })
 	if err := eng.Start(); err != nil {
 		p.playbackError(err)
 		return
 	}
-	if engineEager {
-		_, _ = eng.wake()
-	}
 	p.mu.Lock()
 	p.engineGen++
+	gen = p.engineGen
 	p.engine = eng
 	p.player = eng
 	monitor := p.monitor
@@ -124,6 +128,9 @@ func (p *plugin) startEngine(conn *sdk.Conn, library *web.Client) {
 	p.last, p.lastTried, p.played = nil, false, false
 	panes := p.paneIDsLocked()
 	p.mu.Unlock()
+	if engineEager {
+		_, _ = eng.wake()
+	}
 	if monitor != nil {
 		_ = monitor.Close()
 	}
@@ -160,11 +167,15 @@ func (p *plugin) stopEngine() {
 // engineIdled shows the player as stopped after its web view went away on
 // its own, and lets the pane ask for the track played last again, as the
 // player that never played does.
-func (p *plugin) engineIdled() {
+func (p *plugin) engineIdled(player transport.Player, gen int) {
 	p.mu.Lock()
+	if player != nil && (p.player != player || p.engineGen != gen) {
+		p.mu.Unlock()
+		return
+	}
 	p.played, p.lastTried = false, false
 	p.mu.Unlock()
-	p.playback(transport.Snapshot{State: transport.StateStopped, ReadAt: time.Now()})
+	p.playbackFor(player, gen, transport.Snapshot{State: transport.StateStopped, ReadAt: time.Now()})
 }
 
 // armConnect gives the engine connectTimeout to report ready. A pane that

@@ -955,7 +955,7 @@
   "sessionUnpin": "Unpin Session",
   "sessionMoveUp": "Move Session Up",
   "sessionMoveDown": "Move Session Down",
-  "sessionOrderUnavailable": "Reconnect to the terminal service before reordering sessions.",
+  "sessionOrderUnavailable": "Reconnect to the terminal service before reordering.",
   "sessionOrderMissing": "Session not found. Choose a current session and try again.",
   "setSourceUpdates": "Upstream source",
   "setSourceUpdatesDetail": "Check Kero upstream and build Shibu in GitHub. Requires gh signed in as ddeyalla.",

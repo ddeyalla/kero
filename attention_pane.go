@@ -203,18 +203,26 @@ func (a *App) attentionRows() []attentionRow {
 	var rows []attentionRow
 	for _, g := range a.groups() {
 		for _, s := range g.sessions {
-			// A session at rest needs nothing: kerod sends the idle state
-			// for it, and it is no row.
-			if s.Attention == nil || s.Attention.State == "" || s.Attention.State == proto.AttentionIdle {
+			att := s.Attention
+			if att == nil || att.State == "" {
+				f := foldOf(s)
+				att = &proto.Attention{State: f.State, Msg: f.Msg, Pane: f.Pane, Since: s.Since}
+				if p := s.PaneByID(f.Pane); p != nil {
+					att.Since = p.Since
+				}
+			}
+			// A session at rest needs nothing, including an older daemon's
+			// terminal fold. Views are excluded by the shared fold helper.
+			if att.State == "" || att.State == proto.AttentionIdle {
 				continue
 			}
 			// The agent that needs the user is the one of the pane the
 			// state comes from; the lead's when the pane has gone.
 			agent := s.Agent
-			if p := s.PaneByID(s.Attention.Pane); p != nil && p.Agent != "" {
+			if p := s.PaneByID(att.Pane); p != nil && p.Agent != "" {
 				agent = p.Agent
 			}
-			rows = append(rows, attentionRow{session: s, att: s.Attention, agent: agent})
+			rows = append(rows, attentionRow{session: s, att: att, agent: agent})
 		}
 	}
 	slices.SortStableFunc(rows, func(x, y attentionRow) int {

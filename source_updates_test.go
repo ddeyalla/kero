@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -23,6 +24,18 @@ func TestSourceUpdatesMovedToSettings(t *testing.T) {
 			t.Fatalf("missing Settings action %q; texts %q", label, tt.Texts())
 		}
 	}
+	// A canceled parent prevents the maintenance client from running any
+	// command, while the rendered button still exercises its real callback.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	a.usage.ctx = ctx
+	selected := a.selected
+	if err := tt.Click(locales.SetSourceBuild()); err != nil {
+		t.Fatal(err)
+	}
+	if !a.maintenance.busy || a.selected != selected {
+		t.Fatal("Settings source-update callback did not start safely")
+	}
 	a.maintenance.busy = true
 	a.maintenance.status = "Checking Kero and building Shibu…"
 	tt.Frame()
@@ -32,7 +45,6 @@ func TestSourceUpdatesMovedToSettings(t *testing.T) {
 	if !tt.HasText(locales.SetSourceBuilding()) {
 		t.Fatal("busy state missing")
 	}
-	selected := a.selected
 	a.run("updates.sync", nil)
 	if a.selected != selected || !a.maintenance.busy {
 		t.Fatal("duplicate check interrupted session")

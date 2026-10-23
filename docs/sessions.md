@@ -24,7 +24,7 @@ A **session** is a unit of work: one task, one agent, one long-running process. 
 
 Notifications follow a session's attention: one when it needs you, one when
 its turn ends unseen, and none of a loop (the same session and state again
-within 30 seconds of the answer) inside `notify-throttle-minutes` (five by
+within 30 seconds of leaving that state) inside `notify-throttle-minutes` (five by
 default). [Silencing a
 session](./changes.md#notifications-from-attention) keeps it quiet until you
 resume it, also across a restart.
@@ -46,8 +46,11 @@ Reordering stays inside the same project and pin section. The context menu's
 dragging. The Session menu and command palette offer these actions too; keys
 can be assigned in Settings > Keyboard Shortcuts.
 
-Pins and order survive restart. New sessions start unpinned and keep the app's
-normal placement after the selected session. Moving a session to another project keeps its pin and places it last in that section.
+Pins and order survive restart. New sessions start unpinned. In the selected
+session's project they follow it in the saved order; pinned rows still appear
+first. Creating from a different project's header appends to that project.
+Moving a session to another project keeps its pin and places it last in that
+section.
 The palette, number shortcuts and next/previous session shortcuts follow the
 sidebar order. Session organization does not change its panes or running work.
 

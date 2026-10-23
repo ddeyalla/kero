@@ -87,6 +87,7 @@ func (p *plugin) openDrill(pane string, picked entry) {
 	}
 	s.drill, s.drillName, s.drillURI, s.drillImage = picked.id, picked.title, picked.uri, picked.image
 	s.tracks, s.tracksState, s.needScope = nil, tracksLoading, false
+	s.tracksPending = false
 	if library != nil {
 		kind, spotifyID := splitDrill(picked.id)
 		var cached []web.ListTrack
@@ -125,6 +126,7 @@ func (p *plugin) closeDrill(pane string) {
 func (s *session) clearDrill() {
 	s.drill, s.drillName, s.drillURI, s.drillImage = "", "", "", ""
 	s.tracks, s.tracksState, s.needScope = nil, tracksLoading, false
+	s.tracksPending = false
 	s.tracksSeq++
 }
 
@@ -157,6 +159,7 @@ func (p *plugin) loadTracks(pane string) {
 	}
 	s.tracksSeq++
 	seq, id := s.tracksSeq, s.drill
+	s.tracksPending, s.tracksState = true, tracksLoading
 	cover := s.drillImage
 	if cover == "" {
 		cover = s.coverOf(id)
@@ -188,6 +191,8 @@ func (p *plugin) loadTracks(pane string) {
 			return
 		}
 		lib := libraryError(err)
+		s.tracksPending = false
+		s.tracksError = lib
 		switch {
 		case err == nil:
 			s.tracks, s.tracksState = tracks, tracksReady
@@ -195,10 +200,7 @@ func (p *plugin) loadTracks(pane string) {
 			// A failed read is local to this list. Keep the open album or
 			// playlist and its cached tracks, rather than replace it with
 			// the library and mistake an empty failed read for no tracks.
-			s.tracks, s.tracksState = tracks, tracksReady
-			if len(tracks) == 0 {
-				s.tracksState = tracksFailed
-			}
+			s.tracks, s.tracksState = tracks, tracksFailed
 		case forbidden:
 			s.tracks, s.tracksState, s.needScope = nil, tracksForbidden, needScope
 		default:
@@ -298,6 +300,7 @@ func (p *plugin) loadQueue(pane string) {
 	}
 	s.queueSeq++
 	seq := s.queueSeq
+	s.queuePending, s.queueFailed = true, false
 	p.mu.Unlock()
 
 	go func() {
@@ -311,6 +314,7 @@ func (p *plugin) loadQueue(pane string) {
 			p.mu.Unlock()
 			return
 		}
+		s.queuePending = false
 		if err == nil {
 			s.queue, s.queueLoaded, s.queueFailed = queue, true, false
 		} else {
@@ -374,6 +378,7 @@ func (p *plugin) signOut() {
 			s.notice = ""
 			s.playlists, s.albums, s.search, s.entries = nil, nil, web.SearchResult{}, nil
 			s.queue, s.queueLoaded, s.queueFailed = nil, false, false
+			s.queuePending = false
 			s.loaded = make(map[tabKind]bool)
 			s.loadedAt = nil
 			s.libSeq++

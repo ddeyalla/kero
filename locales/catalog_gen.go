@@ -7196,11 +7196,11 @@ func (msgs Messages) SessionMoveDown() string {
 	return Catalog.Format(msgs.locale, "sessionMoveDown", nil)
 }
 
-// SessionOrderUnavailable says "Reconnect to the terminal service before reordering sessions."
+// SessionOrderUnavailable says "Reconnect to the terminal service before reordering."
 // in the language the app shows.
 func SessionOrderUnavailable() string { return In(i18n.Locale()).SessionOrderUnavailable() }
 
-// SessionOrderUnavailable says "Reconnect to the terminal service before reordering sessions."
+// SessionOrderUnavailable says "Reconnect to the terminal service before reordering."
 // in the language of msgs.
 func (msgs Messages) SessionOrderUnavailable() string {
 	return Catalog.Format(msgs.locale, "sessionOrderUnavailable", nil)

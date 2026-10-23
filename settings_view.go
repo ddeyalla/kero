@@ -477,10 +477,11 @@ func (a *App) settingsNav(c *ui.Context, pal *palette, p settingsPage, narrow bo
 		a.setRecording("")
 	}
 	item.Children(func() {
-		ic := controlIcon(c, p.icon, 15, pal.textMuted, pal.dark)
+		tint := pal.textMuted
 		if sel {
-			ic.TextColor(pal.accent)
+			tint = pal.accent
 		}
+		controlIcon(c, p.icon, 15, tint, pal.dark)
 		if !narrow {
 			ui.Text(c, p.title()).FontSize(13.5).TextColor(pal.text).SingleLine()
 		}

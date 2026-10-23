@@ -137,6 +137,8 @@ func runApp() {
 			Vibrancy:  vibrancyFor(a.set),
 			Content:   ui.View(a.view),
 		}))
+		a.focused = a.win.IsFocused()
+		a.resourcePace.windowFocused(a.focused)
 		setCompactTitleBar(a.win)
 		followFullScreen(a.win)
 		a.win.OnFocus(func() {

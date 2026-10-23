@@ -50,6 +50,7 @@ class ReleaseTests(unittest.TestCase):
         config = json.loads((Path(__file__).resolve().parents[1] / "mygo.json").read_text())
         release.validate_config(config)
         for macos in [
+            None, False, [], {}, "", 0,
             {"signingIdentity": "upstream"},
             {"infoPlist": {"CFBundleIdentifier": "sh.kero"}},
             {"infoPlist": {"NSAppleEventsUsageDescription": ""}},
@@ -171,6 +172,15 @@ class MergeTests(unittest.TestCase):
         features = Path("docs/features.md").read_text()
         self.assertIn("Current release: **2.0.5-local.6** (Kero 2.0.5)", features)
         self.assertIn("| Example | Menu | 2.0.5-local.6 | Untried |", features)
+
+    def test_release_rejects_an_explicit_upstream_change(self):
+        self.upstream()
+        before = self.git("rev-parse", "HEAD").stdout
+        with mock.patch.object(release, "UPSTREAM", self.temp.name), \
+                self.assertRaisesRegex(ValueError, "release.*upstream"):
+            release.prepare("release", tag="v2.0.6")
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, before)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
 
 
 if __name__ == "__main__":

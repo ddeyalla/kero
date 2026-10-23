@@ -12,6 +12,9 @@ import (
 // Visited terminals keep receiving output, but only the pane composition
 // owns whether they may ask the window for frames.
 func TestTerminalVisibilityFollowsPanes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("loads libghostty-vt")
+	}
 	if err := terminal.Load(); err != nil {
 		t.Fatal(err)
 	}

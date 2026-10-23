@@ -35,6 +35,18 @@ def counters(cpu_s, idle, intr, footprint_mb, resident_mb):
 
 
 class PerfProbeTest(unittest.TestCase):
+    def test_focused_wakeups_are_separate_from_unfocused_acceptance(self):
+        before = sample(0, {7: counters(0, 0, 0, 20, 20), 9: counters(0, 0, 0, 100, 100)})
+        after = sample(60, {7: counters(0, 0, 500, 20, 20), 9: counters(0, 0, 2000, 100, 100)})
+        focused = "\n".join(probe.report(4, 16*MB, 7, before, before, after, app=9, idle_window="focused"))
+        unfocused = "\n".join(probe.report(4, 16*MB, 7, before, before, after, app=9, idle_window="unfocused"))
+        self.assertIn("focused: reported separately", focused)
+        focused_rows = {line.split("  ")[0]: line for line in focused.splitlines()}
+        unfocused_rows = {line.split("  ")[0]: line for line in unfocused.splitlines()}
+        self.assertFalse(focused_rows["app idle wakeups"].endswith("OVER"))
+        self.assertTrue(unfocused_rows["app idle wakeups"].endswith("OVER"))
+        self.assertTrue(unfocused_rows["app + kerod idle wakeups"].endswith("OVER"))
+
     def test_parse_frame(self):
         self.assertEqual(probe.parse_frame(PLAIN),
                          {"total": 0.6, "build": 0.1, "layout": 0.0, "paint": 0.2, "present": 0.2, "repaint": False})

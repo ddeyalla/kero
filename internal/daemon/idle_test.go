@@ -204,6 +204,12 @@ func TestQuietBranchSwitch(t *testing.T) {
 	if err := os.WriteFile(head+".lock", []byte("ref: refs/heads/dv/bru-25-task\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A coarse-resolution filesystem may otherwise give both writes the
+	// same timestamp even though the atomic replacement is a checkout.
+	later := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(head+".lock", later, later); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Rename(head+".lock", head); err != nil {
 		t.Fatal(err)
 	}

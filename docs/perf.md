@@ -26,7 +26,7 @@ No unsupported GC or memory limit was added to make a measurement pass.
 | Measure | Budget | How it is measured |
 | --- | --- | --- |
 | Footprint per pane, kerod | ≤ 25 MB | `scripts/perf.sh`: kerod's footprint with N panes, less its footprint with none, divided by N |
-| Resident memory per pane, app | ≤ 30 MB | `scripts/perf.sh`: app RSS divided by the number of fixture panes; physical footprint is reported separately. The visited-terminal workload also retains every terminal (see the limits below). |
+| Resident memory per pane, app | ≤ 30 MB | `scripts/perf.sh`: app RSS divided by the number of fixture panes; physical footprint is reported separately. Separate sessions retain up to eight client terminals; `PERF_LAYOUT=split` retains every pane in the selected session (see the limits below). |
 | Idle wakeups, app + kerod | ≤ 2,000 a minute (kerod ≤ 500, app ≤ 1,500), window shown and unfocused, at 4 and 8 panes | `scripts/perf.sh`: interrupt wakeups over 60 s of idle. Agreed 2026-10-22 in place of 30, which a Go process with a MyGo window cannot reach (BRU-336, below) |
 | Idle CPU, app + kerod | ≤ 1 % | `scripts/perf.sh`: CPU time over 60 s of idle, of one core |
 | Idle frames, app | < 10 a minute that build the window | `scripts/perf.sh`: frames `MYGO_FRAME_STATS=all` logs over 60 s of idle. A frame that only paints the last one again ("painted again"), as a focused terminal's cursor blinks, is counted apart and not judged |
@@ -46,7 +46,7 @@ regression fails the checks without the app.
 sh scripts/perf.sh 4      # 4 panes
 ```
 
-It takes about two minutes, and prints a table with each measure, its
+It takes about three minutes, and prints a table with each measure, its
 budget, and `ok` or `OVER`. What it does:
 
 1. It builds this checkout into a temporary directory, as `shibu-perf`.
@@ -58,24 +58,34 @@ budget, and `ok` or `OVER`. What it does:
    the default scrollback of 4 MB, so that every scrollback is full. The
    scrollback setting counts the emulator's memory, not text, so 4 MB of
    text would not fill it.
-4. It starts the app, the same build, with `MYGO_FRAME_STATS=all` and a
+4. It packages the same build in a temporary app bundle with a unique
+   `CFBundleIdentifier`, stages the pinned terminal library after SHA-256
+   verification, and starts it through LaunchServices with every routing
+   variable explicitly isolated, `MYGO_FRAME_STATS=all` and a
    `TMPDIR` of its own. Its name and identity are not the daily app's or a
    dev app's, and its single-instance lock is in that `TMPDIR`, so it
    neither finds nor disturbs them. It opens a window for the run.
    `PERF_APP=0` leaves it out.
-5. It focuses only its own window, waits 15 s (`PERF_SETTLE`), past kerod's
-   10 s history save and cursor rest, then samples kerod and the app over
-   60 s of idle (`PERF_IDLE`). The temporary diagnostics overlay observes
-   focus and activation independently every five seconds; a lost focus
-   invalidates the focused acceptance result.
+5. It waits for its own GUI to subscribe to kerod and attach the selected
+   fixture before focusing the native window. After 15 s (`PERF_SETTLE`) it
+   samples 60 s of focused idle (`PERF_IDLE`). Fresh native focus, visibility
+   and application state are checked independently every five seconds; missing
+   observations or a changed window state invalidate acceptance. Native key
+   focus requires an unlocked desktop. A locked login screen produces an
+   explicit failure, cleans up only the test processes and records no pass.
 6. It sends 100 native AppKit key-down/up pairs to that window. Each sample
    requires the corresponding PTY echo in the terminal's paint, and ends on
    the next UI-thread turn after the frame. The harness neither sends keys
    to another application nor requires Accessibility permission. The
    measurement excludes hardware and OS event-queue latency and does not
    establish compositor presentation. Queue/scheduler delay after drawing
-   remains included. Then the pane streams output for 10 s
-   (`PERF_BUSY`), for the frame times.
+   remains included. The paint-matching hook is enabled only during these
+   key samples. It is then disabled before the test window resigns key focus
+   for a separate visible/unfocused idle sample, with the same settle and idle
+   durations. The harness refocuses only its own window before streaming
+   output for 10 s (`PERF_BUSY`) for frame timings. Native focus queries still
+   add small diagnostic overhead; neither idle phase nor streaming scans
+   terminal tails, writes paint snapshots or matches keys on each frame.
 7. It closes the panes, stops kerod and the app, and removes the directory.
    Anything still running from it is named instead (`PERF_KEEP=1` keeps
    the directory).
@@ -111,7 +121,7 @@ PERF_MEMORY=1 PERF_KEEP=1 PERF_LAYOUT=split sh scripts/perf.sh 25
 The optional memory workload starts the same app with no sessions and verifies
 that it has no selection or attached terminals before taking its baseline. It
 then feeds every fixture, visits each terminal twice, streams every fixture,
-and waits 15 seconds after output stops. `PERF_LAYOUT=split` keeps all panes in
+and waits `PERF_SETTLE` seconds (15 by default) after output stops. `PERF_LAYOUT=split` keeps all panes in
 one selected session instead of separate sessions. It uses the real `pane.next`
 and `pane.zoom` actions to visit every pane zoomed, then expands the layout
 before streaming. Minimum pane sizes clip part of a 25-tile layout in the
@@ -136,8 +146,9 @@ live under `memory/` in the temporary directory printed at exit;
 `PERF_KEEP=1` keeps them.
 
 Normal app runs use this GUI measurement by default. `PERF_GUI=0` keeps the
-older uninjected workload, useful for visible/unfocused samples; it reports
-key latency as unmeasured. `PERF_APP=0` measures kerod alone. `PERF_MEMORY=1`
+older uninjected workload; its window focus is not independently verified,
+so it cannot establish focused or unfocused acceptance and reports key latency
+as unmeasured. `PERF_APP=0` measures kerod alone. `PERF_MEMORY=1`
 selects the separate memory workload instead. The native GUI code and
 loopback listener exist only in the temporary build overlay, never in the
 normal or released application. Detailed samples are preserved as `gui.json`
@@ -186,6 +197,15 @@ Set `KERO_PPROF` on a kerod only when you start it yourself, as
 
 ## Baseline
 
+Historical tables below retain the physical-footprint criterion used when
+they were recorded. That retired criterion is not the current app RSS verdict.
+The early GUI overlay also recorded every paint during idle and streaming;
+its timings include that instrumentation. Entries labeled focused used cached
+App flags, without independent native key-window verification. Their numbers
+are preserved as diagnostic observations, not native-focused acceptance.
+Current GUI runs query fresh native window state and isolate the costly
+paint-matching hook to the native-key phase.
+
 Measured 2026-10-22 on an Apple M4 Pro (24 GB, macOS 27.0.1), on
 `shibu` at c8ac9bc with this harness (labels off: `KERO_PPROF` unset),
 with the defaults: 16 MB fed to each pane, 15 s settle, 60 s idle, 10 s
@@ -198,7 +218,7 @@ streaming. The daily app and its agents ran beside it, as they always do.
 | kerod RSS | 31.7 MB | 64.3 MB | 74.4 MB | |
 | kerod idle CPU | 0.03 % | 0.05 % | 0.08 % | |
 | kerod idle wakeups (interrupt) | 870/min | 1,005/min | 1,521/min | |
-| app footprint, one pane shown | 157.3 MB | 297.8 MB | 271.0 MB | ≤ 30 MB a pane: over |
+| app footprint, one pane shown | 157.3 MB | 297.8 MB | 271.0 MB | retired footprint criterion: over; not the current RSS verdict |
 | app RSS | 116.0 MB | 169.7 MB | 153.0 MB | |
 | app idle CPU | 0.24 % | 0.52 % | 0.40 % | |
 | app idle wakeups (interrupt) | 2,300/min | 10,060/min | 8,626/min | |
@@ -250,7 +270,7 @@ those that only paint it again.
 | app idle frames that build the window | 127/min (all frames) | 104/min (all frames) | 25/min | < 10/min: over |
 | app idle frames painted again | — | — | 100/min | not judged |
 | app + kerod idle wakeups | 11,066/min | 5,595/min | 11,697/min | ≤ 30/min: over |
-| app footprint, one pane shown | 297.8 MB | 162.8 MB | 279.8 MB | ≤ 30 MB a pane: over |
+| app footprint, one pane shown | 297.8 MB | 162.8 MB | 279.8 MB | retired footprint criterion: over; not the current RSS verdict |
 | frame total p99, streaming | 1.2 ms | 1.2 ms | 1.5 ms | |
 
 - The blink no longer builds the window: its 100 frames a minute are now

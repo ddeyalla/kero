@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -232,8 +233,9 @@ func attentionApp(t *testing.T, sessions ...proto.Session) (*App, *[]attentionNo
 	a := testApp(t)
 	a.st.Sessions = sessions
 	sent := &[]attentionNote{}
-	a.deliver = func(id, pane, title, body string) {
+	a.deliver = func(id, pane, title, body string, done func(bool)) {
 		*sent = append(*sent, attentionNote{Session: id, Pane: pane, Title: title, Body: body})
+		done(true)
 	}
 	return a, sent
 }
@@ -546,5 +548,181 @@ func TestSilencedSessionsSurvivePartialRestore(t *testing.T) {
 	a.setState(state(2))
 	if a.silenced("late") || !a.silenced("unknown") {
 		t.Fatalf("empty state failed observed closure: %v", a.set.SilencedSessions)
+	}
+}
+
+// Native permission denial or backend unavailability is not a delivered
+// notice and cannot silence the next eligible ask when delivery recovers.
+func TestNotificationDeliveryFailureDoesNotChargeThrottle(t *testing.T) {
+	a, _ := attentionApp(t, attentionSession("s1", attentionRunning, ""))
+	a.selected = "other"
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	clockAt(a.watch, &now)
+	available, attempts, shown := false, 0, 0
+	a.deliver = func(_, _, _, _ string, done func(bool)) {
+		attempts++
+		if available {
+			shown++
+		}
+		done(available)
+	}
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "First ask")
+	a.notify(false)
+	if len(a.watch.told) != 0 {
+		t.Fatal("undelivered native notification charged throttle")
+	}
+	now = now.Add(time.Second)
+	a.st.Sessions[0] = attentionSession("s1", attentionRunning, "")
+	a.notify(false)
+	now = now.Add(time.Second)
+	available = true
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "Second ask")
+	a.notify(false)
+	if attempts != 2 || shown != 1 || len(a.watch.told) != 1 {
+		t.Fatalf("recovered delivery: attempts=%d shown=%d told=%v", attempts, shown, a.watch.told)
+	}
+}
+
+// Authorization can wait. Repeated state updates must not post duplicate
+// notices; a later eligible ask is queued and the old acknowledgement must
+// not consume the newer event's throttle or cross a reconnect epoch.
+func TestNotificationPendingDeliveryAndEpoch(t *testing.T) {
+	a, _ := attentionApp(t, attentionSession("s1", attentionRunning, ""))
+	a.selected = "other"
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	clockAt(a.watch, &now)
+	var callbacks []func(bool)
+	var messages []string
+	a.deliver = func(_, _, _, body string, done func(bool)) {
+		messages = append(messages, body)
+		callbacks = append(callbacks, done)
+	}
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "First ask")
+	a.notify(false)
+	for range 3 {
+		a.notify(false)
+	}
+	if len(callbacks) != 1 || len(a.watch.told) != 0 {
+		t.Fatalf("pending native notice duplicated or charged: callbacks=%d told=%v", len(callbacks), a.watch.told)
+	}
+	now = now.Add(time.Second)
+	a.st.Sessions[0] = attentionSession("s1", attentionRunning, "")
+	a.notify(false)
+	now = now.Add(time.Second)
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "Newest ask")
+	a.notify(false)
+	if len(callbacks) != 1 {
+		t.Fatal("new ask raced an in-flight native notice")
+	}
+	callbacks[0](true)
+	if len(callbacks) != 2 || messages[1] != "Newest ask" || len(a.watch.told) != 0 {
+		t.Fatalf("newest ask lost to old acknowledgement: messages=%v told=%v", messages, a.watch.told)
+	}
+	// A reconnect retires the old watch even while a native delivery waits.
+	old := a.watch
+	a.watch = newAttentionWatch()
+	clockAt(a.watch, &now)
+	callbacks[1](true)
+	if len(a.watch.told) != 0 || len(old.told) != 0 {
+		t.Fatal("late native result charged a retired watch")
+	}
+}
+
+// The app removes a row optimistically, so observed-disappearance pruning
+// cannot see it later. Persistent cleanup must follow successful daemon
+// acknowledgement; a rejected close preserves both saved choices.
+func TestSessionCloseAcknowledgementCleansPreferences(t *testing.T) {
+	for _, success := range []bool{false, true} {
+		t.Run(map[bool]string{false: "rejected", true: "accepted"}[success], func(t *testing.T) {
+			a := testApp(t)
+			a.st.Sessions = append(a.st.Sessions, proto.Session{ID: "s2", Project: "p1"})
+			a.prefs.SessionPins = map[string]bool{"s2": true, "unknown": true}
+			a.set.SilencedSessions = []string{"s2", "unknown"}
+			a.savePrefs()
+			a.flushPrefs()
+			a.saveSettings(a.set)
+			a.flushSettings()
+			requests := attentionRPC(t, a)
+			a.closeSession("s2", false)
+			if a.session("s2") != nil {
+				t.Fatal("fixture did not exercise optimistic row removal")
+			}
+			if !a.prefs.SessionPins["s2"] || !a.silenced("s2") {
+				t.Fatal("preferences removed before close acknowledgement")
+			}
+			deadline := time.After(time.Second)
+			waiting := true
+			for waiting {
+				select {
+				case req := <-requests:
+					waiting = req.Method != "close"
+				case <-deadline:
+					t.Fatal("no close RPC")
+				}
+			}
+			// The tester has no native callback queue. Deliver the same completion
+			// handler explicitly after observing the peer's close request.
+			var err error
+			if !success {
+				err = errors.New("close rejected")
+			}
+			a.sessionClosed("s2", err)
+			a.flushPrefs()
+			a.flushSettings()
+			a.loadPrefs()
+			saved := settings.Load()
+			if a.prefs.SessionPins["s2"] == success || slices.Contains(saved.SilencedSessions, "s2") == success {
+				t.Fatalf("success=%t pin=%v silence=%v", success, a.prefs.SessionPins, saved.SilencedSessions)
+			}
+			if !a.prefs.SessionPins["unknown"] || !slices.Contains(saved.SilencedSessions, "unknown") {
+				t.Fatal("close removed another session's preferences")
+			}
+		})
+	}
+}
+
+func TestNotificationQueuedStateRetiredDoesNotPost(t *testing.T) {
+	a, _ := attentionApp(t, attentionSession("s1", attentionRunning, ""))
+	a.selected = "other"
+	var callbacks []func(bool)
+	a.deliver = func(_, _, _, _ string, done func(bool)) { callbacks = append(callbacks, done) }
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "First")
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionRunning, "")
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "Queued")
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionRunning, "")
+	a.notify(false)
+	callbacks[0](true)
+	if len(callbacks) != 1 {
+		t.Fatal("an already resolved queued state posted a stale notice")
+	}
+}
+
+// Muting a session while native authorization waits applies to a queued
+// newer ask too; replay must recheck the user's current silence choice.
+func TestNotificationQueuedSilencedSessionDoesNotPost(t *testing.T) {
+	a, _ := attentionApp(t, attentionSession("s1", attentionRunning, ""))
+	a.selected = "other"
+	var callbacks []func(bool)
+	a.deliver = func(_, _, _, _ string, done func(bool)) { callbacks = append(callbacks, done) }
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "First")
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionRunning, "")
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "Queued")
+	a.notify(false)
+	if len(callbacks) != 1 {
+		t.Fatal("fixture did not queue behind native delivery")
+	}
+	a.setSilence("s1", true)
+	callbacks[0](true)
+	if len(callbacks) != 1 {
+		t.Fatal("queued notice ignored current session silence")
 	}
 }

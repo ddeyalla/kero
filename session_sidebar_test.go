@@ -131,16 +131,33 @@ func TestSessionPinsOrderNavigationAndPersistence(t *testing.T) {
 	if !saved.SessionPins["s3"] || !saved.SessionPins["other"] {
 		t.Fatal("pins not saved")
 	}
+	a.prefs = prefs{}
+	a.loadPrefs()
+	if !a.prefs.SessionPins["s3"] {
+		t.Fatal("saved pin did not load")
+	}
 	// The asynchronous writer must own its map.
 	clone := clonePrefs(a.prefs)
 	a.run("session.unpin", map[string]string{"session": "s3"})
 	if !clone.SessionPins["s3"] {
 		t.Fatal("prefs snapshot shares its pin map")
 	}
+	a.flushPrefs()
 	a.prefs = prefs{}
 	a.loadPrefs()
-	if !a.prefs.SessionPins["s3"] {
-		t.Fatal("saved pin did not load")
+	if a.prefs.SessionPins["s3"] {
+		t.Fatal("saved unpin did not load")
+	}
+}
+
+// A negative asynchronous RPC assertion must keep listening while the
+// client's sender runs; an immediate default branch can race that sender.
+func wantNoSidebarMove(t *testing.T, moves <-chan proto.MoveParams) {
+	t.Helper()
+	select {
+	case p := <-moves:
+		t.Fatalf("unexpected sidebar move %+v", p)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

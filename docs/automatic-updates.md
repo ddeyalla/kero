@@ -10,7 +10,8 @@ never the original Kero application.
 - Daily upstream check: 03:23 UTC (08:53 India time), subject to GitHub scheduling delays.
 - Release checks use a lightweight Linux runner; Mac build capacity is requested
   only when there is a candidate to verify and build.
-- Upstream-check input: the latest published, stable `egoist/kero` release, recorded in
+- The upstream check compares the latest published stable `egoist/kero`
+  release against the reviewed baseline recorded in
   [`shibu-upstream.json`](../shibu-upstream.json).
 - Clean candidates run release-guard tests, all application tests and MyGo vet.
   An ARM64 Mac build is published only when checks/build/signing pass.
