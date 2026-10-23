@@ -194,14 +194,15 @@ def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames
         ra = idle_rates(t0, t1, app)
         if ra:
             row("app idle CPU", f"{ra['cpu']:.2f} %")
-            judge_wakeups = idle_window != "focused"
+            judge_wakeups = idle_window == "unfocused"
             row("app idle wakeups", wakeups(ra), "<= 1500/min" if judge_wakeups else "",
                 _verdict(ra["interrupt_wakeups"], 1500) if judge_wakeups else "")
             if r:
                 cpu = ra["cpu"] + r["cpu"]
                 woke = ra["interrupt_wakeups"] + r["interrupt_wakeups"]
                 row("app + kerod idle CPU", f"{cpu:.2f} %", "<= 1 %", _verdict(cpu, 1))
-                row("app + kerod idle wakeups", f"{woke:.0f}/min", "<= 2000/min" if judge_wakeups else "focused: reported separately",
+                scope = "focused: reported separately" if idle_window == "focused" else "focus unverified: not judged"
+                row("app + kerod idle wakeups", f"{woke:.0f}/min", "<= 2000/min" if judge_wakeups else scope,
                     _verdict(woke, 2000) if judge_wakeups else "")
         if idle_frames is not None and r:
             # The budget is for frames that build the window. A frame that

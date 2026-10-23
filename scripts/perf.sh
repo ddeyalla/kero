@@ -79,8 +79,11 @@ unset KERO_HOME KERO_CONFIG KERO_SOCKET KERO_PANE KERO_SESSION KERO_PPROF \
 
 tmp=$(mktemp -d /tmp/kero-perf.XXXXXX)
 tmp=$(cd "$tmp" && pwd -P)
-bundle="$tmp/Shibu Performance.app"
-bin="$bundle/Contents/MacOS/shibu-perf"
+bin="$tmp/shibu-perf"
+if [ "${PERF_APP:-1}" != 0 ]; then
+	bundle="$tmp/Shibu Performance.app"
+	bin="$bundle/Contents/MacOS/shibu-perf"
+fi
 kerod_pid=
 app_pid=
 cleanup() {
@@ -111,10 +114,10 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# A real, uniquely identified bundle lets AppKit establish native key-window
-# focus. The CLI link still resolves only to this run's executable.
-mkdir -p "$bundle/Contents/MacOS"
-cat >"$bundle/Contents/Info.plist" <<EOF
+if [ "${PERF_APP:-1}" != 0 ]; then
+	# Only an app run needs a native bundle or its terminal library.
+	mkdir -p "$bundle/Contents/MacOS"
+	cat >"$bundle/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -126,10 +129,11 @@ cat >"$bundle/Contents/Info.plist" <<EOF
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>
 EOF
-ln -s "$bin" "$tmp/shibu-perf"
-mygo_module=$(go list -m -f '{{.Dir}}' github.com/egoist/mygo)
-python3 -I scripts/perf_memory.py bundle-native \
-	"$mygo_module/plugins/terminal/mygo-plugin.json" "$bundle/Contents/Resources"
+	ln -s "$bin" "$tmp/shibu-perf"
+	mygo_module=$(go list -m -f '{{.Dir}}' github.com/egoist/mygo)
+	python3 -I scripts/perf_memory.py bundle-native \
+		"$mygo_module/plugins/terminal/mygo-plugin.json" "$bundle/Contents/Resources"
+fi
 
 echo "perf.sh: building $(git rev-parse --short HEAD)$(git diff --quiet HEAD -- . ':!docs' || echo '+changes')" >&2
 if [ "${PERF_MEMORY:-0}" = 1 ] || [ "${PERF_GUI:-0}" = 1 ]; then

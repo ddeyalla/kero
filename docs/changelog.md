@@ -474,6 +474,9 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- Daemon-only performance runs skip unused native app assets. Wakeup
+  verdicts require an explicitly verified unfocused window; legacy runs
+  with unknown focus report counters without judging that budget.
 - Spotify keeps a visible warning and Retry action beside cached track or
   queue results after a failed refresh. Repeated retries share pending work,
   empty-search recovery redraws immediately, and callbacks from retired

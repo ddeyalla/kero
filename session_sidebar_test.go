@@ -151,13 +151,14 @@ func TestSessionPinsOrderNavigationAndPersistence(t *testing.T) {
 }
 
 // A negative asynchronous RPC assertion must keep listening while the
-// client's sender runs; an immediate default branch can race that sender.
+// client's sender runs. Use the positive assertion's same three-second
+// deadline so an ordinary delayed send cannot escape this observation.
 func wantNoSidebarMove(t *testing.T, moves <-chan proto.MoveParams) {
 	t.Helper()
 	select {
 	case p := <-moves:
 		t.Fatalf("unexpected sidebar move %+v", p)
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(3 * time.Second):
 	}
 }
 

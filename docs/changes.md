@@ -23,6 +23,11 @@ accessibility labels share `usageAccountTitle` in the locale catalog.
 
 ## Performance measurements and idle scheduling
 
+Daemon-only `PERF_APP=0` runs build the CLI without fetching or staging native
+app libraries. `perf_probe.py` judges the visible/unfocused wakeup budget
+only for an explicit `idle_window="unfocused"`; legacy measurements without
+independent focus evidence report counters with no wakeup verdict.
+
 `internal/daemon/branch.go` checks inexpensive HEAD metadata every 1.6 seconds
 independently of the slower pane tick, so a checkout by another process no
 longer waits ten seconds. `resources.go` refreshes focused meters every ten
@@ -564,16 +569,17 @@ and the mark that asked for it draws nothing.
 ([`pane_views.go`](../pane_views.go)) picks a view's symbol or its icon.
 The Attention pane's mark and its rows' states are symbols:
 `bell.badge`, `hand.raised.fill`, `arrow.triangle.2.circlepath`,
-`checkmark.circle.fill`, `checkmark.circle` and `circle`. The app's older
-icons stay SVG, as they are. Tests: `symbols_test.go`.
+`checkmark.circle.fill`, `checkmark.circle` and `circle`. Mapped control and status icons use native SF Symbols; provider logos remain
+artwork. Tests: `symbols_test.go`.
 
 ## Notifications from attention
 
 Notification throttling starts only after native delivery acceptance. Native
 authorization stays off the UI thread, with one notice per session/state in
 flight and only the newest eligible event queued. Retired-connection results
-cannot charge the new watch. App closes clean saved pins and silence only
-after successful daemon acknowledgement, using existing serialized writers.
+cannot charge the new watch. The app removes saved pins and silence only
+after the daemon successfully acknowledges a session close, using the existing
+serialized writers.
 
 The app tells of a session by comparing the attention kerod folded
 (`Session.Attention`) with the fold before it, in

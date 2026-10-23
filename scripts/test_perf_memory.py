@@ -9,6 +9,7 @@ from unittest.mock import patch
 import os
 import subprocess
 import hashlib
+import shutil
 
 spec = importlib.util.spec_from_file_location("perf_memory", Path(__file__).with_name("perf_memory.py"))
 memory = importlib.util.module_from_spec(spec)
@@ -86,12 +87,46 @@ class MemoryWorkloadTest(unittest.TestCase):
             git.write_text("#!/bin/sh\necho unexpected-git >&2\nexit 99\n")
             git.chmod(0o755)
             result = subprocess.run(["/bin/sh", str(root / "scripts/perf.sh"), "1"],
-                                    env=dict(os.environ, PERF_APP="0", PERF_GUI="1",
+                                    env=dict(os.environ, PERF_APP="0", PERF_GUI="1", PERF_MEMORY="0",
                                              PATH=directory+":/usr/bin:/bin"),
                                     capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 2)
             self.assertIn("PERF_APP=0", result.stderr)
             self.assertNotIn("unexpected-git", result.stderr)
+
+    def test_daemon_only_skips_app_bundle_and_native_lookup(self):
+        source = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts, commands = root / "scripts", root / "bin"
+            scripts.mkdir()
+            commands.mkdir()
+            for name in ("perf.sh", "perf_memory.py", "perf_probe.py"):
+                shutil.copyfile(source / name, scripts / name)
+            (scripts / "dev-env.sh").write_text(":\n")
+            git = commands / "git"
+            git.write_text('#!/bin/sh\ncase "$*" in *--show-toplevel*) printf "%s\\n" "'+str(root)+'" ;; *--short*) echo fixture ;; esac\n')
+            go = commands / "go"
+            go.write_text('''#!/bin/sh
+case "$1" in
+list) echo unexpected-native-lookup >&2; exit 88 ;;
+build)
+    for arg in "$@"; do
+        case "$arg" in *.app/*) echo unexpected-app-bundle >&2; exit 89 ;; esac
+    done
+    echo build-reached >&2; exit 77 ;;
+*) exit 99 ;;
+esac
+''')
+            git.chmod(0o755)
+            go.chmod(0o755)
+            result = subprocess.run(["/bin/sh", str(scripts / "perf.sh"), "1"],
+                                    env=dict(os.environ, PERF_APP="0", PERF_GUI="0", PERF_MEMORY="0",
+                                             PERF_KEEP="0", PATH=str(commands)+":/usr/bin:/bin"),
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 77, result.stderr)
+            self.assertIn("build-reached", result.stderr)
+            self.assertNotIn("unexpected-", result.stderr)
 
     def test_latency_nearest_rank_and_invalid_samples(self):
         result = memory.latency_summary(list(range(1, 101)))
