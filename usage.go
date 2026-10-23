@@ -16,27 +16,22 @@ import (
 
 type usageState struct {
 	reports []usage.Report
-	// installed are the providers this Mac has set up, the ones the sidebar
-	// shows: usage.Installed's, kept from the last refresh.
-	installed []string
-	loading   bool
-	ctx       context.Context
-	cancel    context.CancelFunc
-	open      bool
-	scroll    ui.ScrollState
-	keys      map[string]*string
-	notice    string
-	saving    bool
+	loading bool
+	ctx     context.Context
+	cancel  context.CancelFunc
+	open    bool
+	scroll  ui.ScrollState
+	keys    map[string]*string
+	notice  string
+	saving  bool
 	// hover is the harness whose card shows, and cardOver tells the pointer
-	// is on that card, which keeps it open as the pointer leaves the ring.
+	// is on that card, which keeps it open as the pointer leaves the row.
 	hover    string
 	cardOver bool
 }
 
 func (a *App) startUsage() {
 	a.usage.ctx, a.usage.cancel = context.WithCancel(context.Background())
-	// What is installed, as the reports, comes with the first refresh, off
-	// the main thread: it looks through the disk.
 	a.refreshUsage()
 	ctx := a.usage.ctx
 	go func() {
@@ -61,13 +56,12 @@ func (a *App) refreshUsage() {
 	previous, ctx := a.usage.reports, a.usage.ctx
 	a.invalidateUsage()
 	go func() {
-		installed := usage.Installed()
 		reports := usage.Refresh(ctx, previous)
 		if ctx.Err() != nil {
 			return
 		}
 		a.update(func() {
-			a.usage.reports, a.usage.installed, a.usage.loading = reports, installed, false
+			a.usage.reports, a.usage.loading = reports, false
 			a.invalidateUsage()
 		})
 	}()
@@ -84,27 +78,6 @@ func (a *App) usageReports() []usage.Report {
 		return usage.Providers()
 	}
 	return a.usage.reports
-}
-
-// usageInstalled are the reports the sidebar shows: the harnesses this Mac
-// has set up, in the providers' order. Until the first refresh finds them,
-// every provider shows, as a new user sees what to connect.
-func (a *App) usageInstalled() []usage.Report {
-	reports := a.usageReports()
-	if len(a.usage.installed) == 0 {
-		return reports
-	}
-	have := make(map[string]bool, len(a.usage.installed))
-	for _, id := range a.usage.installed {
-		have[id] = true
-	}
-	out := make([]usage.Report, 0, len(reports))
-	for _, r := range reports {
-		if have[r.ID] {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 func usageSummary(r usage.Report, loading bool) string {
@@ -124,53 +97,63 @@ func usageSummary(r usage.Report, loading bool) string {
 		return r.Balance
 	}
 	if len(r.Windows) > 0 {
-		return fmt.Sprintf("%.0f%% used", r.Windows[0].Used)
+		return locales.UsagePercentUsed(fmt.Sprintf("%.0f", r.Windows[0].Used))
 	}
 	return "Unavailable"
 }
 
-// The harness bar's measures: a 22pt ring, its gap to the name, and the
-// padding around both.
-const (
-	usageRingSize = 22
-	usageNameGap  = 5
-	usageItemPad  = 8
-)
-
-// usageSidebar is the harness bar above the machine's meters: a ring for
-// each harness this Mac has set up, its name beside it where it fits, and,
-// on hover, a card with the allowances the modal shows in full.
-func (a *App) usageSidebar(c *ui.Context, pal *palette) {
-	reports := a.usageInstalled()
-	// Each item wants room for its whole name: the ring, its gap, the name
-	// and the padding.
-	room := make([]float32, len(reports))
-	for i, r := range reports {
-		// At the weight of the hovered name, so that the bar does not move
-		// as the pointer goes over it.
-		w, _ := c.MeasureText(0, ui.Span{Text: r.Name, Size: 11.5, Weight: 600})
-		room[i] = usageRingSize + usageNameGap + w + usageItemPad + 1.5
+// usageColor preserves the list's warning threshold and muted error state.
+func usageColor(r usage.Report, pal *palette) ui.Color {
+	if r.Error != "" {
+		return pal.textFaint
 	}
-	avail := a.prefs.SidebarWidth - 16
-	rows, named := usageBarRows(room, avail)
+	for _, w := range r.Windows {
+		if w.Used >= 90 {
+			return pal.attention
+		}
+	}
+	return pal.textMuted
+}
+
+// usageFooterSummary prefers USD in the compact list; the card retains the
+// provider's full balance. No allowance is substituted for a missing report.
+func usageFooterSummary(r usage.Report, loading bool) string {
+	if !r.Checked.IsZero() && r.Balance != "" {
+		for _, part := range strings.Split(r.Balance, "·") {
+			if part = strings.TrimSpace(part); strings.HasPrefix(part, "USD ") {
+				return part
+			}
+		}
+	}
+	return usageSummary(r, loading)
+}
+
+// usageSidebar is the original usage list, with the full allowance card
+// available from each provider row as well as the account details dialog.
+func (a *App) usageSidebar(c *ui.Context, pal *palette) {
 	var anchor ui.Element
 	var shown usage.Report
 	var card bool
-	ui.Column(c.Key("account-usage")).Width(a.prefs.SidebarWidth).Shrink(0).Padding(3, 8, 4, 8).Gap(1).Children(func() {
-		for _, line := range rows {
-			ui.Row(c).Fill().Justify(ui.SpaceBetween).Gap(2).Children(func() {
-				for _, i := range line {
-					w := room[i]
-					if !named {
-						w = usageRingSize + usageItemPad
-					}
-					w = min(w, avail)
-					item := a.usageHarness(c, pal, reports[i], w, named)
-					if a.usage.hover == reports[i].ID {
-						anchor, shown, card = item, reports[i], true
-					}
-				}
+	ui.Column(c.Key("account-usage")).Width(a.prefs.SidebarWidth).Shrink(0).Padding(6, 12, 8, 12).Gap(1).Children(func() {
+		header := ui.ButtonBase(c.Key("usage-details")).Height(24).Radius(5).Padding(0, 8).Label(locales.UsageAccountTitle()).Tooltip(a.tip(locales.UsageDetailsHint(), "usage.open"))
+		if header.Hovered() {
+			header.Background(pal.rowHover)
+		}
+		header.Children(func() {
+			ui.Row(c).Fill().AlignItems(ui.Center).Children(func() {
+				ui.Text(c, locales.UsageTitle()).FontSize(11).Bold().TextColor(pal.textMuted)
+				ui.Spacer(c)
+				ui.Text(c, a.keys("usage.open")).FontSize(10).TextColor(pal.textFaint)
 			})
+		})
+		if header.Clicked() {
+			a.openUsage()
+		}
+		for _, r := range a.usageReports() {
+			row := a.usageRow(c, pal, r)
+			if a.usage.hover == r.ID {
+				anchor, shown, card = row, r, true
+			}
 		}
 	})
 	if card {
@@ -178,199 +161,37 @@ func (a *App) usageSidebar(c *ui.Context, pal *palette) {
 	}
 }
 
-// usageBarRows arranges the harnesses in the sidebar's width, by their
-// widths with their names: one row while they all fit, else as many rows
-// as the names take, two at most. A bar that would need three rows has no
-// room for names, and shows the rings alone, which the hover card names.
-func usageBarRows(room []float32, avail float32) ([][]int, bool) {
-	const gap = 2
-	all := make([]int, len(room))
-	var total float32
-	for i, w := range room {
-		all[i] = i
-		total += w
-		if i > 0 {
-			total += gap
-		}
-	}
-	if len(room) == 0 || total <= avail {
-		return [][]int{all}, len(room) > 0
-	}
-	var rows [][]int
-	var line []int
-	var used float32
-	for i, w := range room {
-		add := w
-		if len(line) > 0 {
-			add += gap
-		}
-		if len(line) > 0 && used+add > avail {
-			rows = append(rows, line)
-			line, used, add = nil, 0, w
-		}
-		line = append(line, i)
-		used += add
-	}
-	if len(line) > 0 {
-		rows = append(rows, line)
-	}
-	// Balance the last row with the one before it, so that a ring does
-	// not sit alone under a full row.
-	if n := len(rows); n > 1 && len(rows[n-1]) == 1 && len(rows[n-2]) >= 3 {
-		prev := rows[n-2]
-		moved := prev[len(prev)-1]
-		rows[n-2] = prev[:len(prev)-1]
-		rows[n-1] = append([]int{moved}, rows[n-1]...)
-	}
-	if len(rows) > 2 {
-		return [][]int{all}, false
-	}
-	return rows, true
-}
-
-// usageHarness is one ring and, where there is room for it, its name, in
-// width DIPs, a click opening the modal. Its card stays while the pointer
-// goes from the ring to the card.
-func (a *App) usageHarness(c *ui.Context, pal *palette, r usage.Report, width float32, named bool) ui.Element {
+func (a *App) usageRow(c *ui.Context, pal *palette, r usage.Report) ui.Element {
 	key := "usage-" + r.ID
-	summary := usageSummary(r, a.usage.loading)
-	item := ui.ButtonBase(c.Key(key)).Width(width).MinWidth(0).Height(28).Padding(0, usageItemPad/2).Radius(5).
-		Label(r.Name + " usage").Description(a.tip(summary+" · Click for details", "usage.open"))
-	if item.Hovered() {
-		item.Background(pal.rowHover)
+	row := ui.ButtonBase(c.Key(key)).Height(25).Padding(0, 8).Radius(5).
+		Label(r.Name + " usage").Description(usageSummary(r, a.usage.loading))
+	if row.Hovered() {
+		row.Background(pal.rowHover)
 	}
-	// The harness whose card shows stands out: its name in the text's
-	// color and heavier, its ring's track darker.
-	hot := item.Hovered() || a.usage.hover == r.ID
-	item.Children(func() {
-		ui.Row(c).Fill().AlignItems(ui.Center).Gap(usageNameGap).Children(func() {
-			usageRing(c, pal, r, a.usage.loading, hot)
-			// A name with no room would show only an ellipsis: let the ring
-			// speak there, and the card on hover.
-			if named && width-usageRingSize-usageNameGap-usageItemPad >= 16 {
-				name := ui.Text(c, r.Name).FontSize(11.5).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
-				if hot {
-					name.TextColor(pal.text).FontWeight(600)
-				}
+	row.Children(func() {
+		ui.Row(c).Fill().AlignItems(ui.Center).Gap(6).Children(func() {
+			ui.Text(c, r.Name).FontSize(11.5).TextColor(pal.textMuted).SingleLine().Shrink(0)
+			ui.Spacer(c)
+			ui.Text(c, usageFooterSummary(r, a.usage.loading)).FontSize(11).TextColor(usageColor(r, pal)).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+			if r.Error != "" && !r.Checked.IsZero() {
+				ui.Row(c).Size(10, 10).Shrink(0).Label(locales.UsageStale()).Tooltip(locales.UsageStale()).Children(func() {
+					symbolMark(c, "exclamationmark.circle.fill", 10, pal.attention, pal.dark)
+				})
 			}
 		})
 	})
-	if item.Clicked() {
+	if row.Clicked() {
 		a.openUsage()
 	}
-	over := item.Hovered() || a.usage.hover == r.ID && a.usage.cardOver
+	over := row.Hovered() || a.usage.hover == r.ID && a.usage.cardOver
 	stays := a.hoverIntent(c, key, over)
 	switch {
-	case item.Hovered():
+	case row.Hovered():
 		a.usage.hover = r.ID
 	case a.usage.hover == r.ID && !stays:
 		a.usage.hover, a.usage.cardOver = "", false
 	}
-	return item
-}
-
-// usageMark is what a harness's ring shows.
-type usageMark uint8
-
-const (
-	// markUsage is the first allowance as the arc, the track alone at 0%
-	// or while the first read is under way.
-	markUsage usageMark = iota
-	// markBalance is a balance, with no allowance to draw: a currency's
-	// sign in the track.
-	markBalance
-	// markUnconnected is a harness with no sign-in to read: a dashed track.
-	markUnconnected
-)
-
-// usageMarkOf is the mark r's ring shows, and whether an amber dot marks
-// it: a refresh failed, so the arc is the last known usage, or there is
-// none yet for another reason than a sign-in. A harness not connected
-// stays so through a refresh; loading only matters to one never read.
-func usageMarkOf(r usage.Report, loading bool) (usageMark, bool) {
-	stale := r.Error != ""
-	switch {
-	case r.Balance != "" && len(r.Windows) == 0:
-		return markBalance, stale
-	case r.Checked.IsZero() && (r.Error == "Not connected" || r.Error == "Sign in again"):
-		return markUnconnected, false
-	case r.Checked.IsZero() && r.Error == "" && !loading:
-		return markUnconnected, false
-	}
-	return markUsage, stale
-}
-
-// usageRing is a harness's first allowance as a ring: the track faint, the
-// arc in the text's color, and amber once any window reaches 90%; a
-// balance's currency sign, or a dashed track for a harness not connected;
-// and an amber dot where a refresh failed. hot darkens the track, for the
-// harness whose card shows.
-func usageRing(c *ui.Context, pal *palette, r usage.Report, loading, hot bool) {
-	mark, dot := usageMarkOf(r, loading)
-	used := float32(0)
-	alert := false
-	if len(r.Windows) > 0 && !r.Checked.IsZero() {
-		used = float32(max(0, min(100, r.Windows[0].Used)))
-	}
-	for _, w := range r.Windows {
-		if w.Used >= 90 {
-			alert = true
-		}
-	}
-	trackInk := pal.text.Alpha(0.13)
-	if hot {
-		trackInk = pal.text.Alpha(0.26)
-	}
-	box := ui.Box(c).Size(usageRingSize, usageRingSize).Shrink(0)
-	if mark == markBalance {
-		sign := "$"
-		if strings.HasPrefix(r.Balance, "CNY") {
-			sign = "¥"
-		}
-		box.Center().Children(func() {
-			ui.Text(c, sign).FontSize(10.5).FontWeight(600).TextColor(pal.textMuted).SingleLine()
-		})
-	}
-	box.Draw(func(p *ui.Painter, rect ui.Rect) {
-		cx, cy := rect.X+rect.W/2, rect.Y+rect.H/2
-		rad := min(rect.W, rect.H)/2 - 1.5
-		if dot {
-			// Drawn last, over the ring's top right.
-			defer func() {
-				var d ui.Path
-				d.Circle(rect.X+rect.W-3.5, rect.Y+3.5, 2.5)
-				p.FillPath(&d, pal.attention)
-			}()
-		}
-		if mark == markUnconnected {
-			// Eight dashes round a fainter track: nothing to read yet.
-			const dashes = 8
-			for i := range dashes {
-				p.Transform(ui.Rotation(float32(i)*360/dashes), cx, cy, func() {
-					var dash ui.Path
-					dash.Circle(cx, cy, rad)
-					p.StrokePath(dash.Trim(0, 0.5/dashes), 1.5, trackInk)
-				})
-			}
-			return
-		}
-		var track ui.Path
-		track.Circle(cx, cy, rad)
-		p.StrokePath(&track, 2, trackInk)
-		if used <= 0 || mark != markUsage {
-			return
-		}
-		arc := pal.text
-		if alert {
-			arc = pal.attention
-		}
-		// From the top, clockwise: the circle starts at 3 o'clock.
-		p.Transform(ui.Rotation(-90), cx, cy, func() {
-			var path ui.Path
-			path.Circle(cx, cy, rad)
-			p.StrokePath(path.Trim(0, max(0.02, used/100)), 2, arc)
-		})
-	})
+	return row
 }
 
 // usagePlan is a plan's name as the card and the modal show it: the
@@ -396,11 +217,11 @@ func usageWindow(label string) string {
 	return label
 }
 
-// usageHover shows a harness's full card above its ring: the plan, each
+// usageHover shows a provider's full card above its row: the plan, each
 // window with its reset, a balance, or why it is not connected.
 func (a *App) usageHover(c *ui.Context, pal *palette, r usage.Report, anchor ui.Element) {
 	ui.Overlay(c, func() {
-		card := ui.Column(c.Key("usage-hover")).Width(240).Padding(11, 12).Gap(7).Radius(10).Background(pal.popover)
+		card := ui.Column(c.Key("usage-hover")).Width(232).Padding(14, 14).Gap(6).Radius(12).Background(pal.popover)
 		if pal.dark {
 			floating(card, pal)
 		} else {
@@ -410,32 +231,43 @@ func (a *App) usageHover(c *ui.Context, pal *palette, r usage.Report, anchor ui.
 		a.usage.cardOver = card.Hovered()
 		card.Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
-				ui.Text(c, r.Name).FontSize(13).FontWeight(600).TextColor(pal.text).SingleLine().Shrink(0)
+				ui.Text(c, r.Name).FontSize(14).FontWeight(600).TextColor(pal.text).SingleLine().Shrink(0)
 				ui.Spacer(c)
 				if r.Plan != "" {
-					ui.Text(c, usagePlan(r.Plan)).FontSize(11).TextColor(pal.textFaint).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+					ui.Text(c, usagePlan(r.Plan)).FontSize(12).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
 				}
 			})
+			var resetWidth float32
+			for _, w := range r.Windows {
+				if !w.Resets.IsZero() {
+					width, _ := c.MeasureText(0, ui.Span{Text: "· " + usageReset(w.Resets), Size: 12})
+					resetWidth = max(resetWidth, width)
+				}
+			}
 			for i, w := range r.Windows {
 				ui.Row(c.Key(fmt.Sprint(i))).AlignItems(ui.Center).Gap(4).Children(func() {
-					ui.Text(c, usageWindow(w.Label)).FontSize(11).TextColor(pal.textMuted).SingleLine().Shrink(0)
+					ui.Text(c, usageWindow(w.Label)).FontSize(12.5).TextColor(pal.textMuted).SingleLine().Shrink(0)
 					ui.Spacer(c)
-					ui.Text(c, fmt.Sprintf("%.0f%%", w.Used)).FontSize(11.5).FontWeight(600).TextColor(pal.text).Shrink(0)
-					if !w.Resets.IsZero() {
-						ui.Text(c, "· "+usageReset(w.Resets)).FontSize(11).TextColor(pal.textFaint).SingleLine().Shrink(0)
+					ui.Text(c, fmt.Sprintf("%.0f%%", w.Used)).Width(38).FontSize(13).FontWeight(600).TextColor(pal.text).SingleLine().Shrink(0)
+					if resetWidth > 0 {
+						reset := ""
+						if !w.Resets.IsZero() {
+							reset = "· " + usageReset(w.Resets)
+						}
+						ui.Text(c, reset).Width(resetWidth).FontSize(12).TextColor(pal.textMuted).SingleLine().Shrink(0)
 					}
 				})
 			}
 			if r.Balance != "" {
-				ui.Text(c, r.Balance+" remaining").FontSize(12).TextColor(pal.text)
+				ui.Text(c, locales.UsageBalanceRemaining(r.Balance)).FontSize(12).TextColor(pal.text)
 			}
 			switch {
 			case r.Error != "" && !r.Checked.IsZero():
 				// What shows is the last read that worked.
-				ui.Text(c, locales.UsageStale()).FontSize(11).TextColor(pal.attention).SingleLine().Ellipsis("…")
+				ui.Text(c, locales.UsageStale()).FontSize(11).TextColor(pal.textMuted).SingleLine().Ellipsis("…")
 				ui.Text(c, r.Error).FontSize(11).TextColor(pal.textFaint).SingleLine().Ellipsis("…")
 			case r.Error != "":
-				ui.Text(c, r.Error).FontSize(11).TextColor(pal.attention).SingleLine().Ellipsis("…")
+				ui.Text(c, r.Error).FontSize(11).TextColor(pal.textMuted).SingleLine().Ellipsis("…")
 			case r.Checked.IsZero():
 				ui.Text(c, usageSummary(r, a.usage.loading)).FontSize(11).TextColor(pal.textMuted)
 			}
@@ -488,7 +320,7 @@ func (a *App) usageModal(c *ui.Context, pal *palette) {
 	w, h := c.Size()
 	ui.DialogBase(c.Key("usage-modal"), &a.usage.open, func(backdrop, panel ui.Element) {
 		backdrop.Background(pal.overlay)
-		floating(panel.Width(min(640, w-32)).Height(min(720, h-40)).Radius(14).Background(pal.popover), pal).Clip().Label("Account usage")
+		floating(panel.Width(min(640, w-32)).Height(min(720, h-40)).Radius(14).Background(pal.popover), pal).Clip().Label(locales.UsageAccountTitle())
 		if panel.OverlayShortcut(ui.Cmd, ui.KeyR) {
 			a.refreshUsage()
 		}
@@ -502,7 +334,7 @@ func (a *App) usageModal(c *ui.Context, pal *palette) {
 func (a *App) usageContent(c *ui.Context, pal *palette) {
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).Height(64).Shrink(0).Padding(12, 20, 0, 24).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "Account usage").FontSize(20).Bold().TextColor(pal.text)
+			ui.Text(c, locales.UsageAccountTitle()).FontSize(20).Bold().TextColor(pal.text)
 			ui.Spacer(c)
 			label := "Refresh"
 			if a.usage.loading {
@@ -570,7 +402,7 @@ func (a *App) usageCard(c *ui.Context, pal *palette, r usage.Report) {
 			})
 		}
 		if r.Balance != "" {
-			ui.Text(c, r.Balance+" remaining").FontSize(16).TextColor(pal.text)
+			ui.Text(c, locales.UsageBalanceRemaining(r.Balance)).FontSize(16).TextColor(pal.text)
 		}
 		if r.Error != "" {
 			ui.Text(c, r.Error).FontSize(12).TextColor(pal.attention)

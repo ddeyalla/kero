@@ -104,6 +104,9 @@ func b2f(b bool) float32 {
 }
 
 func (a *App) view(c *ui.Context) {
+	for _, e := range a.terms {
+		e.shown = false
+	}
 	pal := a.paletteFor(c)
 	c.SetTheme(borderless(c, pal))
 	// Every plugin pane this frame draws marks itself: the rest are
@@ -168,6 +171,13 @@ func (a *App) view(c *ui.Context) {
 		}
 		c.Invalidate()
 	}
+	// Apply the completed composition once, without toggling terminals
+	// that remain visible from one frame to the next.
+	for _, e := range a.terms {
+		if e.term != nil {
+			e.term.SetVisible(e.shown)
+		}
+	}
 }
 
 // resizeHandle is the sidebar's edge, which a drag moves.
@@ -198,7 +208,11 @@ func iconButton(c *ui.Context, key string, svg *ui.SVG, label string, pal *palet
 		b.Background(pal.rowHover)
 		b.TextColor(pal.text)
 	}
-	b.Children(func() { ui.Icon(c, svg).Size(16, 16) })
+	tint := pal.textMuted
+	if b.Hovered() {
+		tint = pal.text
+	}
+	b.Children(func() { controlIcon(c, svg, 16, tint, pal.dark) })
 	if b.Clicked() {
 		fn()
 	}
@@ -303,18 +317,20 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 	// The first row starts 30 below the lights' line, as it did under the
 	// taller bar, and the rows' left edge lines up with the close light's,
 	// 12 in, as the sidebar's footer does.
-	ui.Scroll(c.Key("sessions")).Grow(1).Padding(10, 12, 16, 12).Children(func() {
-		if !a.loaded {
-			return
-		}
-		a.pinNav(c, pal)
-		n := 0 // the rows shown, for ⌘1–9 (Ctrl+1–9 elsewhere)
-		for gi, g := range a.groups() {
-			a.groupView(c, pal, g, gi, &n)
-		}
-		if len(a.st.Sessions) == 0 && a.conn == connReady {
-			ui.Text(c, locales.SidebarNoSessions()).FontSize(12.5).TextColor(pal.textFaint).Padding(8, 10)
-		}
+	scrollUnderBar(c, "sessions", &a.sidebarScroll, pal.sidebar, func(list ui.Element) {
+		list.Padding(10, 12, 16, 12).Children(func() {
+			if !a.loaded {
+				return
+			}
+			a.pinNav(c, pal)
+			n := 0 // the rows shown, for ⌘1–9 (Ctrl+1–9 elsewhere)
+			for gi, g := range a.groups() {
+				a.groupView(c, pal, g, gi, &n)
+			}
+			if len(a.st.Sessions) == 0 && a.conn == connReady {
+				ui.Text(c, locales.SidebarNoSessions()).FontSize(12.5).TextColor(pal.textFaint).Padding(8, 10)
+			}
+		})
 	})
 	a.usageSidebar(c, pal)
 	a.resourceSidebar(c, pal)
@@ -327,6 +343,12 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 }
 
 func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
+	group := ui.Column(c.Key("group-" + g.project.ID)).Shrink(0).Transition(headerTransition)
+	a.projectGroupDrag(pal, group, g.project.ID)
+	group.Children(func() { a.projectGroupRows(c, pal, g, gi, n) })
+}
+
+func (a *App) projectGroupRows(c *ui.Context, pal *palette, g group, gi int, n *int) {
 	id := g.project.ID
 	collapsed := a.prefs.Collapsed[id]
 	needs := 0
@@ -347,6 +369,13 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 		Transition(headerTransition)
 	hovered := a.hoverIntent(c, "project-"+id, hdr.Hovered())
 	renaming := id != "" && a.renamingProject == id
+	if !renaming && id != "" && a.conn == connReady {
+		hdr.Drag(projectDrag{id}).Cursor(ui.CursorGrab)
+		sidebarDragSource(c, hdr, pal)
+		if hdr.Dragging() {
+			hovered = false
+		}
+	}
 	if hdr.Clicked() && !renaming {
 		a.toggleProject(id)
 	}
@@ -362,6 +391,7 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 		if m.Item(label).Chosen() {
 			a.toggleProject(id)
 		}
+		a.projectOrderMenu(m, &g.project)
 		if m.Item(locales.SessionRename()).Disabled(id == "").Chosen() {
 			a.startProjectRename(id)
 		}
@@ -394,7 +424,7 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 		}
 		ui.Text(c, g.project.Name).FontSize(12.5).FontWeight(600).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
 		ui.Textf(c, "%d", len(g.sessions)).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum").Shrink(0)
-		chev := ui.Icon(c, chevronIcon).Size(11, 11).TextColor(pal.textFaint)
+		chev := controlIcon(c, chevronIcon, 11, pal.textFaint, pal.dark)
 		turn := chev.AnimateTo("turn", 90*(1-b2f(collapsed)), row)
 		chev.Rotate(turn).Opacity(chev.Animate("shown", b2f(hovered || collapsed), hover.Duration))
 		ui.Spacer(c)
@@ -407,10 +437,12 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 			ui.Box(c).Size(20, 20).Shrink(0)
 		} else {
 			b := ui.ButtonBase(c.Key("add")).Size(20, 20).Radius(5).Center().TextColor(pal.textMuted).Label(locales.NewSessionIn(g.project.Name)).Tooltip(locales.ActionNewSession())
+			tint := pal.textMuted
 			if b.Hovered() {
 				b.Background(pal.rowHover).TextColor(pal.text)
+				tint = pal.text
 			}
-			b.Children(func() { ui.Icon(c, plusIcon).Size(13, 13) })
+			b.Children(func() { controlIcon(c, plusIcon, 13, tint, pal.dark) })
 			if b.Clicked() {
 				a.newSession(id)
 			}
@@ -454,7 +486,8 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 		bg = pal.rowHover
 	}
 	row.Background(row.AnimateColor("bg", bg, hover))
-	if (row.Pressed() || row.Clicked()) && !selected {
+	dropOver := a.sessionDrag(c, pal, row, s)
+	if row.Clicked() && !selected {
 		a.selectSession(s.ID)
 	}
 	if row.DoubleClicked() {
@@ -470,39 +503,48 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 	pointerTooltip(c, row, "tip-"+s.ID, tip)
 	row.ContextMenu(func(m *ui.Menu) { a.sessionMenu(m, s) })
 	row.Children(func() {
-		if a.renaming == s.ID {
-			in := ui.TextInputBase(c.Key("rename"), &a.renameBuf).Grow(1).MinWidth(0).FontSize(13.5).AutoFocus()
-			if in.Submitted() || in.Shortcut(0, ui.KeyEscape) {
-				if in.Shortcut(0, ui.KeyEscape) {
-					a.renaming = ""
-					a.focusTerminal()
-				} else {
+		content := ui.Row(c.Key("session-content")).Grow(1).MinWidth(0).Gap(10).AlignItems(ui.Center)
+		if dropOver {
+			content.Opacity(0.15)
+		}
+		content.Children(func() {
+			if a.renaming == s.ID {
+				in := ui.TextInputBase(c.Key("rename"), &a.renameBuf).Grow(1).MinWidth(0).FontSize(13.5).AutoFocus()
+				if in.Submitted() || in.Shortcut(0, ui.KeyEscape) {
+					if in.Shortcut(0, ui.KeyEscape) {
+						a.renaming = ""
+						a.focusTerminal()
+					} else {
+						a.commitRename()
+					}
+				} else if !in.Focused() && !in.Pressed() && in.Valid() && a.renameStarted(c) {
 					a.commitRename()
 				}
-			} else if !in.Focused() && !in.Pressed() && in.Valid() && a.renameStarted(c) {
-				a.commitRename()
+				return
 			}
-			return
-		}
-		// The title's mark (title_marks.go) keeps its place at the head;
-		// the title gives way to the time and the status glyph.
-		ui.Row(c).Grow(1).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
-			titleMarkView(c, pal, titleMark(s, a.st.Linear))
-			name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13.5).SingleLine().Ellipsis("…").Grow(1).MinWidth(0).TextColor(pal.text)
-			if s.Unread {
-				name.FontWeight(650)
+			// The title's mark (title_marks.go) keeps its place at the head;
+			// the title gives way to the time and the status glyph.
+			ui.Row(c).Grow(1).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
+				if a.prefs.SessionPins[s.ID] {
+					symbolMark(c, "pin.fill", 11, pal.textMuted, pal.dark)
+				}
+				titleMarkView(c, pal, titleMark(s, a.st.Linear))
+				name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13.5).SingleLine().Ellipsis("…").Grow(1).MinWidth(0).TextColor(pal.text)
+				if s.Unread {
+					name.FontWeight(650)
+				}
+				if inactive(s.Status, s.Unread, s.Since, c.Now()) {
+					name.TextColor(pal.textMuted)
+				}
+			})
+			cmd := c.Modifiers() == ui.Cmd
+			if cmd && index <= 9 {
+				ui.Text(c, actions.Glyphs(fmt.Sprintf("CmdOrCtrl+%d", index))).FontSize(12).TextColor(pal.textMuted).FontFeatures("tnum").SingleLine()
+			} else {
+				ui.Text(c, ago(s.Since, c.Now())).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine()
 			}
-			if inactive(s.Status, s.Unread, s.Since, c.Now()) {
-				name.TextColor(pal.textMuted)
-			}
+			statusIconP(c, pal, s.Status, s.Unread, s.Progress, s.Since, 15)
 		})
-		cmd := c.Modifiers() == ui.Cmd
-		if cmd && index <= 9 {
-			ui.Text(c, actions.Glyphs(fmt.Sprintf("CmdOrCtrl+%d", index))).FontSize(12).TextColor(pal.textMuted).FontFeatures("tnum").SingleLine()
-		} else {
-			ui.Text(c, ago(s.Since, c.Now())).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine()
-		}
-		statusIconP(c, pal, s.Status, s.Unread, s.Progress, s.Since, 15)
 	})
 }
 
@@ -519,6 +561,8 @@ func (a *App) renameStarted(c *ui.Context) bool {
 
 func (a *App) sessionMenu(m *ui.Menu, s *proto.Session) {
 	id := s.ID
+	a.sessionOrderMenu(m, s)
+	m.Separator()
 	if a.menuShortcut(m.Item(locales.SessionRename()), "session.rename").Chosen() {
 		a.startRename(id)
 	}
@@ -569,11 +613,6 @@ func (a *App) sidebarFooter(c *ui.Context, pal *palette) {
 		iconButton(c, "open-project", folderIcon, a.tip(locales.ActionOpenProject(), "project.open"), pal, a.openProject)
 		iconButton(c, "palette", searchIcon, a.tip(locales.ActionGoToSession(), "palette.open"), pal, a.openPalette)
 		iconButton(c, "settings", gearIcon, a.tip(locales.SettingsTitle(), "settings.open"), pal, func() { a.openSettings("") })
-		updateTip := "Update Shibu from Kero"
-		if a.maintenance.status != "" {
-			updateTip += " · " + a.maintenance.status
-		}
-		iconButton(c, "source-update", updateIcon, updateTip, pal, func() { a.startSourceUpdate() })
 		ui.Spacer(c)
 		switch a.conn {
 		case connReady:
@@ -898,7 +937,7 @@ func (a *App) message(c *ui.Context, pal *palette, title, detail, action string,
 func (a *App) emptyState(c *ui.Context, pal *palette) {
 	ui.Column(c).Fill().Center().Gap(0).Padding(24).Children(func() {
 		ui.Box(c).Size(52, 52).Radius(14).Center().Background(pal.chip).TextColor(pal.textMuted).Margin(0, 0, 18, 0).Children(func() {
-			ui.Icon(c, terminalIcon).Size(26, 26)
+			controlIcon(c, terminalIcon, 26, pal.textMuted, pal.dark)
 		})
 		ui.Text(c, locales.EmptyTitle()).FontSize(19).FontWeight(650).TextColor(pal.text)
 		ui.Text(c, locales.EmptyDetail()).

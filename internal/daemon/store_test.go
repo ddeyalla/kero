@@ -140,6 +140,108 @@ func TestRestoreKeepsStatus(t *testing.T) {
 	}
 }
 
+// A profile is saved in the same single write as the rest of the state,
+// and comes back with the restore; references to what is gone load
+// fine, a state file of before, without the profile fields, loads as it
+// always did, and the current state version stays unchanged.
+func TestProfileStateRoundTrip(t *testing.T) {
+	d := linearTestDaemon(t)
+	d.sessions, d.panes = nil, map[string]*pane{}
+	s, err := d.create(proto.CreateParams{View: proto.PaneFiles, Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The first profile names the live project and session, and one of
+	// each that is gone: a thin bundle loads whatever its members do.
+	d.profiles = []savedProfile{
+		{ID: "coding", Name: "Coding", Accent: "plum", Background: "rex",
+			Projects: []string{s.Project, "gone-project"}, Sessions: []string{s.ID, "gone-session"},
+			EnvRef: "dev", CreatedAt: 1700000000000, LastUsed: 1700000001000},
+		{ID: "hiring", Name: "Hiring", Accent: "sea"},
+	}
+	d.activeProfile = "coding"
+	d.saveState()
+	data, err := os.ReadFile(d.statePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved savedState
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Version != stateVersion {
+		t.Fatalf("version %d, want current stateVersion", saved.Version)
+	}
+	if saved.ActiveProfile != "coding" || len(saved.Profiles) != 2 {
+		t.Fatalf("saved: active %q, %+v", saved.ActiveProfile, saved.Profiles)
+	}
+	got := saved.Profiles[0]
+	if got.Name != "Coding" || got.Accent != "plum" || got.Background != "rex" ||
+		len(got.Projects) != 2 || got.Projects[0] != s.Project ||
+		len(got.Sessions) != 2 || got.Sessions[0] != s.ID ||
+		got.EnvRef != "dev" || got.CreatedAt != 1700000000000 || got.LastUsed != 1700000001000 {
+		t.Fatalf("first profile saved as %+v", got)
+	}
+
+	// A restore brings the session and the profiles back, the stale
+	// references included: loading them is not applying them.
+	d2 := linearTestDaemon(t)
+	d2.dir = d.dir
+	d2.sessions, d2.panes = nil, map[string]*pane{}
+	restoreAll(t, d2)
+	if len(d2.sessions) != 1 || len(d2.sessions[0].panes) != 1 || d2.sessions[0].panes[0].info.View != proto.PaneFiles {
+		t.Fatalf("restored sessions: %+v", d2.sessions)
+	}
+	if d2.activeProfile != "coding" || len(d2.profiles) != 2 || d2.profiles[0].Name != "Coding" {
+		t.Fatalf("restored: active %q, %+v", d2.activeProfile, d2.profiles)
+	}
+	t.Run("session restore disabled", func(t *testing.T) {
+		d4 := linearTestDaemon(t)
+		d4.dir = d.dir
+		d4.sessions, d4.panes = nil, map[string]*pane{}
+		if err := os.WriteFile(os.Getenv("KERO_CONFIG"), []byte("restore-sessions = false\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		restoreAll(t, d4)
+		if len(d4.sessions) != 0 || d4.activeProfile != "coding" || len(d4.profiles) != 2 {
+			t.Fatalf("disabled session restore lost profiles: sessions=%d active=%q profiles=%+v", len(d4.sessions), d4.activeProfile, d4.profiles)
+		}
+		d4.saveState()
+		data, err := os.ReadFile(d4.statePath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var saved savedState
+		if err := json.Unmarshal(data, &saved); err != nil || saved.ActiveProfile != "coding" || len(saved.Profiles) != 2 {
+			t.Fatalf("profile save after disabled restore: %+v, %v", saved, err)
+		}
+	})
+
+	// A state file of before has no profile fields, and loads as it
+	// always did, with none active.
+	old := `{"version":2,"projects":[],"saved":1700000000000,"sessions":[]}`
+	d3 := linearTestDaemon(t)
+	d3.sessions, d3.panes = nil, map[string]*pane{}
+	if err := os.WriteFile(filepath.Join(d3.dir, "state.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restoreAll(t, d3)
+	if len(d3.profiles) != 0 || d3.activeProfile != "" {
+		t.Fatalf("an old file came back with profiles: active %q, %+v", d3.activeProfile, d3.profiles)
+	}
+	// And what it saves again is still the current state version, with no profile key to
+	// save, a file a daemon of before reads past.
+	d3.saveState()
+	data, _ = os.ReadFile(d3.statePath())
+	if strings.Contains(string(data), `"profiles"`) || strings.Contains(string(data), `"activeProfile"`) {
+		t.Fatalf("an old file's save grew profile keys: %s", data)
+	}
+	var again savedState
+	if err := json.Unmarshal(data, &again); err != nil || again.Version != stateVersion {
+		t.Fatalf("the save of an old load: version %d, err %v", again.Version, err)
+	}
+}
+
 func quote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
@@ -221,5 +323,50 @@ func TestRestoreKeepsSummary(t *testing.T) {
 	p2.mu.Unlock()
 	if restored != "Wrapped" || pa.State != attentionUnread || pa.Msg != "Wrapped" {
 		t.Fatalf("the words of the end: %q / %+v", restored, pa)
+	}
+}
+
+// A pane saved while it worked or waited comes back as an unread end of
+// no words, not as a finished turn that reads "Working · 30%": the
+// summary is saved only of an unread end, and a state file that holds
+// another is not believed (BRU-259).
+func TestRestoreDropsSummaryOfWorkAndWait(t *testing.T) {
+	for _, status := range []string{"working", "waiting"} {
+		t.Run(status, func(t *testing.T) {
+			dir := t.TempDir()
+			saved := `{"version":2,"projects":[],"saved":1700000000000,"sessions":[{"id":"s1","project":"","created":1700000000000,
+				"panes":[{"id":"t1","dir":` + quote(dir) + `,"created":1700000000000,"cols":80,"rows":24,"status":"` + status +
+				`","since":1700000000000,"summary":"Working · 30%"}]}]}`
+			d := linearTestDaemon(t)
+			d.sessions, d.panes = nil, map[string]*pane{}
+			if err := os.WriteFile(filepath.Join(d.dir, "state.json"), []byte(saved), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			restoreAll(t, d)
+			if len(d.sessions) != 1 || len(d.sessions[0].panes) != 1 {
+				t.Fatalf("the restore made no pane: %+v", d.sessions)
+			}
+			p := d.sessions[0].panes[0]
+			t.Cleanup(func() { p.close() })
+			p.mu.Lock()
+			pa := paneAttention(p)
+			p.mu.Unlock()
+			if pa.State != attentionUnread || pa.Msg != "Turn ended" {
+				t.Fatalf("a saved %s came back as %+v; want an unread end of no words", status, pa)
+			}
+		})
+	}
+
+	// And a pane that works says nothing of an end when it is saved.
+	p := testPane(t)
+	p.mu.Lock()
+	p.info.Status, p.info.Progress = proto.Working, 30
+	got := savedSummary(p)
+	p.info.Status, p.info.Progress = proto.Waiting, -1
+	p.info.Message = "Needs permission"
+	gotWait := savedSummary(p)
+	p.mu.Unlock()
+	if got != "" || gotWait != "" {
+		t.Fatalf("saved summaries of work %q and wait %q; want none", got, gotWait)
 	}
 }

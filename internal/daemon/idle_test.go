@@ -171,6 +171,61 @@ func TestBranchTickFollowsHead(t *testing.T) {
 	}
 }
 
+// A branch switched by another process is noticed even after every pane
+// went quiet. The expensive pane tick may sleep for ten seconds.
+func TestQuietBranchSwitch(t *testing.T) {
+	d := linearTestDaemon(t)
+	d.quit, d.tickWake = make(chan struct{}), make(chan struct{}, 1)
+	d.viewed.Store(new(string))
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	head := filepath.Join(repo, ".git", "HEAD")
+	if err := os.WriteFile(head, []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := d.panes["p"]
+	p.info.Agent, p.info.Dir, p.info.AgentSession = "codex", repo, nil
+	d.branchTick(time.Now())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		d.tickLoopWith(tickPace{5 * time.Millisecond, time.Hour, 20 * time.Millisecond})
+	}()
+	t.Cleanup(func() { d.stop(); <-done })
+	deadline := time.Now().Add(time.Second)
+	for !d.tickSlow.Load() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !d.tickSlow.Load() {
+		t.Fatal("pane tick did not become quiet")
+	}
+	if err := os.WriteFile(head+".lock", []byte("ref: refs/heads/dv/bru-25-task\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A coarse-resolution filesystem may otherwise give both writes the
+	// same timestamp even though the atomic replacement is a checkout.
+	later := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(head+".lock", later, later); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(head+".lock", head); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		p.mu.Lock()
+		linked := p.info.TaskID == "uuid"
+		p.mu.Unlock()
+		if linked {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("a branch switched outside a quiet pane was not noticed within two seconds")
+}
+
 // The tick goes slow once nothing has happened for a while, and fast
 // again as soon as something does (BRU-336).
 func TestTickPace(t *testing.T) {

@@ -303,6 +303,14 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 			return nil, err
 		}
 		d.mu.Lock()
+		if ref := p.Args["session"]; p.Action == "session.attention" && ref != "" {
+			s := d.findSessionLocked(ref)
+			if s == nil {
+				d.mu.Unlock()
+				return nil, fmt.Errorf("no session %q", ref)
+			}
+			p.Args["session"] = s.id
+		}
 		for sub := range d.subs {
 			sub.event(proto.Message{Event: "action", Action: p.Action, Args: p.Args})
 		}

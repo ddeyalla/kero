@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -69,8 +70,6 @@ func paneInfo(p *pane) proto.Pane {
 // applied what it read.
 func runScan(t *testing.T, p *pane, now time.Time) bool {
 	t.Helper()
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	return p.scanTranscript(now)
 }
 
@@ -449,7 +448,7 @@ func TestTailLinesKeepsWholeLines(t *testing.T) {
 		{"an empty file says nothing", empty, 20, ""},
 		{"no file at all says nothing", filepath.Join(dir, "none"), 20, ""},
 	} {
-		if got := tailLines(c.path, c.n); string(got) != c.want {
+		if got, _ := tailLines(c.path, c.n); string(got) != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
@@ -459,6 +458,7 @@ func TestTailLinesKeepsWholeLines(t *testing.T) {
 // the session's id as a file name; an id of no file shape, or an agent
 // of no two, is no file.
 func TestScanToTheFile(t *testing.T) {
+	t.Setenv("CODEX_HOME", "")
 	t.Setenv("HOME", t.TempDir())
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -766,4 +766,262 @@ func TestScanClaimsAWaitOfCodex(t *testing.T) {
 	runScanIs(t, p, late, true)
 	claimState(t, p, proto.Waiting, true, "Waiting on shell")
 	claimRecord(t, p, "blocked")
+}
+
+// Passes run beside the pane's output, its hooks and its calls without
+// holding its lock across the reads: this runs them all at once, for
+// the race detector to say whether the pane's fields are touched with
+// no lock (BRU-258), and the status's wake closed twice.
+func TestScanPassRacesNothing(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	p, path := claimPane(t, "claude")
+	scanFakeProc(p)
+	d := p.d
+	d.panes = map[string]*pane{p.info.ID: p}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	spin := func(fn func(i int)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+					fn(i)
+				}
+			}
+		}()
+	}
+	// The transcript changes under the passes, between work and an end.
+	spin(func(i int) {
+		if i%2 == 0 {
+			scanBurn(t, path, clA(ts, "Thinking it over…"))
+		} else {
+			scanBurn(t, path, clA(ts, "Done."), clS(ts, "turn_duration"))
+		}
+		time.Sleep(time.Millisecond)
+	})
+	// Two passes overlap, as the start's and the tick's can; a pass
+	// straight on the pane too.
+	spin(func(int) { d.scanPass(scanBase) })
+	spin(func(int) { p.scanTranscript(scanBase) })
+	// The program and its hooks speak, the user types.
+	spin(func(i int) {
+		p.mu.Lock()
+		p.applySoft(proto.Record{ID: "claude", State: []string{"working", "blocked", "clear"}[i%3], App: "claude", Progress: -1})
+		p.mu.Unlock()
+	})
+	spin(func(int) { p.input(nil) })
+	spin(func(int) { p.show("output") })
+
+	time.Sleep(300 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+}
+
+// Two turns that end on the same last line are two ends, each told to
+// a pane the user has not seen, with the user's key between them; and
+// an end the user has read is not told again (BRU-260).
+func TestScanTellsTwoEndsOfTheSameWords(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	p, path := claimPane(t, "claude")
+	unread := func() {
+		p.mu.Lock()
+		p.info.Unread = true
+		p.mu.Unlock()
+	}
+	unread()
+	scanBurn(t, path, clA(ts, "Done."), clS(ts, "turn_duration"))
+	runScanIs(t, p, scanBase, true)
+	claimState(t, p, proto.Idle, true, "Done.")
+
+	// The key: the end is dismissed, and read.
+	p.input(nil)
+	claimRecord(t, p, "")
+	runScanIs(t, p, scanBase, false)
+
+	// The next turn ends on the same words, before a pass saw it run.
+	scanBurn(t, path, clA(ts, "Done."), clS(ts, "turn_duration"), clU(ts, "go on", false), clA(ts, "Done."), clS(ts, "turn_duration"))
+	runScanIs(t, p, scanBase, false) // seen: no news
+	unread()
+	runScanIs(t, p, scanBase, true)
+	claimState(t, p, proto.Idle, true, "Done.")
+	claimRecord(t, p, "done")
+
+	// And once more, when a pass saw the turn between: user, work, end.
+	p.input(nil)
+	scanBurn(t, path, clA(ts, "Done."), clS(ts, "turn_duration"), clU(ts, "again", false))
+	runScanIs(t, p, scanBase, false)
+	scanBurn(t, path, clA(ts, "Done."), clS(ts, "turn_duration"), clU(ts, "again", false), clA(ts, "Done."), clS(ts, "turn_duration"))
+	unread()
+	runScanIs(t, p, scanBase, true)
+	claimState(t, p, proto.Idle, true, "Done.")
+}
+
+// Work the scan itself said of ends with the scan's own end of it, of a
+// pane no other signal marked (BRU-263).
+func TestScanEndsItsOwnWork(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	p, path := claimPane(t, "claude")
+	scanFakeProc(p)
+	p.mu.Lock()
+	p.info.Status = proto.Idle
+	p.mu.Unlock()
+	scanBurn(t, path, clA(ts, "Thinking it over…"))
+	runScanIs(t, p, scanBase, true)
+	claimState(t, p, proto.Working, false, "")
+	claimRecord(t, p, "working")
+
+	scanBurn(t, path, clA(ts, "Thinking it over…"), clA(ts, "Shipped."), clS(ts, "turn_duration"))
+	runScanIs(t, p, scanBase, true)
+	claimState(t, p, proto.Idle, true, "Shipped.")
+	claimRecord(t, p, "done")
+}
+
+// A session's row and its attention are folded from one look at each
+// pane (BRU-263).
+func TestSessionInfoFoldsItsLook(t *testing.T) {
+	p := testPane(t)
+	s := &session{id: "s", panes: []*pane{p}}
+	p.mu.Lock()
+	p.info.Status, p.info.Message = proto.Working, "Building"
+	p.mu.Unlock()
+	info := p.d.sessionInfo(s)
+	if info.Attention == nil || info.Attention.State != string(attentionRunning) || info.Panes[0].Message != "Building" {
+		t.Fatalf("the row and its attention: %+v", info)
+	}
+}
+
+// A pane can run another agent conversation. Its old scan-owned work and
+// cached transcript must not leak into a new session with no file yet.
+func TestScanNewAgentSessionDropsOldWork(t *testing.T) {
+	p, path := claimPane(t, "claude")
+	t.Setenv("HOME", t.TempDir())
+	scanFakeProc(p)
+	scanBurn(t, path, clA(scanYoungAt(), "Old work"))
+	if !runScan(t, p, scanBase) {
+		t.Fatal("old work was not claimed")
+	}
+	p.mu.Lock()
+	p.info.AgentSession = &proto.AgentSession{Agent: "claude", ID: "new-conversation"}
+	p.mu.Unlock()
+	runScan(t, p, scanBase.Add(time.Second))
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.transcriptPath != "" || p.info.Status == proto.Working || p.info.Status == proto.Waiting {
+		t.Fatalf("new conversation retained old work: path=%q status=%s", p.transcriptPath, p.info.Status)
+	}
+	if _, ok := p.records[scanRecordID]; ok {
+		t.Fatal("new conversation retained old scan record")
+	}
+}
+
+// The previous completion can leave the bounded tail before an identical
+// new completion arrives. Counting markers within that tail loses turns.
+func TestScanIdenticalEndsBeyondTailWindow(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			p, path := claimPane(t, agent)
+			completion := clA(ts, "Done.") + clS(ts, "turn_duration")
+			if agent == "codex" {
+				completion = cxE(ts, "task_complete", `,"last_agent_message":"Done."`)
+			}
+			p.mu.Lock()
+			p.info.Unread = true
+			p.mu.Unlock()
+			scanBurn(t, path, completion)
+			runScanIs(t, p, scanBase, true)
+			p.input(nil)
+			padding := strings.Repeat(`{"type":"padding","value":"`+strings.Repeat("x", 4096)+`"}`+"\n", 70)
+			if len(padding) <= scanTail {
+				t.Fatal("fixture does not roll tail window")
+			}
+			scanBurn(t, path, completion, padding, completion)
+			p.mu.Lock()
+			p.info.Unread = true
+			p.mu.Unlock()
+			runScanIs(t, p, scanBase.Add(time.Second), true)
+			claimRecord(t, p, "done")
+			runScanIs(t, p, scanBase.Add(2*time.Second), false)
+		})
+	}
+}
+
+// Sliding the tail start must not change the identity of a completion
+// still within the window. Absolute offsets, not tail-relative positions,
+// keep an old event dismissed when unrelated transcript lines are added.
+func TestScanEndIdentitySurvivesTailShift(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	padding := `{"type":"padding","value":"` + strings.Repeat("x", 4096) + `"}` + "\n"
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			p, path := claimPane(t, agent)
+			completion := clA(ts, "Done.") + clS(ts, "turn_duration")
+			if agent == "codex" {
+				completion = cxE(ts, "task_complete", `,"last_agent_message":"Done."`)
+			}
+			prefix := strings.Repeat(padding, 50)
+			first := prefix + completion
+			p.mu.Lock()
+			p.info.Unread = true
+			p.mu.Unlock()
+			scanBurn(t, path, first)
+			runScanIs(t, p, scanBase, true)
+			p.input(nil)
+			scanBurn(t, path, first, strings.Repeat(padding, 24))
+			data, at := tailLines(path, scanTail)
+			if at <= 0 || len(data) > scanTail {
+				t.Fatalf("tail did not slide within budget: offset=%d len=%d", at, len(data))
+			}
+			p.mu.Lock()
+			p.info.Unread = true
+			p.mu.Unlock()
+			runScanIs(t, p, scanBase.Add(time.Second), false)
+			claimRecord(t, p, "")
+		})
+	}
+}
+
+// Optional source event ids may be numeric or strings. They distinguish
+// rewritten completion events without making valid transcript lines fail
+// decoding solely because an otherwise unused id has a different shape.
+func TestScanCompletionSourceIDs(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	for _, agent := range []string{"claude", "codex"} {
+		line := clA(ts, "Done.") + clS(ts, "turn_duration")
+		if agent == "codex" {
+			line = cxE(ts, "task_complete", `,"last_agent_message":"Done."`)
+		}
+		first := strings.ReplaceAll(line, `{"type":`, `{"id":7,"type":`)
+		second := strings.ReplaceAll(line, `{"type":`, `{"id":8,"type":`)
+		v, one := parseScanTail(agent, []byte(first), scanBase)
+		_, two := parseScanTail(agent, []byte(second), scanBase)
+		if v.state != "done" || !one.present || one == two {
+			t.Fatalf("%s: numeric ids lost completion identity: verdict=%+v one=%+v two=%+v", agent, v, one, two)
+		}
+	}
+}
+
+func TestCodexDiscoveryHonorsHome(t *testing.T) {
+	p := testPane(t)
+	t.Setenv("HOME", t.TempDir())
+	codex := t.TempDir()
+	t.Setenv("CODEX_HOME", codex)
+	scanAgent(p, "codex", "configured-session")
+	path := filepath.Join(codex, "sessions", "2026", "10", "23", "rollout-demo-configured-session.jsonl")
+	scanBurn(t, path, cxE(scanBase.Format(time.RFC3339Nano), "task_complete", `,"last_agent_message":"Done."`))
+	if got := findTranscript("codex", "", "configured-session"); got != path {
+		t.Fatalf("direct discovery ignored CODEX_HOME: %q", got)
+	}
+	p.mu.Lock()
+	p.info.Unread = true
+	p.mu.Unlock()
+	runScanIs(t, p, scanBase, true)
+	if p.transcriptPath != path {
+		t.Fatalf("pane discovery ignored CODEX_HOME: %q", p.transcriptPath)
+	}
 }

@@ -34,6 +34,16 @@ type Messages struct{ locale string }
 // source language.
 func In(locale string) Messages { return Messages{locale} }
 
+// ResourceUpdateInfo says "Across all apps. RAM includes active, wired and compressed memory; reclaimable cache is excluded. Updates every 10 se…"
+// in the language the app shows.
+func ResourceUpdateInfo() string { return In(i18n.Locale()).ResourceUpdateInfo() }
+
+// ResourceUpdateInfo says "Across all apps. RAM includes active, wired and compressed memory; reclaimable cache is excluded. Updates every 10 se…"
+// in the language of msgs.
+func (msgs Messages) ResourceUpdateInfo() string {
+	return Catalog.Format(msgs.locale, "resourceUpdateInfo", nil)
+}
+
 // ActionSettings says "Settings…"
 // in the language the app shows.
 func ActionSettings() string { return In(i18n.Locale()).ActionSettings() }
@@ -124,6 +134,16 @@ func (msgs Messages) ActionJumpToAttention() string {
 	return Catalog.Format(msgs.locale, "actionJumpToAttention", nil)
 }
 
+// ActionNextBlocked says "Next Waiting Session"
+// in the language the app shows.
+func ActionNextBlocked() string { return In(i18n.Locale()).ActionNextBlocked() }
+
+// ActionNextBlocked says "Next Waiting Session"
+// in the language of msgs.
+func (msgs Messages) ActionNextBlocked() string {
+	return Catalog.Format(msgs.locale, "actionNextBlocked", nil)
+}
+
 // ActionNextSession says "Next Session"
 // in the language the app shows.
 func ActionNextSession() string { return In(i18n.Locale()).ActionNextSession() }
@@ -154,11 +174,11 @@ func (msgs Messages) ActionRenameSession() string {
 	return Catalog.Format(msgs.locale, "actionRenameSession", nil)
 }
 
-// ActionSilenceSession says "Silence Notifications for This Session"
+// ActionSilenceSession says "Silence or Resume Notifications for This Session"
 // in the language the app shows.
 func ActionSilenceSession() string { return In(i18n.Locale()).ActionSilenceSession() }
 
-// ActionSilenceSession says "Silence Notifications for This Session"
+// ActionSilenceSession says "Silence or Resume Notifications for This Session"
 // in the language of msgs.
 func (msgs Messages) ActionSilenceSession() string {
 	return Catalog.Format(msgs.locale, "actionSilenceSession", nil)
@@ -2200,11 +2220,11 @@ func (msgs Messages) SetVersion() string {
 	return Catalog.Format(msgs.locale, "setVersion", nil)
 }
 
-// SetCheckForUpdates says "Check for Updates"
+// SetCheckForUpdates says "Check for App Updates"
 // in the language the app shows.
 func SetCheckForUpdates() string { return In(i18n.Locale()).SetCheckForUpdates() }
 
-// SetCheckForUpdates says "Check for Updates"
+// SetCheckForUpdates says "Check for App Updates"
 // in the language of msgs.
 func (msgs Messages) SetCheckForUpdates() string {
 	return Catalog.Format(msgs.locale, "setCheckForUpdates", nil)
@@ -5574,6 +5594,26 @@ func (msgs Messages) SpotifyTracksFailed() string {
 	return Catalog.Format(msgs.locale, "spotifyTracksFailed", nil)
 }
 
+// SpotifyRetry says "Retry"
+// in the language the app shows.
+func SpotifyRetry() string { return In(i18n.Locale()).SpotifyRetry() }
+
+// SpotifyRetry says "Retry"
+// in the language of msgs.
+func (msgs Messages) SpotifyRetry() string {
+	return Catalog.Format(msgs.locale, "spotifyRetry", nil)
+}
+
+// SpotifyRetryDetail says "Check your connection, then try again."
+// in the language the app shows.
+func SpotifyRetryDetail() string { return In(i18n.Locale()).SpotifyRetryDetail() }
+
+// SpotifyRetryDetail says "Check your connection, then try again."
+// in the language of msgs.
+func (msgs Messages) SpotifyRetryDetail() string {
+	return Catalog.Format(msgs.locale, "spotifyRetryDetail", nil)
+}
+
 // SpotifyNoTracks says "No tracks"
 // in the language the app shows.
 func SpotifyNoTracks() string { return In(i18n.Locale()).SpotifyNoTracks() }
@@ -5762,6 +5802,16 @@ func AttentionApprove() string { return In(i18n.Locale()).AttentionApprove() }
 // in the language of msgs.
 func (msgs Messages) AttentionApprove() string {
 	return Catalog.Format(msgs.locale, "attentionApprove", nil)
+}
+
+// AttentionOpenIssue says "Open issue {issue}"
+// in the language the app shows.
+func AttentionOpenIssue(issue string) string { return In(i18n.Locale()).AttentionOpenIssue(issue) }
+
+// AttentionOpenIssue says "Open issue {issue}"
+// in the language of msgs.
+func (msgs Messages) AttentionOpenIssue(issue string) string {
+	return Catalog.Format(msgs.locale, "attentionOpenIssue", map[string]any{"issue": issue})
 }
 
 // PaneShow says "Show in This Pane"
@@ -7052,4 +7102,186 @@ func LinearRefreshSynced(synced string) string { return In(i18n.Locale()).Linear
 // in the language of msgs.
 func (msgs Messages) LinearRefreshSynced(synced string) string {
 	return Catalog.Format(msgs.locale, "linearRefreshSynced", map[string]any{"synced": synced})
+}
+
+// UsageTitle says "Usage"
+// in the language the app shows.
+func UsageTitle() string { return In(i18n.Locale()).UsageTitle() }
+
+// UsageTitle says "Usage"
+// in the language of msgs.
+func (msgs Messages) UsageTitle() string {
+	return Catalog.Format(msgs.locale, "usageTitle", nil)
+}
+
+// UsageAccountTitle says "Account usage"
+// in the language the app shows.
+func UsageAccountTitle() string { return In(i18n.Locale()).UsageAccountTitle() }
+
+// UsageAccountTitle says "Account usage"
+// in the language of msgs.
+func (msgs Messages) UsageAccountTitle() string {
+	return Catalog.Format(msgs.locale, "usageAccountTitle", nil)
+}
+
+// UsageDetailsHint says "Account allowances and reset times"
+// in the language the app shows.
+func UsageDetailsHint() string { return In(i18n.Locale()).UsageDetailsHint() }
+
+// UsageDetailsHint says "Account allowances and reset times"
+// in the language of msgs.
+func (msgs Messages) UsageDetailsHint() string {
+	return Catalog.Format(msgs.locale, "usageDetailsHint", nil)
+}
+
+// UsagePercentUsed says "{percent}% used"
+// in the language the app shows.
+func UsagePercentUsed(percent string) string { return In(i18n.Locale()).UsagePercentUsed(percent) }
+
+// UsagePercentUsed says "{percent}% used"
+// in the language of msgs.
+func (msgs Messages) UsagePercentUsed(percent string) string {
+	return Catalog.Format(msgs.locale, "usagePercentUsed", map[string]any{"percent": percent})
+}
+
+// UsageBalanceRemaining says "{balance} remaining"
+// in the language the app shows.
+func UsageBalanceRemaining(balance string) string {
+	return In(i18n.Locale()).UsageBalanceRemaining(balance)
+}
+
+// UsageBalanceRemaining says "{balance} remaining"
+// in the language of msgs.
+func (msgs Messages) UsageBalanceRemaining(balance string) string {
+	return Catalog.Format(msgs.locale, "usageBalanceRemaining", map[string]any{"balance": balance})
+}
+
+// SessionPin says "Pin Session in Project"
+// in the language the app shows.
+func SessionPin() string { return In(i18n.Locale()).SessionPin() }
+
+// SessionPin says "Pin Session in Project"
+// in the language of msgs.
+func (msgs Messages) SessionPin() string {
+	return Catalog.Format(msgs.locale, "sessionPin", nil)
+}
+
+// SessionUnpin says "Unpin Session"
+// in the language the app shows.
+func SessionUnpin() string { return In(i18n.Locale()).SessionUnpin() }
+
+// SessionUnpin says "Unpin Session"
+// in the language of msgs.
+func (msgs Messages) SessionUnpin() string {
+	return Catalog.Format(msgs.locale, "sessionUnpin", nil)
+}
+
+// SessionMoveUp says "Move Session Up"
+// in the language the app shows.
+func SessionMoveUp() string { return In(i18n.Locale()).SessionMoveUp() }
+
+// SessionMoveUp says "Move Session Up"
+// in the language of msgs.
+func (msgs Messages) SessionMoveUp() string {
+	return Catalog.Format(msgs.locale, "sessionMoveUp", nil)
+}
+
+// SessionMoveDown says "Move Session Down"
+// in the language the app shows.
+func SessionMoveDown() string { return In(i18n.Locale()).SessionMoveDown() }
+
+// SessionMoveDown says "Move Session Down"
+// in the language of msgs.
+func (msgs Messages) SessionMoveDown() string {
+	return Catalog.Format(msgs.locale, "sessionMoveDown", nil)
+}
+
+// SessionOrderUnavailable says "Reconnect to the terminal service before reordering."
+// in the language the app shows.
+func SessionOrderUnavailable() string { return In(i18n.Locale()).SessionOrderUnavailable() }
+
+// SessionOrderUnavailable says "Reconnect to the terminal service before reordering."
+// in the language of msgs.
+func (msgs Messages) SessionOrderUnavailable() string {
+	return Catalog.Format(msgs.locale, "sessionOrderUnavailable", nil)
+}
+
+// SessionOrderMissing says "Session not found. Choose a current session and try again."
+// in the language the app shows.
+func SessionOrderMissing() string { return In(i18n.Locale()).SessionOrderMissing() }
+
+// SessionOrderMissing says "Session not found. Choose a current session and try again."
+// in the language of msgs.
+func (msgs Messages) SessionOrderMissing() string {
+	return Catalog.Format(msgs.locale, "sessionOrderMissing", nil)
+}
+
+// SetSourceUpdates says "Upstream source"
+// in the language the app shows.
+func SetSourceUpdates() string { return In(i18n.Locale()).SetSourceUpdates() }
+
+// SetSourceUpdates says "Upstream source"
+// in the language of msgs.
+func (msgs Messages) SetSourceUpdates() string {
+	return Catalog.Format(msgs.locale, "setSourceUpdates", nil)
+}
+
+// SetSourceUpdatesDetail says "Check Kero upstream and build Shibu in GitHub. Requires gh signed in as ddeyalla."
+// in the language the app shows.
+func SetSourceUpdatesDetail() string { return In(i18n.Locale()).SetSourceUpdatesDetail() }
+
+// SetSourceUpdatesDetail says "Check Kero upstream and build Shibu in GitHub. Requires gh signed in as ddeyalla."
+// in the language of msgs.
+func (msgs Messages) SetSourceUpdatesDetail() string {
+	return Catalog.Format(msgs.locale, "setSourceUpdatesDetail", nil)
+}
+
+// SetSourceBuild says "Check Upstream & Build"
+// in the language the app shows.
+func SetSourceBuild() string { return In(i18n.Locale()).SetSourceBuild() }
+
+// SetSourceBuild says "Check Upstream & Build"
+// in the language of msgs.
+func (msgs Messages) SetSourceBuild() string {
+	return Catalog.Format(msgs.locale, "setSourceBuild", nil)
+}
+
+// SetSourceBuilding says "Checking Upstream…"
+// in the language the app shows.
+func SetSourceBuilding() string { return In(i18n.Locale()).SetSourceBuilding() }
+
+// SetSourceBuilding says "Checking Upstream…"
+// in the language of msgs.
+func (msgs Messages) SetSourceBuilding() string {
+	return Catalog.Format(msgs.locale, "setSourceBuilding", nil)
+}
+
+// ProjectMoveUp says "Move Project Up"
+// in the language the app shows.
+func ProjectMoveUp() string { return In(i18n.Locale()).ProjectMoveUp() }
+
+// ProjectMoveUp says "Move Project Up"
+// in the language of msgs.
+func (msgs Messages) ProjectMoveUp() string {
+	return Catalog.Format(msgs.locale, "projectMoveUp", nil)
+}
+
+// ProjectMoveDown says "Move Project Down"
+// in the language the app shows.
+func ProjectMoveDown() string { return In(i18n.Locale()).ProjectMoveDown() }
+
+// ProjectMoveDown says "Move Project Down"
+// in the language of msgs.
+func (msgs Messages) ProjectMoveDown() string {
+	return Catalog.Format(msgs.locale, "projectMoveDown", nil)
+}
+
+// ProjectOrderMissing says "Project not found. Choose a current project and try again."
+// in the language the app shows.
+func ProjectOrderMissing() string { return In(i18n.Locale()).ProjectOrderMissing() }
+
+// ProjectOrderMissing says "Project not found. Choose a current project and try again."
+// in the language of msgs.
+func (msgs Messages) ProjectOrderMissing() string {
+	return Catalog.Format(msgs.locale, "projectOrderMissing", nil)
 }

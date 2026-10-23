@@ -4,9 +4,9 @@ package main
 
 import "github.com/egoist/mygo/ui"
 
-// symbolImage is no symbol on a system that has none: SF Symbols are
-// macOS's. A pane that shows one shows nothing there, as a view whose
-// target this system cannot draw does.
-func symbolImage(name string, points float32, tint ui.Color, dark bool) *ui.Bitmap {
+// symbolImage returns no template on systems without SF Symbols. macOS
+// caches a white shape by name, size and appearance; callers apply tint
+// while painting, so tint is not an argument or part of the cache key.
+func symbolImage(name string, points float32, dark bool) *ui.Bitmap {
 	return nil
 }

@@ -219,7 +219,7 @@ func (a *App) pinItem(c *ui.Context, pal *palette, view *pluginView, r pinRow, s
 			if sym, scale := view.symbol(c, r.icon, 16, symbolMedium); sym != nil {
 				drawSymbol(c, "symbol", sym, scale, fg)
 			} else if svg, ok := pluginIcon(r.icon); ok {
-				ui.Icon(c.Key("icon"), svg).Size(15, 15).TextColor(fg).Shrink(0)
+				controlIcon(c.Key("icon"), svg, 15, fg, pal.dark).Shrink(0)
 			}
 		}
 		ui.Text(c, r.name).FontSize(12.5).FontWeight(600).TextColor(pal.text).Grow(1).MinWidth(0).SingleLine().Ellipsis("…")

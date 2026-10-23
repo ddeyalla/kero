@@ -15,13 +15,14 @@ const grainSrc = `package main
 // whole strength; half the specks lighten and half darken.
 var Alpha float
 
-// Fragment draws the grain: a speck of white or of black at each two
-// pixels of the window, from a hash of the cell, as a texture's noise
-// is. Premultiplied: white's color is its alpha.
+// Fragment draws one repeating 300-point tile: a speck of white or black
+// at each two points, from a hash of its cell. Premultiplied: white's
+// color is its alpha.
 func Fragment(dst vec4, pos vec2) vec4 {
 	// The cells of the grain, in pixels of the window: two, so that a
 	// speck reads at a display's scale instead of fizzling to nothing.
 	p := floor(dst.xy / vec2(2.0, 2.0))
+	p -= floor(p / vec2(150.0, 150.0)) * vec2(150.0, 150.0)
 	h := fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453)
 	n := h*2.0 - 1.0
 	a := Alpha * abs(n)
@@ -40,7 +41,7 @@ var grain = shader.MustCompile(grainSrc)
 func grainAlpha(c *ui.Context, dark bool) float32 {
 	a := float32(0.033)
 	if dark {
-		a = 0.045
+		a = 0.04
 	}
 	if c.Vibrancy() {
 		a *= 0.7

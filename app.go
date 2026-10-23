@@ -46,6 +46,7 @@ type prefs struct {
 	SidebarWidth  float32         `json:"sidebarWidth,omitempty"`
 	SidebarHidden bool            `json:"sidebarHidden,omitempty"`
 	Collapsed     map[string]bool `json:"collapsed,omitempty"`
+	SessionPins   map[string]bool `json:"sessionPins,omitempty"`
 	FontSize      float32         `json:"fontSize,omitempty"`
 	// Show is what the main card showed last. It was "linear" for the
 	// built-in Linear screen, which is gone: any saved value now falls back
@@ -77,12 +78,14 @@ type termEntry struct {
 	stream  *client.Stream
 	err     string
 	started time.Time
+	shown   bool // included in the current pane composition
 }
 
 // App is the app's state. It lives on the main thread: other goroutines
 // change it through Window.Update.
 type App struct {
-	win *mygo.Window
+	sidebarScroll ui.ScrollState // soft edges of sidebar navigation
+	win           *mygo.Window
 
 	cl        *client.Client
 	conn      connState
@@ -112,7 +115,11 @@ type App struct {
 	// (attention_notify.go), and deliver shows one: a test's stub, else
 	// the system's notification.
 	watch   *attentionWatch
-	deliver func(id, title, body string)
+	notices map[attentionKey]*attentionNotice
+	deliver func(id, pane, title, body string, done func(bool))
+	// attentionLast is the session `attention.next-blocked` went to last:
+	// where the next press goes on from.
+	attentionLast string
 
 	// windowBar is the title bar as it last was in the window, which
 	// titleBar keeps in full screen, where the traffic lights are the
@@ -273,6 +280,7 @@ func (a *App) snapshotPrefs() prefs {
 // clonePrefs is p with maps of its own.
 func clonePrefs(p prefs) prefs {
 	p.Collapsed = maps.Clone(p.Collapsed)
+	p.SessionPins = maps.Clone(p.SessionPins)
 	if p.Files != nil {
 		files := make(map[string][]string, len(p.Files))
 		for id, dirs := range p.Files {
@@ -357,6 +365,11 @@ func (a *App) disconnected(cl *client.Client) {
 	}
 	a.cl = nil
 	a.conn = connConnecting
+	// The state that comes after is a new daemon's: panes it brings back
+	// unread (kerod restores a busy pane idle and unread) are not news.
+	// A fresh watch tells nothing of a session it has not seen before.
+	// (a.loaded stays: reconcileSelection reads it.)
+	a.watch = newAttentionWatch()
 	for id := range a.terms {
 		a.dropTerm(id)
 	}
@@ -420,14 +433,14 @@ func (a *App) event(cl *client.Client, m proto.Message) {
 		// while the user looks at its session.
 		n := m.Notice
 		s := a.session(n.Session)
-		if s == nil || n.Session == a.selected && a.active {
+		if s == nil || a.looking(s, "") {
 			return
 		}
 		title := n.Title
 		if title == "" {
 			title = s.DisplayName(a.set.SessionName)
 		}
-		a.showNotification(n.Session, title, n.Body)
+		a.showNotification(n.Session, "", title, n.Body, nil)
 	}
 }
 
@@ -438,6 +451,8 @@ func (a *App) setState(st proto.State) {
 	if st.Linear == nil {
 		st.Linear = a.st.Linear
 	}
+	a.pruneSessionPins(st)
+	a.pruneSilenced(st)
 	a.st, a.loaded = st, true
 	// Terminals of panes gone go too.
 	live := map[string]bool{}
@@ -471,21 +486,29 @@ func (a *App) reconcileSelection(first bool) {
 }
 
 // showNotification shows a notification about a session, which a click
-// on it selects.
-func (a *App) showNotification(id, title, body string) {
+// on it selects, and moves into the pane it comes from, when it names one.
+func (a *App) showNotification(id, pane, title, body string, done func(bool)) {
 	if !mygo.NotificationsSupported() {
+		if done != nil {
+			done(false)
+		}
 		return
 	}
 	n := mygo.NewNotification(mygo.NotificationOptions{ID: "session/" + id, Group: id, Title: title, Body: body, Silent: !a.set.NotifySound})
 	n.OnClick(func() {
 		a.update(func() {
-			a.selectSession(id)
+			a.focusAttention(id, pane)
 			a.win.Show()
 			a.win.Focus()
 		})
 		n.Close()
 	})
-	go n.Show()
+	go func() {
+		shown := n.Show() == nil
+		if done != nil {
+			a.update(func() { done(shown) })
+		}
+	}()
 }
 
 // notify tells about the sessions that came to need the user, or ended
@@ -501,7 +524,7 @@ func (a *App) notify(first bool) {
 		}
 	}
 	for _, e := range a.watch.watch(a.st.Sessions, first, a.silencedSet(), a.notifyWindow()) {
-		a.tell(e)
+		a.notifyAttention(e)
 	}
 	if !a.set.DockBadge {
 		waiting = 0
@@ -513,19 +536,33 @@ func (a *App) notify(first bool) {
 	}
 }
 
+// looking tells whether the user is looking at a session: it is the one
+// selected, in a window that is in front and has the keyboard, and not
+// the Linear workspace; and, when the session has a pane zoomed, the pane
+// in question is the one in view (pane "" asks of the session as a whole).
+func (a *App) looking(s *proto.Session, pane string) bool {
+	if s.ID != a.selected || !a.active || !a.focused || a.show == "linear" {
+		return false
+	}
+	return s.Zoomed == "" || pane == "" || s.Zoomed == pane
+}
+
 // tell shows one session's notification, if the user asked for its kind
-// and is not looking at it. Its title and body say the session and one
-// line of what it needs, as the fold worded it: no prompt text beyond what
-// the hooks sent, and never a credential.
-func (a *App) tell(e attentionEvent) {
+// and is not looking at it. It reports whether delivery was attempted;
+// done reports the eventual native result. Its title and body say
+// the session and what it needs. A wait or a failure carries the line the
+// hook or the screen gave, and a session's end never does: kerod can fold
+// that line from the agent's own transcript (the last message of a Codex
+// turn), and what an agent wrote is not for a notification. An end says the
+// agent and the folder instead.
+func (a *App) tell(e attentionEvent, done func(bool)) bool {
 	s := a.session(e.Session)
 	if s == nil {
-		return
+		return false
 	}
 	// The user is in it and the app is in front: it needs no telling.
-	// Focus is the only filter, never a profile or a hidden window.
-	if s.ID == a.selected && a.active {
-		return
+	if a.looking(s, e.Pane) {
+		return false
 	}
 	name := s.DisplayName(a.set.SessionName)
 	var title, body string
@@ -541,17 +578,15 @@ func (a *App) tell(e attentionEvent) {
 			body = locales.NotifyFailedBody(s.PaneName())
 		}
 	case e.State == attentionUnread && !e.Failed && a.set.NotifyDone:
-		title, body = locales.NotifyDoneTitle(name), e.Msg
-		if body == "" {
-			body = locales.NotifyDoneBody(s.Agent, proto.ShortDir(s.WorkDir()))
-		}
+		title, body = locales.NotifyDoneTitle(name), locales.NotifyDoneBody(s.Agent, proto.ShortDir(s.WorkDir()))
 	default:
-		return
+		return false
 	}
 	if a.set.BounceDock && (e.State == attentionWaitingUser || e.Failed) {
 		mygo.App.Dock.Bounce(false)
 	}
-	a.deliver(s.ID, title, body)
+	a.deliver(s.ID, e.Pane, title, body, done)
+	return true
 }
 
 // silencedSet is the sessions whose notifications the user turned off.
@@ -589,18 +624,20 @@ func (a *App) silenceTitle(id string) string {
 // toggleSilence silences a session's notifications, or resumes them. The
 // choice is saved with the settings, so a silenced session stays quiet
 // until the user says otherwise, over a restart of the app too.
-func (a *App) toggleSilence(id string) {
+func (a *App) toggleSilence(id string) { a.setSilence(id, !a.silenced(id)) }
+
+// setSilence silences a session's notifications, or resumes them, and does
+// nothing if they are so already.
+func (a *App) setSilence(id string, off bool) {
 	s := a.session(id)
-	if s == nil {
+	if s == nil || a.silenced(id) == off {
 		return
 	}
 	next := slices.Clone(a.set.SilencedSessions)
-	i := slices.Index(next, id)
-	off := i < 0
 	if off {
 		next = append(next, id)
 	} else {
-		next = slices.Delete(next, i, i+1)
+		next = slices.DeleteFunc(next, func(x string) bool { return x == id })
 	}
 	a.set.SilencedSessions = next
 	a.applySettings(a.set)
@@ -612,6 +649,31 @@ func (a *App) toggleSilence(id string) {
 	}
 }
 
+// pruneSilenced forgets only sessions observed to disappear in this
+// daemon epoch. Startup restoration is incremental: a persisted id absent
+// from a partial state may still return, so absence alone is not closure.
+func (a *App) pruneSilenced(st proto.State) {
+	if !a.loaded || a.st.Started != st.Started || len(a.set.SilencedSessions) == 0 {
+		return
+	}
+	live := make(map[string]bool, len(st.Sessions))
+	for _, s := range st.Sessions {
+		live[s.ID] = true
+	}
+	gone := make(map[string]bool)
+	for _, s := range a.st.Sessions {
+		if !live[s.ID] {
+			gone[s.ID] = true
+		}
+	}
+	next := slices.DeleteFunc(slices.Clone(a.set.SilencedSessions), func(id string) bool { return gone[id] })
+	if len(next) == len(a.set.SilencedSessions) {
+		return
+	}
+	a.set.SilencedSessions = next
+	a.applySettings(a.set)
+}
+
 func (a *App) updateTitle() {
 	if a.win == nil {
 		return
@@ -621,6 +683,26 @@ func (a *App) updateTitle() {
 		title = s.DisplayName(a.set.SessionName)
 	}
 	a.win.SetTitle(title)
+}
+
+// sessionNamed is the session a `kero do` argument names: an id, a unique
+// prefix of one, or a session's name. It is "" when none matches or more
+// than one does.
+func (a *App) sessionNamed(want string) string {
+	if a.session(want) != nil {
+		return want
+	}
+	found := ""
+	for i := range a.st.Sessions {
+		s := &a.st.Sessions[i]
+		if strings.HasPrefix(s.ID, want) || s.DisplayName(a.set.SessionName) == want {
+			if found != "" {
+				return ""
+			}
+			found = s.ID
+		}
+	}
+	return found
 }
 
 func (a *App) session(id string) *proto.Session {
@@ -661,6 +743,7 @@ func (a *App) groups() []group {
 				g.sessions = append(g.sessions, &a.st.Sessions[i])
 			}
 		}
+		g.sessions = a.pinnedSessionsFirst(g.sessions)
 		gs = append(gs, g)
 	}
 	other := group{project: proto.Project{ID: "", Name: locales.SidebarOtherProject()}}
@@ -670,6 +753,7 @@ func (a *App) groups() []group {
 		}
 	}
 	if len(other.sessions) > 0 {
+		other.sessions = a.pinnedSessionsFirst(other.sessions)
 		gs = append(gs, other)
 	}
 	return gs
@@ -842,6 +926,7 @@ func (a *App) ensureTerm(id string) {
 			})
 			return
 		}
+		term.SetVisible(false)
 		term.Resize(stream.Welcome.Cols, stream.Welcome.Rows)
 		stream.OnResized = term.Resize
 		close(g.ready)
@@ -1315,7 +1400,29 @@ func (a *App) closeSession(id string, ask bool) {
 		a.dropTerm(p.ID)
 	}
 	a.st.Sessions = slices.DeleteFunc(a.st.Sessions, func(x proto.Session) bool { return x.ID == id })
-	a.call("close", proto.IDParams{ID: id}, nil)
+	a.call("close", proto.IDParams{ID: id}, func(err error) { a.sessionClosed(id, err) })
+}
+
+// sessionClosed handles the daemon's acknowledgement of an app close.
+func (a *App) sessionClosed(id string, err error) {
+	if err != nil {
+		a.toast(err.Error())
+		return
+	}
+	if _, pinned := a.prefs.SessionPins[id]; pinned {
+		delete(a.prefs.SessionPins, id)
+		a.savePrefs()
+	}
+	next := slices.DeleteFunc(slices.Clone(a.set.SilencedSessions), func(session string) bool { return session == id })
+	if len(next) != len(a.set.SilencedSessions) {
+		a.set.SilencedSessions = next
+		a.applySettings(a.set)
+	}
+	for key := range a.notices {
+		if key.session == id {
+			delete(a.notices, key)
+		}
+	}
 }
 
 func (a *App) restartSession(id string) {
@@ -1401,7 +1508,11 @@ func (a *App) jumpTo(want func(*proto.Session) bool) bool {
 	for k := 1; k <= len(ids); k++ {
 		id := ids[(i+k+len(ids))%len(ids)]
 		if s := a.session(id); s != nil && id != a.selected && want(s) {
-			delete(a.prefs.Collapsed, s.Project)
+			if _, ok := a.prefs.Collapsed[s.Project]; ok {
+				// The row shows; selectSession saves only a change of session.
+				delete(a.prefs.Collapsed, s.Project)
+				a.savePrefs()
+			}
 			a.selectSession(id)
 			return true
 		}

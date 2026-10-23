@@ -41,8 +41,7 @@ const (
 
 	// compactWidth and compactHeight are where a pane stops being its large
 	// self: the same widget draws one row for each account, or the cost card
-	// and a section for each account. Below stackedWidth the cost card puts
-	// its legend under the donut.
+	// and a section for each account.
 	compactWidth  = 260
 	compactHeight = 300
 	stackedWidth  = 340

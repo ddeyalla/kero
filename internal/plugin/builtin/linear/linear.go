@@ -1169,7 +1169,7 @@ func (p *plugin) selectSession(session, pane string) outcome {
 		return outcome{}
 	}
 	return outcome{run: func() {
-		if err := p.d.Call("select", proto.FocusParams{Session: session}, nil); err != nil {
+		if err := p.d.Call("do", proto.DoParams{Action: "session.attention", Args: map[string]string{"session": session}}, nil); err != nil {
 			p.notice(pane, err.Error())
 		}
 	}}

@@ -268,15 +268,17 @@ func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send
 			st = &ui.ScrollState{}
 			v.scroll[tree.Root.ID] = st
 		}
-		page := ui.Scroll(c.Key("page")).TrackScroll(st).MinWidth(0).MinHeight(0).Label(tree.Root.ID)
 		if tree.Header != nil {
-			page.Grow(1)
+			scrollUnderBar(c, "page", st, parts.card, func(page ui.Element) {
+				page.Label(tree.Root.ID).Children(func() {
+					v.part(c, parts, tree.Root, true, send)
+				})
+			})
 		} else {
-			page.Fill()
+			ui.Scroll(c.Key("page")).TrackScroll(st).MinWidth(0).MinHeight(0).Label(tree.Root.ID).Fill().Children(func() {
+				v.part(c, parts, tree.Root, true, send)
+			})
 		}
-		page.Children(func() {
-			v.part(c, parts, tree.Root, true, send)
-		})
 	})
 	v.hearKeys(c, tree, send)
 	v.forget()
@@ -752,7 +754,7 @@ func (v *pluginView) iconText(c *ui.Context, pal *palette, n *protocol.Node) {
 		} else if sym, scale := v.symbol(c, n.Icon, float64(size), symbolMedium); sym != nil {
 			drawSymbol(c, "symbol", sym, scale, col)
 		} else if svg, ok := pluginIcon(n.Icon); ok {
-			ui.Icon(c.Key("icon"), svg).Size(size, size).TextColor(col).Shrink(0)
+			controlIcon(c.Key("icon"), svg, size, col, pal.dark).Shrink(0)
 		}
 		if n.Text == "" {
 			return
@@ -867,7 +869,7 @@ func (v *pluginView) button(c *ui.Context, pal *palette, n *protocol.Node, horiz
 				// The system's own symbol, at its own proportions.
 				drawSymbol(c, "symbol", sym, scale, fg)
 			} else if ok {
-				ui.Icon(c, icon).Size(glyph, glyph)
+				controlIcon(c, icon, glyph, fg, pal.dark)
 			} else {
 				// An icon this build does not know: its name, rather than
 				// a hole in the bar.
@@ -881,7 +883,7 @@ func (v *pluginView) button(c *ui.Context, pal *palette, n *protocol.Node, horiz
 		}
 		return
 	}
-	b := ui.ButtonBase(c.Key(n.ID)).Height(30).Padding(0, 14).Gap(8).Radius(8).AlignItems(ui.Center).Shrink(0).Label(label)
+	b := ui.ButtonBase(c.Key(n.ID)).Height(30).Padding(0, 14).Gap(8).Radius(15).AlignItems(ui.Center).Shrink(0).Label(label)
 	v.bindFocus(b, n.ID)
 	bg, fg := pal.control, pal.text
 	if n.Primary {
@@ -900,7 +902,11 @@ func (v *pluginView) button(c *ui.Context, pal *palette, n *protocol.Node, horiz
 	case b.Hovered():
 		bg = pal.controlHover
 	}
-	face(b, pal, b.AnimateColor("bg", bg, press)).TextColor(fg)
+	if n.Primary {
+		face(b, pal, b.AnimateColor("bg", bg, press)).TextColor(fg)
+	} else {
+		controlFace(c, b, pal, b.AnimateColor("bg", bg, press)).TextColor(fg)
+	}
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).FontWeight(500).SingleLine().Ellipsis("…")
 	})
@@ -1118,7 +1124,7 @@ func (v *pluginView) segmented(c *ui.Context, pal *palette, n *protocol.Node, ho
 		label = n.Items[i].Title
 	}
 	seg := ui.SegmentedBase(c.Key(n.ID), &st.index, len(n.Items))
-	seg.Track.Height(24).Padding(2).Radius(7).Background(track).AlignItems(ui.Center).MinWidth(0).Label(label)
+	seg.Track.Height(24).Padding(2).Radius(12).Background(track).AlignItems(ui.Center).MinWidth(0).Label(label)
 	if !horizontal {
 		seg.Track.AlignSelf(ui.Stretch)
 	}
@@ -1134,9 +1140,9 @@ func (v *pluginView) segmented(c *ui.Context, pal *palette, n *protocol.Node, ho
 			// The segments share the room alike, but none gives up the width
 			// of its own title.
 			natural, _ := c.MeasureText(0, ui.Span{Text: item.Title, Size: 12.5})
-			s := seg.Segment(k).FillHeight().Padding(0, 12).Radius(5).Center().Grow(1).Shrink(0).MinWidth(natural + 24)
+			s := seg.Segment(k).FillHeight().Padding(0, 12).Radius(10).Center().Grow(1).Shrink(0).MinWidth(natural + 24)
 			if k == i {
-				s.Background(thumb)
+				controlFace(c, s, pal, thumb)
 				if pal.dark {
 					s.Shadow(0, 1, 1, 0, ui.RGBA(0, 0, 0, 0.25))
 				} else {
@@ -1165,7 +1171,7 @@ func (v *pluginView) segmented(c *ui.Context, pal *palette, n *protocol.Node, ho
 // Active are checked, and choosing one sends a select that names it.
 func (v *pluginView) menu(c *ui.Context, pal *palette, n *protocol.Node, horizontal bool, send func(pluginEvent)) {
 	enabled := n.Enabled == nil || *n.Enabled
-	b := ui.ButtonBase(c.Key(n.ID)).Height(26).Padding(0, 8, 0, 9).Gap(6).Radius(7).AlignItems(ui.Center).Shrink(0).Label(n.Label)
+	b := ui.ButtonBase(c.Key(n.ID)).Height(26).Padding(0, 8, 0, 9).Gap(6).Radius(13).AlignItems(ui.Center).Shrink(0).Label(n.Label)
 	v.bindFocus(b, n.ID)
 	bg := pal.control
 	switch {
@@ -1175,7 +1181,7 @@ func (v *pluginView) menu(c *ui.Context, pal *palette, n *protocol.Node, horizon
 	case b.Hovered():
 		bg = pal.controlHover
 	}
-	face(b, pal, b.AnimateColor("bg", bg, press)).TextColor(pal.text)
+	controlFace(c, b, pal, b.AnimateColor("bg", bg, press)).TextColor(pal.text)
 	if !horizontal {
 		b.AlignSelf(ui.Start)
 	}
@@ -1184,14 +1190,14 @@ func (v *pluginView) menu(c *ui.Context, pal *palette, n *protocol.Node, horizon
 			if sym, scale := v.symbol(c, n.Icon, 13, symbolMedium); sym != nil {
 				drawSymbol(c, "symbol", sym, scale, pal.textMuted)
 			} else if svg, ok := pluginIcon(n.Icon); ok {
-				ui.Icon(c.Key("icon"), svg).Size(13, 13).TextColor(pal.textMuted).Shrink(0)
+				controlIcon(c.Key("icon"), svg, 13, pal.textMuted, pal.dark).Shrink(0)
 			}
 		}
 		ui.Text(c, n.Label).FontSize(12.5).FontWeight(500).SingleLine().Ellipsis("…")
 		if sym, scale := v.symbol(c, "chevron-down", 12, symbolSemibold); sym != nil {
 			drawSymbol(c, "chevron", sym, scale, pal.textFaint)
 		} else {
-			ui.Icon(c.Key("chevron"), chevronDownIcon).Size(9, 9).TextColor(pal.textFaint).Shrink(0)
+			controlIcon(c.Key("chevron"), chevronDownIcon, 9, pal.textFaint, pal.dark).Shrink(0)
 		}
 	})
 	if !enabled {
@@ -1590,7 +1596,7 @@ func (v *pluginView) searchField(c *ui.Context, pal *palette, n *protocol.Node, 
 	frame := ui.Row(c.Key(n.ID)).Cursor(ui.CursorText).MinWidth(0)
 	var in ui.Element
 	frame.Children(func() {
-		ui.Icon(c, searchIcon).Size(12, 12).TextColor(pal.textFaint).Shrink(0)
+		controlIcon(c, searchIcon, 12, pal.textFaint, pal.dark).Shrink(0)
 		in = ui.TextInputBase(c.Key("in"), &st.query).Grow(1).MinWidth(0).FontSize(13).Placeholder(n.Placeholder).Label(n.Placeholder)
 	})
 	v.bindFocus(in, n.ID)

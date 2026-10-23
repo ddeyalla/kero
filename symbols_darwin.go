@@ -4,6 +4,7 @@ package main
 
 import (
 	"image"
+	"runtime"
 	"sync"
 	"unsafe"
 
@@ -17,8 +18,8 @@ import (
 // one (icons are SVG, see icons.go), so a symbol is drawn once into a
 // bitmap through AppKit, and the bitmap shows as any other.
 //
-// A new icon of the app's is a symbol where one says what it means: a
-// view's mark, a state's. The app's older icons stay as they are.
+// Controls and status marks use these images, including legacy SVG handles
+// resolved by controlIcon. Provider logos remain their original artwork.
 
 // viewSymbolScale is the pixels a point of a symbol is drawn at: twice, so
 // that it stays crisp on the screens the app runs on, and the bitmap
@@ -32,12 +33,11 @@ const symbolWeightRegular = 0.0
 // viewSymbolSize is an NSSize, a width and a height in points.
 type viewSymbolSize struct{ X, Y float64 }
 
-// viewSymbolKey is one drawn symbol: its name, the size in pixels it was
-// drawn at, the tint it took and the appearance it was drawn for.
+// viewSymbolKey is one drawn template: its name, pixel size and appearance.
+// Tint belongs to painting, so a color animation retains no new bitmaps.
 type viewSymbolKey struct {
 	name   string
 	pixels int
-	tint   ui.Color
 	dark   bool
 }
 
@@ -59,23 +59,23 @@ func loadAppKit() {
 	})
 }
 
-// symbolImage returns the SF Symbol name at points, tinted, drawn for the
-// light or the dark appearance; nil when the system has no such symbol.
+// symbolImage returns a white template of the SF Symbol at points, drawn
+// for the light or dark appearance; nil when the system has no such symbol.
 // It draws a symbol the first time it is asked for one, and never in a
 // frame after that.
-func symbolImage(name string, points float32, tint ui.Color, dark bool) *ui.Bitmap {
+func symbolImage(name string, points float32, dark bool) *ui.Bitmap {
 	px := int(points*viewSymbolScale + 0.5)
 	if name == "" || px <= 0 {
 		return nil
 	}
-	key := viewSymbolKey{name: name, pixels: px, tint: tint, dark: dark}
+	key := viewSymbolKey{name: name, pixels: px, dark: dark}
 	symbolCache.Lock()
 	defer symbolCache.Unlock()
 	if b, ok := symbolCache.bitmaps[key]; ok {
 		return b
 	}
 	var b *ui.Bitmap
-	if rgba := drawViewSymbol(name, px, tint, dark); rgba != nil {
+	if rgba := drawViewSymbol(name, px, symbolTemplate, dark); rgba != nil {
 		b = ui.NewBitmap(rgba)
 	}
 	// A symbol the system does not have is remembered as none, so that
@@ -89,7 +89,13 @@ func symbolImage(name string, points float32, tint ui.Color, dark bool) *ui.Bitm
 // NSBitmapImageRep, whose pixels are then tinted. It returns nil when the
 // system has no such symbol, or when it cannot draw it.
 func drawViewSymbol(name string, px int, tint ui.Color, dark bool) *image.RGBA {
+	// Graphics state and autorelease pools belong to an OS thread. A Go
+	// goroutine may otherwise move between the native save and restore calls.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	loadAppKit()
+	pool := objc.ID(objc.GetClass("NSAutoreleasePool")).Send(sel("alloc")).Send(sel("init"))
+	defer pool.Send(sel("drain"))
 	img := objc.ID(objc.GetClass("NSImage")).Send(sel("imageWithSystemSymbolName:accessibilityDescription:"), nsString(name), objc.ID(0))
 	if img == 0 {
 		return nil
@@ -123,6 +129,7 @@ func drawViewSymbol(name string, px int, tint ui.Color, dark bool) *image.RGBA {
 		appearance = ap
 	}
 	objc.ID(ctxCls).Send(sel("saveGraphicsState"))
+	defer objc.ID(ctxCls).Send(sel("restoreGraphicsState"))
 	objc.ID(ctxCls).Send(sel("setCurrentContext:"), ctx)
 	// The symbol, as large as fits in the square and no larger, at its
 	// own shape: an image is wider or narrower than tall by its nature.
@@ -133,7 +140,9 @@ func drawViewSymbol(name string, px int, tint ui.Color, dark bool) *image.RGBA {
 		r = nsRect{X: (float64(px) - size.X*s) / 2, Y: (float64(px) - size.Y*s) / 2, W: size.X * s, H: size.Y * s}
 	}
 	draw := func() {
-		img.Send(sel("drawInRect:fromRect:operation:fraction:"), r, nsRect{}, 2 /* NSCompositingOperationSourceOver */, 1.0)
+		// The short selector draws source-over at full opacity without the
+		// longer selector's stack-passed floating-point argument.
+		img.Send(sel("drawInRect:"), r)
 	}
 	if appearance != 0 {
 		block := objc.NewBlock(func(objc.Block, objc.ID) { draw() })
@@ -142,7 +151,6 @@ func drawViewSymbol(name string, px int, tint ui.Color, dark bool) *image.RGBA {
 	} else {
 		draw()
 	}
-	objc.ID(ctxCls).Send(sel("restoreGraphicsState"))
 
 	data := objc.Send[*byte](rep, sel("bitmapData"))
 	stride := objc.Send[int](rep, sel("bytesPerRow"))
@@ -157,7 +165,7 @@ func drawViewSymbol(name string, px int, tint ui.Color, dark bool) *image.RGBA {
 			// The rep's pixels carry premultiplied alpha, as an
 			// image.RGBA's do: the symbol draws dark on nothing, so its
 			// alpha is what the tint takes.
-			a := row[4*x+3]
+			a := mulAlpha(row[4*x+3], tint.A)
 			o := out.Pix[out.PixOffset(x, y):]
 			o[0], o[1], o[2], o[3] = mulAlpha(tint.R, a), mulAlpha(tint.G, a), mulAlpha(tint.B, a), a
 		}

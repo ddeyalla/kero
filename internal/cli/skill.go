@@ -60,6 +60,18 @@ or start it with --wait, which exits with the command's status:
     kero wait "$pane" --exit || kero read "$pane" -n 80
     kero split --down --wait -- make build    # the same, in one step
 
+## Find what needs the user
+
+    kero split --attention                     # the approval and attention queue
+    kero ls --json                             # sessions with their attention state
+    kero do attention.next-blocked              # focus the next session waiting on the user
+    kero do session.attention session=<target>  # reveal the pane that needs attention
+    kero do session.silence session=<target> state=on   # silence this session; off resumes
+
+Attention is a normal pane. Its filter, search and scroll return after a
+restart. Use the existing pane and action commands; do not answer an agent's
+approval prompt for the user without their instruction.
+
 ## Tell the user
 
     kero report working "Migrating the database" --progress 40

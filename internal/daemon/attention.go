@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -82,22 +81,47 @@ func (d *Daemon) attention() []attention {
 	return out
 }
 
+// paneRead is what one look at a pane gave the fold: whether it was
+// closed, its own attention and its id.
+type paneRead struct {
+	closed bool
+	pa     attention
+	id     string
+}
+
+// readPane looks at a pane once, under its lock; the same look can then
+// serve both the fold and the pane's row (sessionInfo).
+func readPane(p *pane) paneRead {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return paneRead{closed: true}
+	}
+	return paneRead{pa: paneAttention(p), id: p.info.ID}
+}
+
 // sessionAttention folds one session's panes into its state: the most
 // urgent of what they say, and of two as urgent, the first's. It reads
 // them as they are, under their locks; d.mu is held.
 func sessionAttention(s *session) attention {
+	reads := make(map[*pane]paneRead, len(s.panes))
+	for _, p := range s.panes {
+		reads[p] = readPane(p)
+	}
+	return foldAttention(s, reads)
+}
+
+// foldAttention folds one session's panes from what a look at each gave,
+// in the order of the session's panes; d.mu is held.
+func foldAttention(s *session, reads map[*pane]paneRead) attention {
 	var a attention
 	for i, p := range s.panes {
-		p.mu.Lock()
-		if p.closed {
-			p.mu.Unlock()
+		r := reads[p]
+		if r.closed {
 			continue
 		}
-		pa := paneAttention(p)
-		id := p.info.ID
-		p.mu.Unlock()
-		if i == 0 || pa.State.rank() > a.State.rank() {
-			a = attention{State: pa.State, Msg: pa.Msg, Since: pa.Since, Pane: id}
+		if i == 0 || r.pa.State.rank() > a.State.rank() {
+			a = attention{State: r.pa.State, Msg: r.pa.Msg, Since: r.pa.Since, Pane: r.id}
 		}
 	}
 	if a.State == "" {
@@ -221,6 +245,8 @@ const (
 	// scanMissHold is how long a pass waits before it looks again for a
 	// transcript it found none of.
 	scanMissHold = 30 * time.Second
+	// scanDiscoveryBudget bounds work for a Codex transcript not found yet.
+	scanDiscoveryBudget = 256
 )
 
 // scanVerdict is what a transcript's tail said, at the pass that read
@@ -265,8 +291,13 @@ func scanWaitMsg(tool string) string {
 
 // scanPass reads every pane's transcript once. The tick loop calls it
 // every few of its ticks, and the daemon's start once, so that the
-// panes of the last daemon say at once what ended before it.
+// panes of the last daemon say at once what ended before it. Two passes
+// do not overlap: one that finds another running leaves its work to it.
 func (d *Daemon) scanPass(now time.Time) {
+	if !d.scanning.CompareAndSwap(false, true) {
+		return
+	}
+	defer d.scanning.Store(false)
 	d.mu.Lock()
 	panes := make([]*pane, 0, len(d.panes))
 	for _, p := range d.panes {
@@ -274,58 +305,184 @@ func (d *Daemon) scanPass(now time.Time) {
 	}
 	d.mu.Unlock()
 	for _, p := range panes {
-		p.mu.Lock()
 		p.scanTranscript(now)
-		p.mu.Unlock()
 	}
 }
 
-// scanTranscript reads the pane's agent's transcript and applies what it
-// tells, as the soft record a hook would; s.mu is held. The hooks and
-// the screen say most of a pane's state, and what they have said stands:
-// the scan speaks only for a pane with no other word, and takes back
-// what it said when the transcript does.
-func (s *pane) scanTranscript(now time.Time) bool {
+// scanJob is what a pass needs of a pane to read its transcript, taken
+// under the pane's lock so that the reading itself can go without it.
+type scanJob struct {
+	agent, dir, id string
+	path           string // "" where none is known yet
+	key            string // of the file as the pane last read it
+	discovery      *transcriptDiscovery
+}
+
+// scanRead is what reading a job found: where the transcript is, and, of
+// a file that changed, what its tail tells.
+type scanRead struct {
+	path    string
+	key     string
+	missed  bool // no file was found
+	pending bool // a bounded discovery needs another pass
+	gone    bool // the file was known, and is not there
+	parsed  bool // the file changed: v and end are of its tail
+	v       scanVerdict
+	end     scanEnd
+}
+
+// scanAgent is the agent session whose transcript the scan may read for
+// the pane, or nil where it may not: a pane closed, a view, an agent of
+// no two, or a record of another's, a hook's or a program's own, which
+// owns the pane's status until it is dismissed (it knows more, and
+// sooner); s.mu is held.
+func (s *pane) scanAgent() *proto.AgentSession {
 	if s.closed || s.isView() {
-		return false
+		return nil
 	}
 	a := s.info.AgentSession
 	if a == nil || a.ID == "" || a.Agent != "claude" && a.Agent != "codex" {
-		return false
+		return nil
 	}
-	// A record of another's, a hook's or a program's own, owns the
-	// pane's status until it is dismissed: it knows more, and sooner.
 	for id := range s.records {
 		if id != scanRecordID {
+			return nil
+		}
+	}
+	return a
+}
+
+// scanTranscript reads the pane's agent's transcript and applies what it
+// tells, as the soft record a hook would. It takes s.mu itself, and only
+// for what it reads and applies of the pane: the lookup of the file, its
+// stat and its tail go without the lock, so that a slow disk never holds
+// the pane's output, its hooks or its calls. The hooks and the screen
+// say most of a pane's state, and what they have said stands: the scan
+// speaks only for a pane with no other word, and takes back what it said
+// when the transcript does.
+func (s *pane) scanTranscript(now time.Time) bool {
+	s.mu.Lock()
+	a := s.scanAgent()
+	if a == nil {
+		old := s.discovery
+		s.discovery = nil
+		s.mu.Unlock()
+		old.close()
+		return false
+	}
+	// Agent hooks can reuse a pane for another conversation. A cached path
+	// or verdict of the previous conversation must never carry over.
+	if s.scanAgentID != "" && s.scanAgentID != a.Agent+":"+a.ID {
+		s.applySoft(proto.Record{ID: scanRecordID, State: "clear"})
+		old := s.discovery
+		s.discovery = nil
+		s.scanAgentID = a.Agent + ":" + a.ID
+		s.transcriptPath, s.scanKey, s.scanTold, s.scanToldMsg = "", "", "", ""
+		s.scanV, s.scanEnd, s.scanTurn, s.scanToldTurn = scanVerdict{}, scanEnd{}, 0, 0
+		s.scanMissed = time.Time{}
+		s.mu.Unlock()
+		old.close()
+		s.mu.Lock()
+		a = s.scanAgent()
+		if a == nil || s.scanAgentID != a.Agent+":"+a.ID {
+			s.mu.Unlock()
 			return false
 		}
 	}
-	path := s.transcriptPath
-	if path == "" {
-		if !s.scanMissed.IsZero() && now.Sub(s.scanMissed) < scanMissHold {
-			return false
+	s.scanAgentID = a.Agent + ":" + a.ID
+	if a.Agent == "codex" && s.transcriptPath == "" && s.discovery == nil {
+		if root := codexTranscriptRoot(); root != "" {
+			s.discovery = newTranscriptDiscovery(root)
 		}
-		path = findTranscript(a.Agent, s.info.Dir, a.ID)
-		if path == "" {
-			s.scanMissed = now
-			return false
-		}
-		s.transcriptPath, s.scanMissed = path, time.Time{}
 	}
-	st, err := os.Stat(path)
+	job := scanJob{agent: a.Agent, dir: s.info.Dir, id: a.ID, path: s.transcriptPath, key: s.scanKey, discovery: s.discovery}
+	if job.path == "" && !s.scanMissed.IsZero() && now.Sub(s.scanMissed) < scanMissHold {
+		s.mu.Unlock()
+		return false
+	}
+	s.mu.Unlock()
+
+	read := job.read(now)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// The pane may have changed while the file was read: closed, given
+	// another record or session, or read by a pass of its own.
+	if a := s.scanAgent(); a == nil || a.ID != job.id || a.Agent != job.agent || s.scanKey != job.key {
+		return false
+	}
+	return s.scanApply(now, job, read)
+}
+
+// read finds the transcript, as far as the job knows it, and reads its
+// tail if the file changed since the pane's last pass; the pane's lock
+// is not held.
+func (j scanJob) read(now time.Time) scanRead {
+	r := scanRead{path: j.path}
+	if r.path == "" {
+		if j.discovery != nil {
+			r.path, r.pending = j.discovery.next(j.id, scanDiscoveryBudget)
+			if !r.pending {
+				j.discovery.close()
+			}
+			if r.pending {
+				return r
+			}
+		} else {
+			r.path = findTranscript(j.agent, j.dir, j.id)
+		}
+		if r.path == "" {
+			r.missed = true
+			return r
+		}
+	}
+	st, err := os.Stat(r.path)
 	if err != nil {
+		r.gone = true
+		return r
+	}
+	if r.key = scanKeyOf(st); r.key != j.key {
+		data, at := tailLines(r.path, scanTail)
+		r.v, r.end = parseScanTail(j.agent, data, now)
+		if r.end.present {
+			r.end.offset += at
+		}
+		r.parsed = true
+	}
+	return r
+}
+
+// scanApply keeps what a read found and says what it tells of the pane;
+// s.mu is held.
+func (s *pane) scanApply(now time.Time, job scanJob, read scanRead) bool {
+	a := s.info.AgentSession
+	switch {
+	case read.pending:
+		return false
+	case read.missed:
+		s.discovery = nil
+		s.scanMissed = now
+		return false
+	case read.gone:
+		s.discovery = nil
 		// Gone, as of a session the user cleared: look again later.
 		s.transcriptPath, s.scanMissed = "", now
 		return false
 	}
-	if key := scanKeyOf(st); key != s.scanKey {
-		// Lines are new: read the tail, and keep what it told, so that
-		// a pass with none says again what this one said.
-		v := parseScan(a.Agent, tailLines(path, scanTail), now)
-		s.scanKey = key
-		s.scanState, s.scanMsg, s.scanCallAt = v.state, v.msg, v.callAt
+	s.transcriptPath, s.scanMissed = read.path, time.Time{}
+	s.discovery = nil
+	if read.parsed {
+		// Lines are new: keep what the tail told, so that a pass with
+		// none says again what this one said. A tail that tells another
+		// thing, or another end, is another turn's: what was said of
+		// the one is no news of it.
+		s.scanKey = read.key
+		if read.v != s.scanV || read.end != s.scanEnd {
+			s.scanTurn++
+		}
+		s.scanV, s.scanEnd = read.v, read.end
 	}
-	state, msg := scanVerdictOf(scanVerdict{s.scanState, s.scanMsg, s.scanCallAt}, now.UnixMilli())
+	state, msg := scanVerdictOf(s.scanV, now.UnixMilli())
 	if state == "" {
 		// The transcript no longer says the pane works or waits: what
 		// the scan said of one goes, so that a turn the user stopped
@@ -337,18 +494,27 @@ func (s *pane) scanTranscript(now time.Time) bool {
 		}
 		return false
 	}
-	if state == s.scanTold && msg == s.scanToldMsg {
+	// A turn's end is told once, by which end it is (scanTurn), not by
+	// its words: two turns that end on the same last line ("Done.") are
+	// two ends, and the user's key between them does not make the first
+	// the second. The user's key leaves what was told as it is, so that
+	// an end the user has read is not told again.
+	if state == s.scanTold && msg == s.scanToldMsg && s.scanTurn == s.scanToldTurn {
 		return false // said, and it stands
 	}
+	// The work the scan itself said of stands, until the transcript says
+	// otherwise or the screen overrules it (overrule).
+	ownWork := s.soft[scanRecordID] && s.records[scanRecordID].State == "working"
 	// What the screen holds comes first of a working pane: only a wait
-	// may join it (a call gone old under the work); and nothing at all
-	// of a pane that waits or has failed, whose state a key of the
-	// user's, or the program's own word, ends — but for a wait the scan
-	// itself said, which it may take back when its call ended and the
-	// screen has said no wait of its own.
+	// may join it (a call gone old under the work), or the end of work
+	// the scan itself began; and nothing at all of a pane that waits or
+	// has failed, whose state a key of the user's, or the program's own
+	// word, ends — but for a wait the scan itself said, which it may
+	// take back when its call ended and the screen has said no wait of
+	// its own.
 	switch s.info.Status {
 	case proto.Working:
-		if state != "blocked" {
+		if state != "blocked" && !(state == "done" && ownWork) {
 			return false
 		}
 	case proto.Waiting:
@@ -358,14 +524,18 @@ func (s *pane) scanTranscript(now time.Time) bool {
 	case proto.Failed, proto.Exited:
 		return false
 	}
-	if state == "done" && !s.info.Unread {
-		return false // said once, of a pane the user has seen
+	// A done of a pane the user has seen is no news: the scan does not
+	// mark a pane unread that no other signal marked, which a transcript
+	// older than the daemon would do to every pane it restored. Work the
+	// scan began is the exception, whose end nothing else tells.
+	if state == "done" && !s.info.Unread && !ownWork {
+		return false
 	}
 	if (state == "working" || state == "blocked") && s.proc == nil {
 		return false // no program runs, for all the transcript says
 	}
 	s.applySoft(proto.Record{ID: scanRecordID, State: state, App: a.Agent, Progress: -1, Msg: msg, Updated: now.UnixMilli()})
-	s.scanTold, s.scanToldMsg = state, msg
+	s.scanTold, s.scanToldMsg, s.scanToldTurn = state, msg, s.scanTurn
 	return true
 }
 
@@ -436,43 +606,31 @@ func claudeTranscript(dir, session string) string {
 }
 
 // codexTranscript is where Codex keeps a session's rollout:
-// ~/.codex/sessions/<year>/<month>/<day>/rollout-…-<session>.jsonl, or
-// any nesting of its dates.
+// CODEX_HOME/sessions/<year>/<month>/<day>/rollout-…-<session>.jsonl,
+// defaulting to ~/.codex/sessions, or any nesting of its dates.
 func codexTranscript(session string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	root := codexTranscriptRoot()
+	if root == "" {
 		return ""
 	}
-	suffix := "-" + session + ".jsonl"
-	var best string
-	var bestAt time.Time
-	filepath.WalkDir(filepath.Join(home, ".codex", "sessions"), func(path string, e fs.DirEntry, err error) error {
-		if err != nil || e.IsDir() {
-			return nil
-		}
-		name := filepath.Base(path)
-		if name != session+".jsonl" && !(strings.HasPrefix(name, "rollout-") && strings.HasSuffix(name, suffix)) {
-			return nil
-		}
-		if st, err := e.Info(); err == nil && (best == "" || st.ModTime().After(bestAt)) {
-			best, bestAt = path, st.ModTime()
-		}
-		return nil
-	})
-	return best
+	search := newTranscriptDiscovery(root)
+	defer search.close()
+	path, _ := search.next(session, scanDiscoveryBudget)
+	return path
 }
 
-// tailLines is the last at most n bytes of a file, of whole lines only:
-// what a pass reads of a transcript, never a line half written.
-func tailLines(path string, n int64) []byte {
+// tailLines reads at most n bytes, of complete lines only, and returns
+// their absolute source offset. A moving read window must never change a
+// turn-end event's identity, and a partial final line is not an event.
+func tailLines(path string, n int64) ([]byte, int64) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, 0
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil || st.Size() == 0 {
-		return nil
+		return nil, 0
 	}
 	at := st.Size() - n
 	if at < 0 {
@@ -484,33 +642,41 @@ func tailLines(path string, n int64) []byte {
 		data = data[:read]
 	}
 	if err != nil && err != io.EOF {
-		return nil
+		return nil, 0
 	}
 	if at > 0 {
 		// The read began mid-line: its partial one is not a line.
 		if i := bytes.IndexByte(data, '\n'); i >= 0 {
 			data = data[i+1:]
+			at += int64(i + 1)
 		} else {
-			return nil
+			return nil, 0
 		}
 	}
 	if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
-		return data[:i+1]
+		return data[:i+1], at
 	}
-	return nil // no whole line in it
+	return nil, 0 // no whole line in it
 }
 
 // parseScan reads a transcript's tail, by the agent that wrote it, and
 // says what its end tells; now is the pass's time, for lines that say
 // none of their own.
 func parseScan(agent string, data []byte, now time.Time) scanVerdict {
+	v, _ := parseScanTail(agent, data, now)
+	return v
+}
+
+// parseScanTail returns the verdict and the last turn-end identity. Its
+// offset is relative to data; the file reader makes it absolute.
+func parseScanTail(agent string, data []byte, now time.Time) (scanVerdict, scanEnd) {
 	switch agent {
 	case "claude":
-		return claudeScan(data, now)
+		return claudeScanTail(data, now)
 	case "codex":
-		return codexScan(data, now)
+		return codexScanTail(data, now)
 	}
-	return scanVerdict{}
+	return scanVerdict{}, scanEnd{}
 }
 
 // parsedScan is what a transcript's tail says, as a scan reads it
@@ -528,6 +694,18 @@ type parsedScan struct {
 	// calls counts the calls the tail added, so that two of an age pick
 	// the one written first, not whichever a map's walk finds first.
 	calls int
+	// end identifies the last completion, independent of how many earlier
+	// completions still fit in the bounded read window.
+	end scanEnd
+}
+
+// scanEnd is a completion's stable source identity. Absolute byte position
+// distinguishes identical lines even when timestamps or event IDs repeat.
+type scanEnd struct {
+	timestamp string
+	id        string
+	offset    int64
+	present   bool
 }
 
 // scanCall is a call the transcript shows under way: what it runs, when
@@ -557,6 +735,8 @@ type scanLine struct {
 	Type      string          `json:"type"`
 	Subtype   string          `json:"subtype"`
 	Timestamp string          `json:"timestamp"`
+	ID        json.RawMessage `json:"id"`
+	UUID      json.RawMessage `json:"uuid"`
 	IsMeta    bool            `json:"isMeta"`
 	Message   json.RawMessage `json:"message"`
 	Payload   json.RawMessage `json:"payload"`
@@ -598,8 +778,17 @@ func (m claudeMsg) content(fn func(claudeItem)) {
 // lines say what it wrote and what it runs; its user lines, of results
 // and of the user's own word; its system lines, of a turn's end.
 func claudeScan(data []byte, now time.Time) scanVerdict {
+	v, _ := claudeScanTail(data, now)
+	return v
+}
+
+// claudeScanTail is claudeScan, with the last completion's source identity.
+func claudeScanTail(data []byte, now time.Time) (scanVerdict, scanEnd) {
 	ps := &parsedScan{pending: map[string]scanCall{}}
+	var offset int64
 	for _, line := range bytes.Split(data, []byte("\n")) {
+		start := offset
+		offset += int64(len(line) + 1)
 		if len(line) == 0 {
 			continue
 		}
@@ -656,11 +845,12 @@ func claudeScan(data []byte, now time.Time) scanVerdict {
 			case "turn_duration", "stop_hook_summary":
 				// The turn ended, its calls with it.
 				ps.turnEnd = true
+				ps.end = scanEnd{timestamp: l.Timestamp, id: string(l.UUID) + ":" + string(l.ID), offset: start, present: true}
 				clear(ps.pending)
 			}
 		}
 	}
-	return ps.claudeEnd()
+	return ps.claudeEnd(), ps.end
 }
 
 // claudeEnd is what the tail's end tells, its calls first: one under
@@ -697,8 +887,17 @@ type codexPayload struct {
 // began, ended, or was stopped; its response items say of calls and of
 // messages.
 func codexScan(data []byte, now time.Time) scanVerdict {
+	v, _ := codexScanTail(data, now)
+	return v
+}
+
+// codexScanTail is codexScan, with the last completion's source identity.
+func codexScanTail(data []byte, now time.Time) (scanVerdict, scanEnd) {
 	ps := &parsedScan{pending: map[string]scanCall{}}
+	var offset int64
 	for _, line := range bytes.Split(data, []byte("\n")) {
+		start := offset
+		offset += int64(len(line) + 1)
 		if len(line) == 0 {
 			continue
 		}
@@ -722,6 +921,7 @@ func codexScan(data []byte, now time.Time) scanVerdict {
 				clear(ps.pending)
 			case "task_complete":
 				ps.done, ps.doneSeen = p.LastAgentMessage, true
+				ps.end = scanEnd{timestamp: l.Timestamp, id: string(l.UUID) + ":" + string(l.ID), offset: start, present: true}
 				ps.started, ps.aborted = false, false
 			case "turn_aborted":
 				// The turn was stopped: its calls are over.
@@ -750,7 +950,7 @@ func codexScan(data []byte, now time.Time) scanVerdict {
 			}
 		}
 	}
-	return ps.codexEnd()
+	return ps.codexEnd(), ps.end
 }
 
 // codexEnd is what the tail's end tells, as a Claude one does: its

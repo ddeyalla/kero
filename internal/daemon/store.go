@@ -87,6 +87,11 @@ type savedState struct {
 	// Tasks are the conversations that worked on each task, by the
 	// issue's id: what outlives the sessions, to resume.
 	Tasks map[string]*taskLog `json:"tasks,omitempty"`
+	// Profiles are the saved work profiles, and ActiveProfile the id of
+	// the one the user last had active, empty when none. A state file of
+	// before has neither, and loads as it always did.
+	Profiles      []savedProfile `json:"profiles,omitempty"`
+	ActiveProfile string         `json:"activeProfile,omitempty"`
 }
 
 type savedSession struct {
@@ -136,7 +141,37 @@ type savedPane struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+// savedProfile is a work profile: a thin bundle of references, not a
+// copy. Its Projects and Sessions hold the ids of live projects and
+// sessions, which applying it resolves at switch time, and a reference
+// that no longer resolves is skipped, with a note, never a failure of
+// the restore. EnvRef is the name of the profile's env bundle, whose
+// values it does not carry, so nothing secret is saved here.
+type savedProfile struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Accent     string   `json:"accent,omitempty"`
+	Background string   `json:"background,omitempty"`
+	Projects   []string `json:"projects,omitempty"`
+	Sessions   []string `json:"sessions,omitempty"`
+	EnvRef     string   `json:"envRef,omitempty"`
+	CreatedAt  int64    `json:"createdAt,omitempty"`
+	LastUsed   int64    `json:"lastUsed,omitempty"`
+}
+
 func (d *Daemon) statePath() string { return filepath.Join(d.dir, "state.json") }
+
+// savedSummary is the words a pane's attention would show of an unread
+// end, which a restore keeps for it: only for a pane whose turn ended
+// unseen. What a working or waiting pane says is no end's, and would read
+// as one once the restore brings the pane back idle and unread; s.mu is
+// held.
+func savedSummary(p *pane) string {
+	if a := paneAttention(p); a.State == attentionUnread && p.info.Status == proto.Idle {
+		return a.Msg
+	}
+	return ""
+}
 
 // historyPath is where a pane's history is kept, for a restore.
 func (d *Daemon) historyPath(id string) string { return filepath.Join(d.dir, "sessions", id+".vt") }
@@ -197,7 +232,7 @@ func (d *Daemon) saveState() {
 	d.mu.Lock()
 	// The Linear workspace is kept in a file of its own, written only
 	// as it changes (linear_store.go).
-	st := savedState{Version: stateVersion, Projects: d.projects, Saved: time.Now().UnixMilli()}
+	st := savedState{Version: stateVersion, Projects: d.projects, Profiles: d.profiles, ActiveProfile: d.activeProfile, Saved: time.Now().UnixMilli()}
 	lin, linData := d.linearToSaveLocked()
 	for _, s := range d.sessions {
 		ss := savedSession{ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed, Created: s.created, Layout: s.layout, Focus: s.focus,
@@ -206,7 +241,7 @@ func (d *Daemon) saveState() {
 			p.mu.Lock()
 			sp := savedPane{ID: p.info.ID, View: p.info.View, Target: p.info.Target, Dir: p.info.Dir, Command: p.info.Command,
 				Agent: p.info.AgentSession, Task: p.info.TaskID, Created: p.info.Created, Cols: p.info.Cols, Rows: p.info.Rows,
-				Status: p.info.Status, Since: p.info.Since, Unread: p.info.Unread, Summary: paneAttention(p).Msg}
+				Status: p.info.Status, Since: p.info.Since, Unread: p.info.Unread, Summary: savedSummary(p)}
 			switch p.info.Status {
 			case proto.Failed:
 				sp.Message = p.info.Message
@@ -320,6 +355,10 @@ func (d *Daemon) restore() *restorePlan {
 		d.linearSaved = nil
 	}
 	d.tasks = st.Tasks
+	// Profiles load before session restoration; membership is resolved only
+	// when a later profile-switch operation applies the saved references.
+	d.profiles = st.Profiles
+	d.activeProfile = st.ActiveProfile
 	// The projects stay whether or not the sessions come back.
 	d.projects = st.Projects
 	set := settings.Load()
@@ -560,7 +599,11 @@ func (d *Daemon) restorePane(sid string, sp savedPane, when string, saved int64)
 	}
 	// What the pane's attention said when it was saved, for an unread
 	// end to show whose message a restore does not keep.
-	p.summary = sp.Summary
+	// A saved Working or Waiting pane comes back as an unread end of
+	// no words: what its row said then ("Working · 30%") was no end's.
+	if sp.Status != proto.Working && sp.Status != proto.Waiting {
+		p.summary = sp.Summary
+	}
 	// What the session showed, down to where its cursor was, with the
 	// new shell under it: what a program drew below the cursor, as an
 	// agent's status bar, goes, rather than show under the new shell's

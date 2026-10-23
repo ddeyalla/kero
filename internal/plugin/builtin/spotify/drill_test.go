@@ -281,6 +281,87 @@ func TestBackLeavesTheDrill(t *testing.T) {
 	}
 }
 
+// A failed track or queue read offers a retry in place, without making
+// the user navigate away and lose the open list.
+func TestFailedListsRetryInPlace(t *testing.T) {
+	for _, queue := range []bool{false, true} {
+		t.Run(fmt.Sprintf("queue=%v", queue), func(t *testing.T) {
+			p, s, _, _ := drillPlugin(t)
+			var fail atomic.Bool
+			fail.Store(true)
+			handler := tracksHandler(nil)
+			p.library = libraryClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if fail.Load() {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				handler.ServeHTTP(w, r)
+			}))
+			if queue {
+				p.event(nil, protocol.EventParams{Pane: "p1", Node: "tab-queue", Kind: protocol.KindPress})
+			} else {
+				p.event(nil, protocol.EventParams{Pane: "p1", Node: "results", Kind: protocol.KindSelect, Value: "album-a1"})
+			}
+			eventually(t, "the failed list", func() bool {
+				p.mu.Lock()
+				defer p.mu.Unlock()
+				return s.queueFailed || s.tracksState == tracksFailed
+			})
+			p.mu.Lock()
+			n := find(draw(t, p, s), "state-tracks-failed")
+			p.mu.Unlock()
+			if n == nil || n.Action == "" {
+				t.Fatal("failed list has no recovery action")
+			}
+			fail.Store(false)
+			p.event(nil, protocol.EventParams{Pane: "p1", Node: n.ID, Kind: protocol.KindPress})
+			eventually(t, "the retried list", func() bool {
+				p.mu.Lock()
+				defer p.mu.Unlock()
+				if queue {
+					return len(s.queue) == 2 && !s.queueFailed && s.tab == tabQueue
+				}
+				return len(s.tracks) == 2 && s.tracksState == tracksReady && s.drill == "album-a1"
+			})
+		})
+	}
+}
+
+func TestOfflineLibraryRetriesWithoutLeavingItsTab(t *testing.T) {
+	p, s, _, _ := drillPlugin(t)
+	var fail atomic.Bool
+	fail.Store(true)
+	p.library = libraryClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[{"id":"a1","name":"One"}]}`))
+	}))
+	p.mu.Lock()
+	s.tab, s.loaded = tabPlaylists, make(map[tabKind]bool)
+	p.mu.Unlock()
+	p.loadTab("p1", tabPlaylists)
+	eventually(t, "the offline library", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return s.lib == libNetworkDown
+	})
+	p.mu.Lock()
+	n := find(draw(t, p, s), "state-offline")
+	p.mu.Unlock()
+	if n == nil || n.Action == "" || n.Detail == "" {
+		t.Fatal("offline library has no recovery instruction and action")
+	}
+	fail.Store(false)
+	p.event(nil, protocol.EventParams{Pane: "p1", Node: n.ID, Kind: protocol.KindPress})
+	eventually(t, "the retried library", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return s.lib == libReady && s.tab == tabPlaylists && len(s.entries) == 1
+	})
+}
+
 // The Up next tab lists the queue, reads it again when the track changes,
 // and plays a pressed row.
 func TestUpNext(t *testing.T) {

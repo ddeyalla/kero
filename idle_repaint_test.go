@@ -86,10 +86,10 @@ func TestIdleAgoTick(t *testing.T) {
 	}
 }
 
-// The meters are read every 5 s while the window has the focus, every 30 s
+// The meters are read every 10 s while the window has the focus, every 30 s
 // while it has not, and at once as it comes back (BRU-336).
 func TestResourcesPaceWithFocus(t *testing.T) {
-	if resourceWait(true) != 5*time.Second || resourceWait(false) != 30*time.Second {
+	if resourceWait(true) != 10*time.Second || resourceWait(false) != 30*time.Second {
 		t.Fatalf("waits %v and %v", resourceWait(true), resourceWait(false))
 	}
 	p := &resourcePace{wake: make(chan struct{}, 1)}

@@ -35,6 +35,23 @@ def counters(cpu_s, idle, intr, footprint_mb, resident_mb):
 
 
 class PerfProbeTest(unittest.TestCase):
+    def test_focused_wakeups_are_separate_from_unfocused_acceptance(self):
+        before = sample(0, {7: counters(0, 0, 0, 20, 20), 9: counters(0, 0, 0, 100, 100)})
+        after = sample(60, {7: counters(0, 0, 500, 20, 20), 9: counters(0, 0, 2000, 100, 100)})
+        focused = "\n".join(probe.report(4, 16*MB, 7, before, before, after, app=9, idle_window="focused"))
+        unfocused = "\n".join(probe.report(4, 16*MB, 7, before, before, after, app=9, idle_window="unfocused"))
+        self.assertIn("focused: reported separately", focused)
+        focused_rows = {line.split("  ")[0]: line for line in focused.splitlines()}
+        unfocused_rows = {line.split("  ")[0]: line for line in unfocused.splitlines()}
+        self.assertFalse(focused_rows["app idle wakeups"].endswith("OVER"))
+        self.assertTrue(unfocused_rows["app idle wakeups"].endswith("OVER"))
+        self.assertTrue(unfocused_rows["app + kerod idle wakeups"].endswith("OVER"))
+        unknown = "\n".join(probe.report(4, 16*MB, 7, before, before, after, app=9))
+        unknown_rows = {line.split("  ")[0]: line for line in unknown.splitlines()}
+        self.assertFalse(unknown_rows["app idle wakeups"].endswith("OVER"))
+        self.assertFalse(unknown_rows["app + kerod idle wakeups"].endswith("OVER"))
+        self.assertIn("focus unverified", unknown_rows["app + kerod idle wakeups"])
+
     def test_parse_frame(self):
         self.assertEqual(probe.parse_frame(PLAIN),
                          {"total": 0.6, "build": 0.1, "layout": 0.0, "paint": 0.2, "present": 0.2, "repaint": False})
@@ -94,7 +111,7 @@ class PerfProbeTest(unittest.TestCase):
         idle = {"count": 105, "repaints": 100, "total": {}, "build": {}, "paint": {}}
         busy = {"count": 300, "total": {"p50": 0.5, "p99": 3.0}, "build": {"p50": 0.1, "p99": 5.0},
                 "paint": {"p50": 0.2, "p99": 1.5}}
-        text = "\n".join(probe.report(2, 16 * MB, 7, base, t0, t1, app=9, idle_frames=idle, busy_frames=busy))
+        text = "\n".join(probe.report(2, 16 * MB, 7, base, t0, t1, app=9, idle_frames=idle, busy_frames=busy, idle_window="unfocused"))
         self.assertIn("perf: 2 pane(s), 16 MB fed to each, idle window 60 s", text)
         lines = {l.split("  ")[0]: l for l in text.splitlines()}
         self.assertIn("14.0 MB", lines["kerod footprint per pane"])
@@ -110,8 +127,17 @@ class PerfProbeTest(unittest.TestCase):
         self.assertTrue(lines["app idle frames built"].endswith("ok"))
         self.assertIn("100/min", lines["app idle frames painted again"])
         self.assertTrue(lines["frame build p50 / p99 (streaming)"].endswith("OVER"))
-        self.assertTrue(lines["app footprint (1 pane shown)"].endswith("OVER"))
+        self.assertFalse(lines["app footprint (1 pane shown)"].endswith("OVER"))
+        self.assertTrue(lines["app resident (RSS) per pane"].endswith("OVER"))
         self.assertIn("not measured", lines["key -> paint p99"])
+
+    def test_rss_budget_is_not_physical_footprint(self):
+        base = sample(0, {7: counters(0, 0, 0, 12, 20)})
+        before = sample(100, {7: counters(1, 0, 0, 80, 100), 9: counters(1, 0, 0, 260, 220)})
+        after = sample(160, {7: counters(1, 0, 0, 80, 100), 9: counters(1, 0, 0, 260, 220)})
+        text = "\n".join(probe.report(8, 16*MB, 7, base, before, after, app=9))
+        lines = {line.split("  ")[0]: line for line in text.splitlines()}
+        self.assertTrue(lines["app resident (RSS) per pane"].endswith("ok"))
 
     def test_report_hidden_window(self):
         base = sample(0.0, {7: counters(0.1, 0, 0, 12, 20)})

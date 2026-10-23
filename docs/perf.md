@@ -4,22 +4,40 @@ What Shibu Code may cost, how to measure it with one command, and what it
 cost when the measurement was added (BRU-223, the first step of BRU-222).
 Every performance change records its numbers here, before and after.
 
+## Delivery verification, 2026-10-23
+
+The combined candidate was measured after integrating the UI, Usage, profile,
+Attention and performance changes. These are separate workloads and counters:
+
+| Workload | Result | Acceptance |
+| --- | --- | --- |
+| Final harness smoke, one pane, 100 native key dispatches | Key-to-paint p99 30.4 ms | Passes 50 ms; its two-second idle sample is not idle-budget evidence |
+| Ordinary four-pane fixture, 60 seconds idle | App RSS 146.4 MiB; app/daemon interrupt wakeups 1,530/350 per minute; combined CPU 0.21%; 8 builds/min | Combined wakeups below 2,000, but app wakeups above 1,500 and RSS above 120 MiB. Window focus was not independently recorded in this noninjected run |
+| Ordinary eight-pane fixture, 60 seconds idle | App RSS 143.9 MiB; app/daemon interrupt wakeups 1,340/371 per minute; combined CPU 0.19%; 8 builds/min | Numeric RSS/wakeup targets pass; window focus was not independently recorded |
+| Eight visited terminals, all retained, 17 confirmed visits | Peak sampled app RSS 214.6 MiB; settled RSS 214.5 MiB; footprint 318.3 MiB streaming and 174.8 MiB settled | RSS below the 240 MiB eight-pane target; footprint is a separate counter. Forced diagnostic GC makes this a memory workload, not an idle benchmark |
+
+These measurements do not close BRU-222, BRU-333 or the smaller-workload
+acceptance gaps. The historical 1.22 GB daily-app growth has not reproduced;
+native VM categories are recorded without inventing allocator ownership.
+No unsupported GC or memory limit was added to make a measurement pass.
+
 ## Budgets
 
 | Measure | Budget | How it is measured |
 | --- | --- | --- |
 | Footprint per pane, kerod | ≤ 25 MB | `scripts/perf.sh`: kerod's footprint with N panes, less its footprint with none, divided by N |
-| Footprint per pane, app | ≤ 30 MB | `scripts/perf.sh`: the app's footprint, one pane shown (see the limits below) |
+| Resident memory per pane, app | ≤ 30 MB | `scripts/perf.sh`: app RSS divided by the number of fixture panes; physical footprint is reported separately. Separate sessions retain up to eight client terminals; `PERF_LAYOUT=split` retains every pane in the selected session (see the limits below). |
 | Idle wakeups, app + kerod | ≤ 2,000 a minute (kerod ≤ 500, app ≤ 1,500), window shown and unfocused, at 4 and 8 panes | `scripts/perf.sh`: interrupt wakeups over 60 s of idle. Agreed 2026-10-22 in place of 30, which a Go process with a MyGo window cannot reach (BRU-336, below) |
 | Idle CPU, app + kerod | ≤ 1 % | `scripts/perf.sh`: CPU time over 60 s of idle, of one core |
 | Idle frames, app | < 10 a minute that build the window | `scripts/perf.sh`: frames `MYGO_FRAME_STATS=all` logs over 60 s of idle. A frame that only paints the last one again ("painted again"), as a focused terminal's cursor blinks, is counted apart and not judged |
 | p99 frame build | ≤ 4 ms | `scripts/perf.sh`: `MYGO_FRAME_STATS=all` while a shown pane streams output for 10 s |
-| p99 key press → paint | ≤ 50 ms | Not measured yet: it needs keys sent to the window |
+| p99 key dispatch → paint | ≤ 50 ms | `scripts/perf.sh`: 100 native AppKit key events through the terminal, kerod and PTY echo to the next UI-thread turn after the matching frame; hardware/OS event-queue time and compositor presentation are not measured |
 | Allocations of `screen()` | Flat with the scrollback; ≤ 16 KB a call | `TestScreenAllocsFlatWithScrollback` |
 | Allocations of a key's echo | Flat with the scrollback; ≤ 52 KB in 1,400 objects (kerod), ≤ 20 KB in 350 objects (app) | `TestFrameAllocsFlatWithScrollback` |
 
-The budgets hold at 1, 4, 8 and 12 panes, each with a full scrollback
-(BRU-222). The last two rows are tests, which `go test ./...` runs, so a
+The budgets are targets at 1, 4, 8 and 12 panes, each with a full scrollback
+(BRU-222); the measurements below distinguish passes, misses and unmeasured
+conditions. The last two rows are tests, which `go test ./...` runs, so a
 regression fails the checks without the app.
 
 ## Measuring
@@ -28,7 +46,7 @@ regression fails the checks without the app.
 sh scripts/perf.sh 4      # 4 panes
 ```
 
-It takes about two minutes, and prints a table with each measure, its
+It takes about three minutes, and prints a table with each measure, its
 budget, and `ok` or `OVER`. What it does:
 
 1. It builds this checkout into a temporary directory, as `shibu-perf`.
@@ -40,15 +58,34 @@ budget, and `ok` or `OVER`. What it does:
    the default scrollback of 4 MB, so that every scrollback is full. The
    scrollback setting counts the emulator's memory, not text, so 4 MB of
    text would not fill it.
-4. It starts the app, the same build, with `MYGO_FRAME_STATS=all` and a
+4. It packages the same build in a temporary app bundle with a unique
+   `CFBundleIdentifier`, stages the pinned terminal library after SHA-256
+   verification, and starts it through LaunchServices with every routing
+   variable explicitly isolated, `MYGO_FRAME_STATS=all` and a
    `TMPDIR` of its own. Its name and identity are not the daily app's or a
    dev app's, and its single-instance lock is in that `TMPDIR`, so it
    neither finds nor disturbs them. It opens a window for the run.
    `PERF_APP=0` leaves it out.
-5. It waits 15 s (`PERF_SETTLE`), past kerod's 10 s history save, then
-   samples kerod and the app over 60 s of idle (`PERF_IDLE`).
-6. The pane the app shows streams output for 10 s
-   (`PERF_BUSY`), for the frame times.
+5. It waits for its own GUI to subscribe to kerod and attach the selected
+   fixture before focusing the native window. After 15 s (`PERF_SETTLE`) it
+   samples 60 s of focused idle (`PERF_IDLE`). Fresh native focus, visibility
+   and application state are checked independently every five seconds; missing
+   observations or a changed window state invalidate acceptance. Native key
+   focus requires an unlocked desktop. A locked login screen produces an
+   explicit failure, cleans up only the test processes and records no pass.
+6. It sends 100 native AppKit key-down/up pairs to that window. Each sample
+   requires the corresponding PTY echo in the terminal's paint, and ends on
+   the next UI-thread turn after the frame. The harness neither sends keys
+   to another application nor requires Accessibility permission. The
+   measurement excludes hardware and OS event-queue latency and does not
+   establish compositor presentation. Queue/scheduler delay after drawing
+   remains included. The paint-matching hook is enabled only during these
+   key samples. It is then disabled before the test window resigns key focus
+   for a separate visible/unfocused idle sample, with the same settle and idle
+   durations. The harness refocuses only its own window before streaming
+   output for 10 s (`PERF_BUSY`) for frame timings. Native focus queries still
+   add small diagnostic overhead; neither idle phase nor streaming scans
+   terminal tails, writes paint snapshots or matches keys on each frame.
 7. It closes the panes, stops kerod and the app, and removes the directory.
    Anything still running from it is named instead (`PERF_KEEP=1` keeps
    the directory).
@@ -73,6 +110,67 @@ present of each frame, logged with `MYGO_FRAME_STATS=all`.
 
 Shorter `PERF_IDLE` and `PERF_SETTLE` are for checking the script itself.
 The numbers below use the defaults.
+
+### Memory after visiting every terminal
+
+```sh
+PERF_MEMORY=1 PERF_KEEP=1 sh scripts/perf.sh 25
+PERF_MEMORY=1 PERF_KEEP=1 PERF_LAYOUT=split sh scripts/perf.sh 25
+```
+
+The optional memory workload starts the same app with no sessions and verifies
+that it has no selection or attached terminals before taking its baseline. It
+then feeds every fixture, visits each terminal twice, streams every fixture,
+and waits `PERF_SETTLE` seconds (15 by default) after output stops. `PERF_LAYOUT=split` keeps all panes in
+one selected session instead of separate sessions. It uses the real `pane.next`
+and `pane.zoom` actions to visit every pane zoomed, then expands the layout
+before streaming. Minimum pane sizes clip part of a 25-tile layout in the
+1180 × 760 window; this is not a claim that all 25 tiles were exposed at once.
+The selected session is exempt from the eight-terminal cache limit, so this
+case measures retained terminals that the ordinary one-shown-pane workload
+misses.
+
+`scripts/perf_memory.py` adds diagnostics through a temporary Go build overlay;
+normal builds have no new listener or hook. A visit requires the requested
+selection, a positive grid, a fresh pane-specific `DrawOver` callback with
+positive geometry, the fixture's final `PERF-READY` marker in its bounded text
+tail, and a newer completed frame. This proves paint traversal and that the
+terminal consumed the fixture, not independent compositor presentation or
+physical window exposure. Focus and activation come from the app's callbacks,
+separately from frame counts.
+
+Every stage preserves process counters, Go `MemStats` and a post-GC heap
+profile. The first-shown, completed-sweep and settled stages additionally
+capture a `vmmap` summary and individual mappings, and `footprint` JSON. Files
+live under `memory/` in the temporary directory printed at exit;
+`PERF_KEEP=1` keeps them.
+
+Normal app runs use this GUI measurement by default. `PERF_GUI=0` keeps the
+older uninjected workload; its window focus is not independently verified,
+so it cannot establish focused or unfocused acceptance and reports key latency
+as unmeasured. `PERF_APP=0` measures kerod alone. `PERF_MEMORY=1`
+selects the separate memory workload instead. The native GUI code and
+loopback listener exist only in the temporary build overlay, never in the
+normal or released application. Detailed samples are preserved as `gui.json`
+when `PERF_KEEP=1` is set.
+Native tools have their own timestamps and totals, with process samples before
+and after each tool. A category from one snapshot must not be subtracted from
+a process total taken at another time. IOSurface region counts are mappings,
+not a count of unique surfaces.
+
+Sizes in this section use MiB (2^20 bytes), called MB by the harness. The
+aggregate app target at 25 panes is 750 MiB. The report keeps that total
+separate from the empty-app baseline and `(total - baseline) / distinct panes
+confirmed so far`; the denominator is zero before any visit. These within-run
+deltas can become negative as native graphics allocations change, and do not
+measure a terminal's individual allocation. The ordinary harness's existing
+30 MB row compares the whole app with a per-pane budget without an empty-app
+baseline; it is not the aggregate 25-pane acceptance check.
+
+Forced GC, bounded text-tail reads and native profiling perturb these runs.
+Their CPU and frame rates are diagnostic data, not idle or streaming latency
+acceptance. `GOMEMLIMIT`, `GOGC` and `GODEBUG`, when inherited, are recorded; this
+mode sets none of them.
 
 ## Profiling kerod
 
@@ -99,6 +197,15 @@ Set `KERO_PPROF` on a kerod only when you start it yourself, as
 
 ## Baseline
 
+Historical tables below retain the physical-footprint criterion used when
+they were recorded. That retired criterion is not the current app RSS verdict.
+The early GUI overlay also recorded every paint during idle and streaming;
+its timings include that instrumentation. Entries labeled focused used cached
+App flags, without independent native key-window verification. Their numbers
+are preserved as diagnostic observations, not native-focused acceptance.
+Current GUI runs query fresh native window state and isolate the costly
+paint-matching hook to the native-key phase.
+
 Measured 2026-10-22 on an Apple M4 Pro (24 GB, macOS 27.0.1), on
 `shibu` at c8ac9bc with this harness (labels off: `KERO_PPROF` unset),
 with the defaults: 16 MB fed to each pane, 15 s settle, 60 s idle, 10 s
@@ -111,7 +218,7 @@ streaming. The daily app and its agents ran beside it, as they always do.
 | kerod RSS | 31.7 MB | 64.3 MB | 74.4 MB | |
 | kerod idle CPU | 0.03 % | 0.05 % | 0.08 % | |
 | kerod idle wakeups (interrupt) | 870/min | 1,005/min | 1,521/min | |
-| app footprint, one pane shown | 157.3 MB | 297.8 MB | 271.0 MB | ≤ 30 MB a pane: over |
+| app footprint, one pane shown | 157.3 MB | 297.8 MB | 271.0 MB | retired footprint criterion: over; not the current RSS verdict |
 | app RSS | 116.0 MB | 169.7 MB | 153.0 MB | |
 | app idle CPU | 0.24 % | 0.52 % | 0.40 % | |
 | app idle wakeups (interrupt) | 2,300/min | 10,060/min | 8,626/min | |
@@ -163,7 +270,7 @@ those that only paint it again.
 | app idle frames that build the window | 127/min (all frames) | 104/min (all frames) | 25/min | < 10/min: over |
 | app idle frames painted again | — | — | 100/min | not judged |
 | app + kerod idle wakeups | 11,066/min | 5,595/min | 11,697/min | ≤ 30/min: over |
-| app footprint, one pane shown | 297.8 MB | 162.8 MB | 279.8 MB | ≤ 30 MB a pane: over |
+| app footprint, one pane shown | 297.8 MB | 162.8 MB | 279.8 MB | retired footprint criterion: over; not the current RSS verdict |
 | frame total p99, streaming | 1.2 ms | 1.2 ms | 1.5 ms | |
 
 - The blink no longer builds the window: its 100 frames a minute are now
@@ -344,16 +451,153 @@ The pinned MyGo regression test, `TestBlinkPaintsOnly`, was rerun on
 after focus returned. This proves the terminal timer behavior, separately
 from the whole app's native wakeups and meter rebuilds.
 
+### Visited-terminal measurements (BRU-333)
+
+Measured on the same M4 Pro on 2026-10-23, with 16 MiB fed per fixture,
+10 seconds of output and 15 seconds settling after output. Baseline
+`1368b83` pins MyGo `81afe923`; candidate `aa6f9a5` pins `43944857`.
+The 1- and 8-session references use `724fddc`, which adds usage-test
+synchronization without changing production code from `aa6f9a5`. All visit snapshots
+reported the app active and focused. No `GOMEMLIMIT`, `GOGC` or `GODEBUG` was
+set. These are instrumented memory workloads, not idle-budget measurements.
+
+App physical footprint and Go heap are in MiB:
+
+| Workload / code | Empty app | First shown | Sweep 1 | Sweep 2 | Streaming | Settled | Settled live Go heap | Retained terminals |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 session (`724fddc`) | 231.5 | 253.7 | 253.8 | 248.1 | 258.7 | 209.5 | 14.2 | 1 |
+| 8 sessions (`724fddc`) | 106.9 | 269.0 | 298.2 | 296.0 | 324.6 | 252.2 | 26.4 | 8 |
+| 25 sessions, before (`1368b83`) | 106.4 | 271.8 | 294.9 | 293.7 | 307.5 | 281.3 | 14.3 | 8 |
+| 25 sessions, after (`aa6f9a5`) | 231.6 | 272.5 | 293.7 | 293.0 | 305.1 | 155.6 | 14.1 | 8 |
+| 25 panes, one session (`aa6f9a5`) | 106.2 | 403.0 | 418.1 | 427.1 | 431.7 | 409.6 | 38.3 | 25 |
+
+Both 25-session runs and the selected 25-pane run completed 51 confirmed
+visits each: one first visit and two complete sweeps of 25 distinct panes.
+Separate sessions retained eight terminals after each sweep; the selected
+multi-pane session retained all 25, including after output stopped. The
+1- and 8-session references completed 3 and 17 confirmed visits respectively.
+The split workload visited every pane zoomed; the expanded streaming layout
+had clipped tiles, so it does not prove all 25 were exposed simultaneously.
+
+The 25-pane aggregate criterion is met in these synthetic runs: their stage
+samples and native-tool totals stayed below 750 MiB. This is not an all-budget
+pass. The ordinary whole-app 30 MiB row is still over with one pane; the
+8-session reference also exceeds 240 MiB in these samples. The references
+characterize fixed overhead and retention, not a redefinition of those budgets.
+
+There is no demonstrated causal memory reduction from BRU-331: the two
+25-session sweep samples are essentially equal. Empty-app footprint changed
+from 106.4 to 231.6 MiB between runs, and the candidate settled sample is lower
+than its own empty baseline. Its signed within-run delta is -3.04 MiB per
+visited pane; that is unstable subtraction, not a negative terminal allocation
+or an optimization saving.
+
+Native accounting drifts too. The split settled process sample was 409.6 MiB;
+its later `footprint` snapshot at 01:34:06 IST reported 298.1 MiB. That native
+snapshot labeled about 103 MiB `App-Specific Tag 1`, 98 MiB `Untagged`, and
+13.7 MiB `IOSurface`. These labels do not establish allocator ownership or
+unique surface counts. They must not be combined with the earlier 409.6 MiB
+total as a precise breakdown. The separate-session settled native snapshot
+reported 155.2 MiB, with 48.8 MiB untagged and 31.5 MiB app-specific.
+
+The split post-GC heap was 38.3 MiB; `Sys - HeapReleased`, a Go-runtime estimate
+rather than OS accounting, was 87.8 MiB. Its sampled heap profile mainly
+identified text shaping (`ui.Shape` about 18.6 MiB and terminal `shapeRun` about
+3.5 MiB), with about 2 MiB in the terminal LRU. These bounded samples do not
+show Go heap dominance or an unbounded cache. No memory limit or new cache
+policy was added.
+
+BRU-333 remains open for the historical 1.22 GB daily-app observation: this
+synthetic workload did not reproduce or fully attribute it. The daily app's memory was
+not inspected, and the app was not restarted. Unknown native/untagged memory remains unknown;
+it is not assigned to libghostty by subtracting Go heap from footprint.
+
+### Completion measurements (BRU-223, BRU-225, BRU-226, BRU-228, BRU-333)
+
+Measured on 2026-10-23 in an isolated worktree at `7dcc432` with the
+completion changes, on the same M4 Pro. The meters now read every ten
+seconds while focused (six possible rebuilds per minute), rather than
+every five (twelve). They still read every thirty seconds unfocused and
+immediately when focus returns. This fixes the focused rebuild floor;
+the resource card now states those actual intervals.
+
+HEAD checks now run separately every 1.6 seconds. A branch switched by
+another process must not wait for the expensive pane loop's quiet ten-second
+tick. A regression that performs an atomic HEAD replacement while that loop
+is quiet failed its two-second deadline before the change and passes after.
+The daemon retains its quiet pane/sysctl cadence and thirty-second full
+repository refresh.
+
+The following sixty-second idle samples observed cached App focus and
+activation flags every second. A later native-window check found that these
+flags could stay true on a locked desktop. These samples therefore do not
+establish native focus acceptance. The corrected harness checks the native
+window every five seconds and fails closed while the desktop is locked.
+Each key sample used direct native AppKit dispatch, the real PTY echo and the
+next UI-thread turn after the matching frame. Hardware, OS queue and
+compositor presentation remain outside the measurement.
+
+| Fixtures | Window | Idle builds/min | App + kerod CPU | App / kerod interrupt wakeups/min | Native key p50 / p99 / max, 100 samples | App RSS / footprint |
+| --- | --- | --- | --- | --- | --- | --- |
+| 4 | cached focused/active flags only | 7 | 0.263 % | 1,745 / 440 | 11.60 / 20.55 / 45.91 ms | 106.1 / 255.5 MiB |
+| 8 | cached focused/active flags only | 5 | 0.226 % | 1,428 / 426 | 12.21 / 16.93 / 25.31 ms | 144.0 / 126.1 MiB |
+
+The numeric rebuild, CPU and direct-dispatch values are below their limits,
+but native focused acceptance remains unverified. Wakeups in these diagnostic
+samples cannot establish the agreed 2,000/min visible, unfocused budget. Both daemon samples remain
+under its 500/min limit after the independent HEAD check. The ordinary GUI
+fixture has one attached client terminal; it does not establish eight
+retained terminals' cost.
+
+The earlier eight-terminal visited workload at `724fddc` retained all eight
+and measured RSS 222.9 MiB, below the literal BRU-226 aggregate RSS target of
+240 MiB. Its physical footprint was 252.2 MiB. Those are distinct OS
+counters: the previous report's footprint comparison did not establish an
+RSS failure. The harness now reports both counters and judges the app's
+per-pane RSS against the issue's RSS budget.
+
+A fresh selected twenty-five-pane memory run retained all twenty-five
+terminals and completed fifty-one confirmed visits. Physical footprint was
+389.0 MiB first shown, 408.9/413.4 MiB after the two sweeps, 414.6 MiB after
+streaming, and 267.3 MiB settled; every stage is below the 750 MiB aggregate
+footprint target. Settled RSS was 289.5 MiB. Post-GC live Go heap was
+33.4 MiB; `Sys - HeapReleased` was 65.8 MiB, a runtime estimate rather than
+OS attribution. The sampled heap profile primarily identified `ui.Shape`
+(18.6 MiB), terminal `read` (3.2 MiB), `shapeRun` (2.5 MiB) and the terminal
+LRU (2.0 MiB).
+
+The settled `footprint` snapshot independently totaled 267.3 MiB: 100.3 MiB
+App-Specific Tag 1, 84.9 MiB Untagged, 13.7 MiB IOSurface, 4.3 MiB owned
+unmapped graphics and 2.3 MiB IOAccelerator graphics; the other OS categories
+account for the remaining 61.8 MiB. IOSurface had two mappings, not a proven
+count of unique surfaces. These tags do not identify a native allocator;
+neither App-Specific Tag 1 nor Untagged is claimed to be libghostty. The Go
+heap snapshot is separate and must not be subtracted from this OS snapshot
+to invent an exact native ownership breakdown.
+
+The historical daily-app 1.22 GB observation remains unreproduced. The
+released `2.0.7-local.1` predates the shared scrollback, eight-terminal cache,
+32 MiB image cap and hidden-terminal redraw fixes. An isolated historical
+comparison reached 397.6 MiB first shown, then was stopped to give the
+combined release gate exclusive native-renderer access; it is incomplete.
+No reduction is attributed to a particular fix from that partial sample.
+
+The measured live Go heap and runtime commitment do not support a new
+`GOGC` or `GOMEMLIMIT` value as a fix for unexplained native/GPU memory.
+The app and daemon retain their explicit scrollback/image/cache budgets and
+respect the Go runtime's existing environment controls. BRU-333 remains
+open for exact native ownership and a justified memory policy; the passing
+synthetic aggregate result does not close that investigation.
+
 ## Limits
 
-- **Key press → paint** is not measured: it needs keys sent to the app's
-  window, which the harness does not do. The transport part, from a key
-  sent to kerod to the frame it sends back, is what
-  `scripts/measure-terminal-latency.py` measures.
-- **The app's footprint** is measured with one pane shown. The app keeps
-  only the terminals of panes it showed (`maxTerms`), so its footprint with
-  N panes is close to its footprint with one, and the per-pane budget
-  applies to the panes shown. A run that visits every pane is not done yet.
+- **Native key dispatch → paint** is measured by the default GUI workload.
+  Hardware/OS event-queue latency and physical/compositor presentation remain
+  outside its scope. `scripts/measure-terminal-latency.py` measures only the
+  separate daemon transport part.
+- **The ordinary app workload** shows one pane. Use the opt-in visited-terminal
+  workload above for retained terminals, with its separate baseline and
+  profiling limits. It does not reproduce every workload of the daily app.
 - **The app's window** opens behind or in front of the user's windows, as
   macOS places it. Frames of a hidden window may cost less than those of a
   shown one.

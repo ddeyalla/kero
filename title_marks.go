@@ -132,11 +132,11 @@ func titleMarkView(c *ui.Context, pal *palette, mark string) {
 		return
 	}
 	slot.Label(titleMarkLabel(mark))
-	b := symbolImage(mark, titleMarkSize, titleMarkColor(pal, mark), pal.dark)
+	b := symbolImage(mark, titleMarkSize, pal.dark)
 	if b == nil {
 		return
 	}
 	slot.Children(func() {
-		ui.Image(c, b).Size(titleMarkSize, titleMarkSize)
+		symbolElement(c, b, titleMarkSize, titleMarkColor(pal, mark))
 	})
 }

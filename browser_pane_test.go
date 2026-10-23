@@ -73,7 +73,7 @@ func TestBrowserStartPage(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		a := testBrowser(t)
 		st := a.browserStateOf(&a.st.Sessions[0].Panes[1])
-		st.servers, st.serverAt = []devServer{{3000, "node"}, {5173, "node"}, {8000, "python3"}}, time.Now()
+		st.servers, st.serverAt = []devServer{{3000, "node"}, {5173, "node"}, {8000, "python3"}}, time.Now().Add(time.Hour)
 		tt := ui.NewTester(a.view, 1280, 720)
 		tt.SetDark(dark)
 		frames(tt)
@@ -86,7 +86,7 @@ func TestBrowserStartPage(t *testing.T) {
 	}
 	a := testBrowser(t)
 	st := a.browserStateOf(&a.st.Sessions[0].Panes[1])
-	st.servers, st.serverAt = []devServer{{5173, "node"}}, time.Now()
+	st.servers, st.serverAt = []devServer{{5173, "node"}}, time.Now().Add(time.Hour)
 	tt := ui.NewTester(a.view, 1280, 720)
 	frames(tt)
 	tt.Click("localhost:5173")

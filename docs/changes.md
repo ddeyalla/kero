@@ -3,6 +3,132 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Delivery review corrections
+
+A failed Spotify refresh leaves saved track and queue rows visible with a
+warning and Retry. Retry is suppressed while that list's request is in
+flight. Engine and desktop-monitor callbacks carry their source and generation,
+checked atomically with playback application, so replacing a player also
+retires already dispatched callbacks. `main.go` initializes focus and resource
+pacing from the native window instead of the headless fixture defaults.
+
+`actions.go` dispatches `pane.new.attention` separately from `pane.new.plugin`;
+`pane_action_dispatch_test.go` drives the action through its daemon split
+request. Spotify's `readNow` in `internal/plugin/builtin/spotify/spotify.go`
+captures the engine generation and pushed-playback sequence before reading;
+a response from an older engine or before a newer push is discarded. The
+blocked-read regression in `playback_order_test.go` verifies that an old
+response cannot replace the newer visible track. Account Usage titles and
+accessibility labels share `usageAccountTitle` in the locale catalog.
+
+## Performance measurements and idle scheduling
+
+Daemon-only `PERF_APP=0` runs build the CLI without fetching or staging native
+app libraries. `perf_probe.py` judges the visible/unfocused wakeup budget
+only for an explicit `idle_window="unfocused"`; legacy measurements without
+independent focus evidence report counters with no wakeup verdict.
+
+`internal/daemon/branch.go` checks inexpensive HEAD metadata every 1.6 seconds
+independently of the slower pane tick, so a checkout by another process no
+longer waits ten seconds. `resources.go` refreshes focused meters every ten
+seconds and unfocused meters every thirty seconds, with an immediate reading
+on regained focus. `scripts/perf.sh` uses a temporary diagnostics overlay from
+`scripts/perf_memory.py` to send 100 native AppKit key-down/up pairs only to its
+own isolated window and follow each real PTY echo through painting. The
+endpoint and listener never enter production builds. See `docs/perf.md` for
+measured samples, distinct RSS and physical-footprint counters, native-input
+scope and the remaining BRU-333 native-allocation ownership investigation.
+
+## Release validation and CI
+
+Release mode publishes the reviewed source on the pinned upstream base in
+`shibu-upstream.json`. A newer upstream release is considered only by check
+mode, keeping an unrelated upstream merge out of the final delivery step.
+An explicit `--upstream-tag` cannot change the baseline in release mode;
+review that upstream incorporation in check mode first. Every explicit
+`macos` value must contain the permitted consent declaration: empty or
+incorrectly typed values are rejected too. The guard approves metadata keys
+and identity, while the reviewed source owns the explanatory consent copy.
+Release preparation also stamps the feature tracker's release header and
+Unreleased feature rows, retaining their existing hand-test status.
+
+`scripts/shibu_release.py` permits the macOS `infoPlist` automation consent
+description needed by Spotify. Its allowlist still rejects other plist keys,
+signing settings and bundle identity overrides. `scripts/test_shibu_release.py`
+checks the actual application configuration and invalid override cases.
+`.github/workflows/test.yml` runs the same full Go, MyGo vet and Python checks
+as `scripts/check.sh`, using the toolchain installed by `actions/setup-go`
+rather than the local wrapper's checkout-specific `.toolchain`. The growing UI suite uses Go's
+default ten-minute timeout instead of a separate two-minute CI timeout;
+runtime performance budgets remain independently tested.
+The complete native UI gate runs on ARM64 macOS, matching the release target,
+where AppKit glass, native menu
+shortcuts and the app's allocation budgets apply. A separate Linux job tests
+the internal backend and plugin packages. Native UI budgets are retained,
+not raised to accommodate Linux's different renderer and menu conventions.
+Both jobs install the same pinned Gitleaks version as the security workflow,
+because the complete Python suite exercises real Git hooks in disposable
+repositories. Missing scanner dependencies cannot silently skip those tests.
+
+## Session organization and update controls
+
+`session_sidebar.go` owns project-local session pins, the stable partition
+that puts pins first, context-menu actions, drop targets, and the conversion
+from a visible position to the existing daemon `move` RPC's project index.
+`app.go` applies that partition in `groups()`, so the sidebar, command palette,
+number shortcuts and next/previous navigation agree. The pin indicator is the
+native `pin.fill` SF Symbol. The Session menu, palette, configurable shortcuts,
+and `kero do` expose `session.pin`, `session.unpin`, `session.moveUp` and
+`session.moveDown`; commands accept `session=<id>` and otherwise use the
+selected session.
+
+Pins are stored separately from plugin pins in `app.json`'s `sessionPins` map.
+Asynchronous preference snapshots clone that map. Session order uses the
+existing daemon state and persistence, without a protocol or state-version
+change. Drops and menu moves stay within the same project and pin section;
+only a confirmed daemon state changes the displayed order. Failed writes use
+the existing error toast. New sessions are unpinned and retain the existing insertion after the selected
+session. Moving a session to
+another project keeps its pin and appends it to that section. Unpinning returns
+it to its underlying daemon-order position among unpinned sessions.
+
+Pins are removed when a session observed in this daemon disappears. Unknown
+pins are retained across connection and daemon changes: background restoration
+sends partial session lists, so absence on connection is not proof of deletion.
+A pin for a session deleted while this app was disconnected can therefore
+remain dormant in the preferences; it is never displayed without that session.
+
+The fourth footer icon is removed in `view.go`. `source_updates_settings.go`
+puts its existing off-thread action in Settings > General > Updates, beside
+published app update controls. While a source check runs, its button becomes a
+busy label; Settings keeps the current progress and last result. Settings
+search finds the action by upstream, source, GitHub, build and repair.
+`updates.sync`, its palette entry, duplicate-run guard and repair behavior stay
+with the existing source-update implementation.
+
+Regression coverage: `session_sidebar_test.go` exercises the rendered menus,
+drag requests over a private fixture socket, pin persistence, navigation,
+section boundaries and partial restoration. `internal/daemon/session_order_test.go`
+proves project-relative ordering survives daemon save/restore.
+`source_updates_test.go` checks the footer and Settings idle/busy/result states.
+
+`sidebar_drag.go` shares drag feedback between session rows and project
+headers. A carried item uses tinted interactive glass with an opaque fallback
+under Reduce Transparency. The placement rule is neutral paint drawn over the
+row, so it changes neither the border nor the text layout. A session is chosen
+on click, not press: dragging it leaves the active terminal alone. MyGo owns
+the drag threshold, Escape cancellation, edge scrolling and reduced-motion
+behavior. No new animation loop is introduced.
+
+`project_sidebar.go` reuses `project.move` and its saved project order. The
+whole project group is the drop target, so the marker appears outside its
+sessions. Only its header is a drag source. Project menus, the Session menu,
+palette, configurable shortcuts and `kero do project.moveUp|project.moveDown`
+provide equivalent moves. Synthetic Other, missing ids, self drops and
+unchanged placements are rejected. Group position transitions preserve the
+existing collapse animation. Regression tests cover these gestures and the
+existing daemon save/restore path.
+
 ## Linear plugin
 
 The scope, setup and limits are recorded in
@@ -224,11 +350,18 @@ its own way. The fold is in
 [`internal/daemon/attention.go`](../internal/daemon/attention.go)
 (`sessionAttention`, filled by `sessionInfo`).
 
-A pane's own word comes from its marks, in this order: the agent's hook
-report, then the program's OSC 7501, then the transcript scan, then the
-screen detection. The first three are records on the pane (`records`,
-`soft`); the fold reads the resulting status, so only the most urgent
-pane's words show, and of two as urgent, the first pane's.
+A pane's own word comes from its marks. The program's own OSC 7501 report
+is a record that stands until it is dismissed. The agent's hook reports and
+the transcript scan are records too, but "soft" ones (`records`, `soft`):
+the screen detection may overrule them when it shows the contrary (the
+agent's prompt back after Esc, a permission granted), and the scan yields
+to every other record on the pane. So the order is: the program's own
+report, then the hooks, then the scan, each of which the screen may
+overrule when it contradicts. (An earlier version of this note put the
+screen last. The code never did, and keeps it so: a transcript can lag
+behind the screen, which is right the moment it is read.) The fold reads
+the resulting status, so only the most urgent pane's words show, and of two
+as urgent, the first pane's.
 
 The transcript scan is the fallback for what no other signal says.
 Claude Code and Codex keep their conversations on disk, and the daemon
@@ -241,56 +374,168 @@ a pane with no other record, takes back what it said when the transcript
 does, and retires on any report of another's. `internal/detect` stays the
 last fallback for an agent with no transcript or no hooks.
 
-Capability note: **Codex has no permission-prompt hook**, so the scan is
-its fallback for approval detection — 45 seconds after the call began, not
-the moment it asks. Claude Code reports the prompt itself.
+Capability note: Codex has a permission-prompt hook
+([`hook_events.go`](../internal/cli/hook_events.go)). The scan is the
+fallback for Codex's approvals only when its hooks are not installed — 45
+seconds after the call began, not the moment it asks. Claude Code reports
+the prompt itself.
+
+Codex transcript discovery uses `CODEX_HOME/sessions` when configured,
+otherwise `~/.codex/sessions`, matching the hook installer and usage scanner.
+It reads at most 256 directory entries or directory
+opens for one pane in a pass (`transcript_discovery.go`). An unfinished
+search continues on the next pass, so an older session beyond the first
+slice remains discoverable. Only one directory descriptor stays open per
+search; completing the search, closing the pane or changing the agent
+session releases it. Known transcripts use only a stat and a bounded tail
+read. A new agent conversation also drops the old scan-owned status and
+cached verdict, so one conversation cannot inherit another's work.
+
+The scan reads the file without the pane's lock (the lookup, the stat and
+the tail), and takes it only to plan the read and to apply what it found,
+checking that the pane did not change meanwhile. Passes never overlap, and
+the tick loop runs one on its own goroutine. A turn's end is told once by
+which end it is (the last completion's timestamp, optional event id and
+absolute source byte offset), not by its words or by how many earlier ends
+still fit in the tail. Two turns that end on "Done." remain distinct even
+when more than 256 KB separates them. Sliding the bounded read window
+does not replay an older completion. The scan marks an end unread only where another signal already
+did (a transcript older than the daemon would otherwise mark every restored
+pane), but it ends the work it began itself. A session's row and its
+attention are folded from one look at each pane (`readPane`).
 
 An end that comes while the app is away survives a restart: the pane's
 summary is saved with its unread mark (`savedPane.Summary`,
 [`internal/daemon/store.go`](../internal/daemon/store.go)) and a restored
 pane shows it. Nothing else of the fold is saved; it is computed again from
-the marks the daemon restored. The protocol and the saved state stay
-additive (Version 3 and 2): the field is optional and a daemon of before
-says none.
+the marks the daemon restored. The attention and summary fields are
+optional; this completion changes neither the daemon protocol version nor
+the saved-state version.
 
 Code: [`internal/daemon/attention.go`](../internal/daemon/attention.go),
+[`internal/daemon/transcript_discovery.go`](../internal/daemon/transcript_discovery.go),
 [`internal/daemon/store.go`](../internal/daemon/store.go),
 [`internal/daemon/osc.go`](../internal/daemon/osc.go) (`applyReport`),
 [`internal/proto/proto.go`](../internal/proto/proto.go) (`Attention`).
 Tests: `attention_test.go`, `store_test.go` (`TestRestoreKeepsSummary`).
 
+## Attention navigation
+
+A session that waits on the user can be gone to, and the next one can be
+gone to after it. Moving between them is `attention.next-blocked`
+(Session › **Next Waiting Session**, the command palette, or
+`kero do attention.next-blocked` from an agent's shell). It has no default
+shortcut: the menu, the palette and the CLI reach it, and no key is taken
+from a pane's program for it.
+
+**The cycle.** The action reads each session's fold (`foldOf`, shared with
+the notifications), so it, the notifications and the attention pane see one
+truth. The sessions it visits are those whose state
+is `waiting-user`, ordered by `Attention.Since` ascending and then by the
+session's id: the longest wait first, and the same order when two came at
+the same millisecond, whatever order kerod sent them in. Nothing is saved
+for the order; the app keeps the session it went to last in
+`App.attentionLast` ([`attention_nav.go`](../attention_nav.go),
+`nextBlocked`). A press goes after the session shown when it waits, else
+after the session it went to last, else to the longest wait, and wraps. So
+a press from a waiting session goes on to the next, and looking at a
+session that does not wait does not start the cycle over. With no session
+waiting it
+is a no-op and says "Nothing needs you", as Jump to Session Needing You
+does. A session that stops waiting leaves the cycle. If neither the
+selected session nor the last visited session remains in the waiting set,
+the next press resets to the longest remaining wait. A daemon that predates
+this feature sends no attention state; `foldOf` then folds every terminal pane (waiting is
+`Status == Waiting`), and such sessions have no `Since`, so they come first
+and are ordered by id.
+
+**Focus.** `focusAttention(session, pane)` is the one way to take the user
+to what a session needs; the issue detail and the cycle use it. It opens the session's project in the sidebar, selects the
+session, and moves both the app's focus and kerod's (`focus`) to the pane
+the attention came from; the pane's terminal then takes the keyboard, as
+the app's pane focus does (`setFocus`). A pane named that has closed since
+the state came falls back to the pane the session was in last; that fallback
+uses the same idempotent daemon focus request and local zoom update. A stale
+linked session rejected by the daemon produces the Linear pane's existing
+error notice. If it disappears after validation, the app shows a localized
+session-not-found message.
+
+A zoom follows the focus, exactly as it does when panes are cycled while
+zoomed: when the session is zoomed on another pane, the zoom moves to the
+named pane. That is what keeps the jump from landing on a pane the zoom
+hides, and the session stays zoomed on the pane the user came to see
+rather than dropping to the whole layout. The focus request also reaches kerod when the local pane already has
+focus. The daemon moves its actual zoom with that focus, without a toggle
+based on a possibly stale client snapshot. A row click explicitly clears
+zoom with the existing empty-pane `zoom` request, then uses the same focus
+path to reveal the full layout.
+
+**Linear round trip.** A session linked to an issue shows in the issue's
+detail, and the detail's **Open the session**, like a running
+conversation's **Open**, now goes through `focusAttentionOf(session)`: the
+session is selected, and when it waits on the user the pane its attention
+came from is in front. A session at rest keeps its focus and zoom, since
+the fold names its first pane then, which needs nobody. The other end is
+the attention pane's **Open issue** button (`attentionIssueButton` in
+`attention_pane.go`), shown on a row whose session has a `TaskID`: it
+opens the issue in the Linear plugin (`openAttentionIssue`). An existing
+Linear pane in the selected session keeps its filters; otherwise a new pane
+is split with the issue in its saved target. The row's own click is skipped for that press. Nothing
+new is stored: both ends read the link the daemon already keeps for the
+task (`session.link`, the panes' `TaskID`, `savedPane.Task`), and the app
+keeps no link of its own.
+
+Code: [`attention_nav.go`](../attention_nav.go), `actions.go` (`run`),
+[`internal/actions/actions.go`](../internal/actions/actions.go),
+[`app.go`](../app.go) (`session.attention` action from the Linear plugin).
+Tests: `attention_nav_test.go` (cycle order and wrap, no session waiting,
+a zoomed session, a closed pane, the issue detail's jump, a session at
+rest, a daemon with no fold); `attention_pane_test.go`
+(`TestAttentionRowOpensIssue`).
+
 ## The Attention pane
 
 The **Attention** pane shows what needs the user, of every session, in one
 list. It reads `Session.Attention` as kerod sends it and holds no state of
-its own beyond the list: it runs nothing in the daemon, so it needs no
-protocol change, and a kerod that does not send the state leaves the list
-empty rather than breaking it. Its own state — the filter, the search,
-where it is scrolled to — is the app's, one per pane (`App.attention`,
-`attention_pane.go`). The pane itself is a view as Tasks, Files and
+its own beyond the list: it runs nothing in the daemon. When a supported
+kerod omits the folded state, the pane derives it with `foldOf`, just as
+navigation and notifications do. The pane view itself is new to the
+protocol, though: `"attention"` joins `proto.PaneViews`, and a kerod
+that predates it refuses the pane (`internal/daemon/sessions.go`), so the
+terminal service needs a restart once, when agents are idle. Its own
+state — the filter, the search, where it is scrolled to — is stored as
+JSON in the existing pane Target (`attentionTarget`, `attention_pane.go`).
+The app keeps one live view per pane and prunes it when the pane closes.
+Changed state uses `pane.target`; one write is in flight at a time and its
+completion sends only the newest state that arrived meanwhile. A rejected
+target stays dirty without automatic per-frame retries; changed input or a
+new daemon connection permits another attempt. The daemon coalesces its
+saved-state writes. A restart restores the view; invalid
+filters or scroll positions fall back to the default.
+
+The pane is a view as Tasks, Files and
 Browser are: kerod keeps it and its Target across a restart.
 
 A row says the state's mark and name, the session's name and its project,
 the agent, the line the state came with, and how long it has been so
 (`ago`). Rows are the sessions of the sidebar's order, the most urgent
-first — `waiting-user`, `running`, `unread`, `done`, `idle`, the daemon's
+first — `waiting-user`, `running`, `unread`, `done`, the daemon's
 order — and of two as urgent, the one whose state came last. A click
 selects the session and puts the keyboard in the pane the state came from
-(`Attention.Pane`), where the decision is; it does not zoom, so the panes
-beside it stay in sight.
+(`Attention.Pane`), where the decision is; it does not zoom, and it ends a zoom
+on another pane, so the panes beside it stay in sight.
 
 The chips narrow the list to a state and count what each shows: **All**,
 **Needs you**, **Working**, **Unread**, **Done**. The copy is the app's
 own, as the sidebar and the footer say it: `waiting-user` is **Needs
-you**. Idle sessions, at rest, have no chip: they are in **All**, last.
+you**. Idle sessions, at rest, need nothing and are not listed.
 The search finds what a row says — its name, project, agent, message and
 state — as plain text, and Escape clears it.
 
-An approval shows the hook's own words. Codex has no permission hook, so
-its wait comes from the transcript scan (above) and may carry no message
-from the agent: where the message is absent, the row says **Focus pane to
-approve** instead of nothing, since the approval is in the pane. A hook's
-message is shown exactly as the hook sent it.
+An approval shows the hook's own words. Codex supports a permission hook;
+when it is not installed the transcript scan is its fallback. Every Codex
+wait appends **Focus pane to approve**, including a daemon's generic
+message, because the approval is answered in the pane.
 
 Code: [`attention_pane.go`](../attention_pane.go) (`attentionPane`,
 `attentionRows`, `gotoAttention`, `attentionSummary`),
@@ -324,9 +569,17 @@ and the mark that asked for it draws nothing.
 ([`pane_views.go`](../pane_views.go)) picks a view's symbol or its icon.
 The Attention pane's mark and its rows' states are symbols:
 `bell.badge`, `hand.raised.fill`, `arrow.triangle.2.circlepath`,
-`checkmark.circle.fill`, `checkmark.circle` and `circle`. The app's older
-icons stay SVG, as they are. Tests: `symbols_test.go`.
+`checkmark.circle.fill`, `checkmark.circle` and `circle`. Mapped control and status icons use native SF Symbols; provider logos remain
+artwork. Tests: `symbols_test.go`.
+
 ## Notifications from attention
+
+Notification throttling starts only after native delivery acceptance. Native
+authorization stays off the UI thread, with one notice per session/state in
+flight and only the newest eligible event queued. Retired-connection results
+cannot charge the new watch. The app removes saved pins and silence only
+after the daemon successfully acknowledges a session close, using the existing
+serialized writers.
 
 The app tells of a session by comparing the attention kerod folded
 (`Session.Attention`) with the fold before it, in
@@ -339,35 +592,57 @@ The app tells of a session by comparing the attention kerod folded
   is what changes, and the same session and state inside
   `notify-throttle-minutes` (five by default, `0` for no throttle) is
   counted silently, so a chatty agent's loop does not fill Notification
-  Center. A turn that begins again after the window tells again;
+  Center. Only a notification that was shown starts the throttle: an ask
+  the user saw in the focused session, or one a setting turned off, holds
+  nothing back. A session that asks again less than 30 seconds after it
+  left the state is a loop; one that asks again later (a real second ask
+  after an approval) tells even inside the window;
+- a clean exit of a plain program, and a view pane's unread mark, tell
+  nothing; an exit with a non-zero code is a failure;
+- after kerod restarts and the app reconnects, the watch starts anew:
+  panes kerod brings back idle and unread are not news;
 - an unseen end whose pane failed keeps the error's title and body, and
   `notify-on-error` decides it; `notify-on-waiting` and `notify-on-done`
   decide the rest, as they did. The sound, the Dock badge and the bounce
   stay as they were; the badge counts the sessions whose fold waits
   (`waiting-user`), not a pane's status.
 
-Focus is the only filter: the session the user is in, in a window in
-front, tells nothing. The watch itself knows nothing of windows or
+Focus is the only filter: the session the user is in, in a window that is
+in front and has the keyboard, tells nothing, and neither does a zoomed
+session's pane in sight (another pane of it that asks does tell). A click
+on a notification selects its session and moves into the pane it comes
+from through `focusAttention`, so a zoom follows the asking pane.
+The watch itself knows nothing of windows or
 profiles — it is handed every session the daemon holds, so a session in a
 profile the user is not looking at still tells. That is the global rule
 the profiles of `feat/profiles-a1` will need; no profiles code is built
 here, and a later filter must not hide a session's attention from this
 watch.
 
-A session can be silenced: **Session › Silence Notifications**, the
-session's context menu, or `kero do session.silence` turns its
+A session can be silenced: **Session › Silence or Resume Notifications**,
+the session's context menu, or `kero do session.silence [session=<id or
+name>] [state=on|off]` turns its
 notifications off until the user resumes them. The list is saved with the
-settings (`silence-session`) and survives a restart of the app. A silenced
+settings (`silence-session`) and survives a restart of the app. A choice
+is removed only when a session already observed in the current daemon
+epoch disappears. Unknown or late-restored ids remain through partial
+startup snapshots and daemon restarts; absence alone is not closure. Without
+`session=` the action is about the selected session, and without `state=`
+it toggles. A silenced
 session tells nothing; once resumed, its next turn tells, inside the same
 throttle window. A daemon of before the `Attention` field says none, so
-`foldOf` reads the fold from the session's lead pane: nothing goes quiet
-in that window.
+`foldOf` folds all terminal panes, so a wait in a non-lead pane still
+notifies. View panes and plain successful shell exits do not notify.
 
-What a notification says is the session's name and one line of what it
-needs — the fold's `Msg`, which is the hook's or the screen's line, cut to
-80 bytes by kerod — or the agent and the folder when the fold has none.
-Nothing more of the conversation is read for it, and no credential goes in
-it.
+What a notification says is the session's name and, for a wait or a
+failure, one line of what it needs: the fold's `Msg`, which is the hook's
+or the screen's line (or the name of the tool call a wait hangs on), cut to
+80 bytes by kerod. A session's end never uses the fold's line: kerod can
+fold it from the agent's own transcript (the last message of a Codex turn),
+and what an agent wrote is not for a notification, so an end says the agent
+and the folder. The transcript scan is kerod's existing one; the
+notification does not read more of it. A daemon of before the `Attention`
+field is read pane by pane, and the most urgent pane wins.
 
 Code: [`attention_notify.go`](../attention_notify.go) (`attentionWatch`,
 `foldOf`), [`app.go`](../app.go) (`notify`, `tell`, `toggleSilence`),
@@ -508,39 +783,22 @@ the background every two minutes, preserve the last successful observation
 after errors, and respect rate-limit backoff. Explicit provider-key overrides
 are atomically stored with mode `0600` in the personal data directory.
 
-The sidebar's bottom bar is one ring per harness this Mac has installed:
-Claude, Codex and OpenCode Go when their command or sign-in file is found
-(OpenCode Go also by `OPENCODE_API_KEY` or OpenCode's own login), and
-DeepSeek when its key is saved, set in `DEEPSEEK_API_KEY` or in OpenCode's
-DeepSeek login; with none found it shows every provider, so a new user sees
-what can be connected. The first allowance is the arc, amber once any of
-the harness's windows reaches 90%. A harness with only a balance, as
-DeepSeek, shows its currency's sign in the track instead; one not
-connected, a dashed track; and an amber dot marks a ring whose last
-refresh failed, the arc then being the last known usage. The names sit
-beside the rings while they fit — in rows when the sidebar can't hold them
-in one, and the rings alone at the narrowest sidebar, where the hover card
-names them instead. The hovered harness's name turns the text's color and
-heavier, and its ring's track darker. Hovering a ring shows the plan
-(capitalized: the APIs send "max", "plus"), every allowance window ("5
-hours", "Week") with its percentage and reset — the time today, the
-weekday this week, the date from six days on — a balance, or why the
-harness is not connected, and "Last known usage; refresh failed" over a
-stale one; clicking it, or `Cmd+Shift+U`, opens the full in-window modal
-with refresh, provider configuration and keys. The CPU and RAM meters stay
-below the bar, unchanged (`resources.go`).
+The sidebar footer is a list of Claude, Codex, OpenCode Go and DeepSeek.
+Every supported provider keeps its row, including providers not installed or
+connected. The Usage header shows its shortcut; each row shows the provider
+name and its primary allowance percentage or USD balance. No circular meters
+remain. Hovering shows every allowance and reset time, the plan, the full
+balance, and disconnected or stale details. Clicking the header or a row, or
+`Cmd+Shift+U`, opens account details. CPU and RAM meters remain below the list.
 
-Detecting what is installed is `usage.Installed()`, which looks for each
-command on `PATH` and then in the folders the installers use
-(`installDirs`: `~/.local/bin`, `~/.claude/local`, `~/.opencode/bin`,
-`~/.bun/bin`, `/opt/homebrew/bin`, `/usr/local/bin`), as an app opened from
-the Dock or the Finder has only the system's `PATH`; and for the sign-in
-files without asking the keychain for a secret, where Claude Code keeps
-its sign-in. It runs off the main thread with each two-minute refresh, the
-first at launch; until it returns, every provider shows. The bar's rows come from
-`usageBarRows` in [`usage.go`](../usage.go); a ring is `usageRing`, the card
-`usageHover`, its reset text `usageReset`. Tests: `usage_test.go`,
-`internal/usage/usage_test.go` (`TestInstalledFromInstallerFolders`).
+`usageSidebar` and `usageRow` in [`usage.go`](../usage.go) own the list;
+`usageFooterSummary` selects its compact value, while `usageHover` preserves
+all windows. `usageColor` warns when **any** allowance reaches 90%, even if
+only the primary allowance is displayed. Failed refreshes retain their last
+observation with faint text and a stale marker. The details card keeps aligned
+percentage and reset columns at the minimum sidebar width. Tests in
+`usage_test.go` cover light/dark layouts, narrow widths, hover transfer, three
+windows, disconnected/stale states and secondary-window warning thresholds.
 
 The modal shows allowance windows, reset times, refresh and provider
 configuration, and its own error and connection states. `Cmd+Shift+U` opens
@@ -588,7 +846,7 @@ Two equal-width sidebar meters show CPU busy percentage and RAM used. They
 open details in the usage modal. Bars are clamped to 0–100%, turn amber at
 90%, and stay empty when a measurement is unavailable.
 
-macOS Mach calls sample every five seconds in the background without shell
+macOS Mach calls sample every ten seconds while focused, in the background without shell
 processes, and every 30 seconds while the window does not have the focus
 (`resourceWait`); a window that gets the focus back reads at once
 (`resourcePace`, BRU-336). CPU covers all cores; RAM includes active, wired and compressed
@@ -605,16 +863,15 @@ An idle window should not paint. Three timers that built and painted the
 whole window, grain shader included, with nothing to show are cut back
 (BRU-225, in part):
 
-- **The CPU and RAM sampler** reads every five seconds (`resourcePeriod`),
-  as Activity Monitor does by default, off the main
-  thread, but calls `a.update` only when `showResources` — the meters'
+- **The CPU and RAM sampler** reads every ten seconds (`resourcePeriod`),
+  off the main thread, but calls `a.update` only when `showResources` — the meters'
   labels, the tooltip's and the usage card's, the bars' fills and the
   error — differs from what it last sent. The bars fill in whole percents
   (`cpuPercent`, `memoryPercent`), so what is compared is what is drawn; a
   repeated error sends nothing either. On a Mac at work the labels change
   with nearly every read (30 of 30 reads at 2 s on an M4 Pro running
   agents), so the period is what bounds the meters' rebuilds: 30 a minute
-  at 2 s, 12 at 5 s.
+  at 2 s and 12 at 5 s previously, now at most six per minute at 10 s.
 - **Times ago** ("5m ago") read in whole minutes at the finest (`ago`). The
   sidebar asked for a rebuild every 20 seconds, shown or hidden; it now asks
   through `agoTick`, once a minute, and only while the sidebar shows. A time
@@ -1201,14 +1458,20 @@ on the card and the sidebar, in both appearances, and the white text of a
 primary button at 4.5 to 1 on it.
 
 **The grain.** [`grain.go`](../grain.go) holds one fragment shader of
-package `ui/shader`: a hash of each two pixels of the window, half the
+package `ui/shader`: a hash of each two points in a repeating 300-point tile, half the
 specks white and half black, from no image and no time. `backdrop` draws
 it on the backdrop row after its background and before its children, so it
 lies over the wash and under the sidebar and the cards, at 3.3% in the
-light and 4.5% in the dark at a speck's strongest — an average of some
+light and 4% in the dark at a speck's strongest — an average of some
 1.8% — and about 30% lighter where `Vibrancy()` has the desktop showing
 through,
 which has a texture of its own. `grain = false` turns it off.
+
+The grain pixel regression in `grain_test.go` checks the tile and the
+2–4% maximum strength. `sidebar_motion_test.go` verifies that a project of
+100 sessions snaps to its collapsed or expanded state with Reduce Motion.
+Its software-tester benchmark measures collapse operations; it is not a
+measurement of the native GPU's frame rate.
 
 **Focus, not dimming.** A pane that is not focused is the pane it is: its
 card is `pal.card` and its text is untouched. [`panes.go`](../panes.go)
@@ -1301,6 +1564,53 @@ See [Automatic updates](automatic-updates.md) for credentials, controls, tests
 and the fork-only publishing boundary. No automatic window or daemon restart
 is enabled.
 
+## Work profiles
+
+A profile is the unit of switching between hats: it bundles what is on
+screen, which panes and projects run, the look, and — later — an
+environment bundle. This child is the saved-state ground only: the
+switching itself (apply, RPC, switch UI, CLI verbs, env bundles and their
+trust gate) is the work that follows.
+
+**A profile is a thin bundle of references, not a copy.** `savedProfile` in
+[`internal/daemon/store.go`](../internal/daemon/store.go) holds:
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `name` | the profile's identity, as the switcher shows it |
+| `accent`, `background` | the appearance presets (Settings' `accent`/`background` ids) it puts on |
+| `projects`, `sessions` | the ids of the live projects and sessions it brings forward |
+| `envRef` | the name of its environment bundle, landed by the env child; the values are never saved here, so nothing secret is in the file |
+| `createdAt`, `lastUsed` | Unix milliseconds, as the file's other times |
+
+Membership points at live state and is resolved when the profile is
+applied, at switch time; a reference that no longer resolves is skipped,
+with a note, and never fails the restore. No session is ever duplicated:
+the per-pane `View/Target/Dir/Command/Agent/Task` state already saved with
+each session carries the layout.
+
+kerod keeps the profiles in `state.json`'s `profiles`, and the id of the
+one last active in `activeProfile` (empty when none); the daemon keeps them
+in `d.profiles`/`d.activeProfile`. `restore` loads them even when session
+restore is off, and `saveState` writes them in the same single
+`writeAtomic`: the whole state is marshalled once and renamed over the
+file, so a crash mid-save leaves the old file or the new one, never a
+half-applied profile. The fields are optional and left out when empty, so
+a state file of before loads as it always did. The saved state's version
+stays at its current value, 3, and the protocol's stays 4: applying a profile (the next child)
+adds new RPC methods, and new methods never bump a version — the target of
+zero wire change in this child is met.
+`TestProfileStateRoundTrip` in `internal/daemon/store_test.go` proves the
+round trip, that stale references load, that the old file loads, and that
+this addition does not change the current version.
+
+**This is the seam a future plugin API reads.** Profiles are daemon data
+with no wire type of their own: a plugin API can list, save and apply them
+over the daemon's RPC surface by adding methods and optional fields, never
+a version. Keep the profile additions co-located in `store.go` — the
+`savedProfile` type and the two `savedState` fields — so other children
+that also extend the saved state rebase trivially.
+
 ## Sessions and data continuity
 
 The official and personal editions have separate daemons and data:
@@ -1355,7 +1665,8 @@ there is no protocol or saved-state format change.
 - `Run` in `internal/daemon/daemon.go` reads a restore plan, starts the accept
   loop, then restores sessions in a background goroutine. The initial
   transcript scan runs only after that restore returns; `scanPass` in
-  `internal/daemon/attention.go` locks each pane while reading its transcript.
+  `internal/daemon/attention.go` takes a snapshot and applies results under the
+  pane lock, while transcript disk reads run without it.
 - `restore` in `internal/daemon/store.go` loads the state, workspace, projects
   and task runs. `restoreInBackground` uses up to four workers. History feeds
   and shell forks run outside `d.mu`; `restoreRun.publish` inserts a whole
@@ -1579,10 +1890,10 @@ renders only when it ends. The picture cache is keyed by URL, and the host
 downscales a decoded picture to at most 512 pixels in `pluginFetch`. SF
 Symbols are drawn through AppKit as templates and tinted at draw time
 (`plugin_symbol.go`, `plugin_symbol_darwin.go`), so no fallback shows first.
-The app's own views draw SF Symbols for new marks through `symbols_darwin.go`
-(a second, separate renderer, keyed by size, tint and appearance); the rest of
-the app still uses the Framework7 SVGs in `icons/`, a known gap against the SF
-Symbols rule in `AGENTS.md`. The medium and large layouts may
+The app's own views draw control and status SF Symbols through
+`symbols_darwin.go`. Its white templates are keyed by name, size and
+appearance, with tint applied when painted, just as plugin symbols are.
+The medium and large layouts may
 return `ScrollingTree()` (`Tree.Scroll`, `internal/plugin/protocol/tree.go`).
 
 Ambient colour. A plugin with the `ambient` permission lends its pane tint.
@@ -1638,9 +1949,8 @@ uses `tint`.
 The Usage widget (`usage`, widget `usage`) reads `internal/usage` directly and
 has no network code and no permissions. It no longer shows the machine's CPU
 and RAM. A Cost card shows a Today, Yesterday and 30 Days `segmented` control,
-a `donut` whose middle text shrinks to fit the total, and a legend of a dot,
-the provider's name and its amount; "≈" and a line "Some amounts are
-estimates" mark estimated prices, and the line's tooltip lists those models.
+a full total and a vertical list of each provider's name and amount; "≈" and
+a line "Some amounts are estimates" mark estimated prices, and the line's tooltip lists those models.
 Each provider has a section with its mark, name and plan. Each window (Session,
 Weekly, Monthly) is a `progress` bar with a `marker` for the pace, "% left"
 and "Resets in …"; when the pace would reach the limit before the reset, a red
@@ -1666,7 +1976,7 @@ Reads are incremental, and a compact binary cache at
 `<KERO_HOME>/plugin-data/usage/cost-cache.bin` is saved at most every 30
 minutes and on close. The plugin reads only while a pane is visible: every 5
 minutes, at midnight and on refresh. Nothing reads or stores message text.
-The generic parts that the card needs (`segmented`, `donut`, `surface`,
+The generic parts that the card needs (`segmented`, `surface`,
 `marker`, `icon` and `mark` on text, the `strong` role, more colour roles and
 icons) live in `internal/plugin/protocol/tree.go`, `internal/plugin/sdk/parts.go`,
 [`plugin_view.go`](../plugin_view.go) and [`plugin_symbol.go`](../plugin_symbol.go).
@@ -1751,3 +2061,117 @@ text in the light and the dark, and writes shots of them to
 `TestPaletteIsGlass` checks that the palette shows the terminal through it
 where an opaque panel would be one shade, and `TestGlassTextContrast` that
 the palette's muted text keeps 4.5 to 1 on the glass, light and dark.
+
+## Attention integration on current Shibu
+
+The B1–B4 fixes share the existing adaptive tick scheduler: transcript scans
+run off the tick goroutine and the atomic scan guard prevents overlapping
+passes. `scanTranscript` owns the pane lock; `scanPass` does not take it
+again. The branch watcher and elapsed-time scan cadence remain intact.
+Screen overrides and the 30-second re-ask loop rule are intentional owner
+choices (BRU-261 and BRU-269).
+
+Linear links use the built-in Linear plugin, rather than the removed Linear
+screen. Its `session.attention session=<id>` action passes through `focusAttentionOf`, and
+notification clicks through `focusAttention`, so the pane that needs the user
+stays visible under zoom. An Attention row also saves a project fold it opens.
+
+Attention search, filters and scroll survive restart through the pane
+Target. Missing Codex transcripts are discovered in bounded, continuing
+slices. The transcript dedupe retains what it told after a screen override
+to avoid reclaiming the same working state on every scan.
+
+## Hidden terminal redraws (BRU-331)
+
+`App.view` clears terminal entries' `shown` markers before composing panes.
+`paneTerminal` marks entries actually drawn; the completed frame applies that
+visibility through MyGo's `Terminal.SetVisible`. New attachments start hidden,
+so an attachment that finishes after its session was left cannot redraw it.
+The host still streams output and preserves titles, bells and notifications.
+Revealing a terminal requests one fresh frame; unchanged visibility requests
+none. Settings leaves the terminals composed beneath its overlay visible.
+
+The implementation lives in `app.go`, `view.go`, `panes.go` and the MyGo
+terminal plugin. `terminal_visibility_test.go` covers session switches, zoom,
+late attachment, built-in views and Settings. MyGo's visibility tests cover
+hidden output and callbacks, reveal, timer quiescence and concurrent updates.
+No daemon protocol, saved state or pane API changes.
+
+In the tester, four hidden terminals producing 20 output cycles caused 20
+window builds before the change and none afterward. An isolated native run
+with five visited sessions recorded 3,732 builds per minute while four hidden
+terminals streamed before the change, and 10 afterward. The latter sample
+lost focus partway through, so it is supporting evidence rather than a
+focused idle-budget comparison. Visible output still produced frames and
+revealing a terminal showed its current text. The installed app was not tested.
+
+## Visited-terminal memory diagnostics (BRU-333)
+
+`PERF_MEMORY=1 PERF_KEEP=1 sh scripts/perf.sh N` uses `scripts/perf_memory.py`
+and a temporary build overlay to capture an empty-app baseline, two complete
+sweeps of every terminal, all-fixture output and settled memory. `PERF_LAYOUT=split`
+keeps N panes in one selected session; real pane actions visit each one zoomed
+before expanding the layout. A visit needs a fresh pane paint and the fixture's
+initial-feed `PERF-READY` marker in its bounded text tail. Normal app builds gain no diagnostic
+listener or hook. `scripts/test_perf_memory.py` covers routing isolation,
+accounting, paint readiness, traversal bounds and overlay seams.
+
+The 25-session and selected 25-pane synthetic workloads met the 750 MiB
+aggregate target, retaining eight and 25 terminals respectively. The largest
+primary stage sample was 431.7 MiB in the split workload; its settled live Go
+heap was 38.3 MiB. Baselines and native snapshots varied, so these results do
+not establish a memory reduction or full allocator ownership. The historical
+1.22 GB daily-app observation and the ordinary small-pane budget remain open.
+No production memory policy changed. See [Performance](perf.md) for the full
+matrix, profiling effects and remaining limits.
+
+## Controls and toolbars on Liquid Glass (BRU-212)
+
+The sidebar and pane layout stay as they are. This pass changes the navigation
+and control layer: Browser and Files toolbar groups use compact glass capsules,
+fields and segmented controls have concentric rounded ends, and a held slider
+or switch has a real glass lens. Primary action buttons keep their opaque
+accent fill so their text contrast does not depend on content underneath.
+
+Sidebar collapse/add controls, the footer's folder/search/Settings buttons and
+pane-header add/split/zoom/close controls keep their previous plain style:
+individual compact buttons with a subtle rounded hover fill, without a glass
+capsule or group padding. This follows the owner's native-app hand-test feedback.
+
+`glass_ui.go` owns `glassToolbar`, `toolbarGroup` and `scrollUnderBar`. Sidebar,
+Files and Attention lists, and plugin lists with a sticky header, use
+pass-through soft edges only where more content continues beyond the viewport.
+The plugin seam gives the Linear/Tasks toolbar the same treatment. Settings uses its existing overlaid header,
+with a soft edge. Browser navigation and its address field are grouped above
+the native web view; the MyGo compositor does not refract the web page.
+
+`controls.go` and `elevation.go` retain the base controls' keyboard, pointer and
+accessibility behavior while styling their materials. `glassShows` and MyGo's
+glass materials follow Reduce Transparency and Increase Contrast. Opaque
+fallbacks stay fully opaque even when a hover tint has partial alpha. Motion
+continues to follow the system's Reduce Motion preference.
+
+`icons.go` maps existing embedded control handles to native SF Symbols through
+`controlIcon` and `symbols_darwin.go`; provider logos remain artwork. Glyph
+handles are cached by embedded asset name under a mutex, so Settings rebuilds
+cannot grow the native-symbol registry every frame. Non-macOS window controls
+keep their existing platform rendering.
+
+Native symbol bitmaps cache the white shape, not each tint. Hover, theme
+and ambient-color transitions reuse that shape and apply color with the
+painter's image tint. The regression advances 32 control tints and verifies
+that they retain at most one new bitmap instead of one per color.
+
+Offscreen symbol drawing pins its goroutine to one OS thread while AppKit's
+per-thread graphics stack and autorelease pool are live. Graphics state is
+restored before releasing the bitmap, draining the pool and unlocking the
+thread. This fixes a sporadic native restore trap exposed by the full UI suite;
+the uncached worker regression repeats native calls under scheduler and GC
+pressure, rather than exercising only warmed bitmap-cache entries.
+
+`controls_glass_test.go`, `toolbar_glass_test.go` and `symbols_test.go` cover
+control interaction, opaque fallbacks, scroll-edge hit testing, symbol tint,
+native symbol availability and bounded concurrent glyph reuse. MyGo tester
+shots cover light/dark appearances and reduced transparency. A floating inset
+sidebar, window-radius redesign and glass morphing container are outside this
+pass, following the owner's current-layout decision.

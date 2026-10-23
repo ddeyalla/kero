@@ -61,22 +61,23 @@ var unindexedDirs = map[string]bool{".next": true, ".venv": true, "__pycache__":
 
 // filesState is a Files pane's: what it has read and shows.
 type filesState struct {
-	id       string // the pane's
-	root     string
-	dirs     map[string]*dirListing
-	expanded map[string]bool
-	selected string // the row the keyboard is on
-	open     string // the file read, "" none
-	file     *fileContent
-	source   bool              // Markdown as its text
-	changes  map[string]string // path → git's two-letter status
-	readAt   time.Time
-	reading  bool
-	sent     string // the Target kerod has
-	md       markdown.Options
-	buf      *ui.TextBuffer // a long file's text
-	anchor   string         // the heading of the Markdown read to scroll to
-	mdDir    string         // the folder md loads images from
+	treeScroll, foundScroll ui.ScrollState
+	id                      string // the pane's
+	root                    string
+	dirs                    map[string]*dirListing
+	expanded                map[string]bool
+	selected                string // the row the keyboard is on
+	open                    string // the file read, "" none
+	file                    *fileContent
+	source                  bool              // Markdown as its text
+	changes                 map[string]string // path → git's two-letter status
+	readAt                  time.Time
+	reading                 bool
+	sent                    string // the Target kerod has
+	md                      markdown.Options
+	buf                     *ui.TextBuffer // a long file's text
+	anchor                  string         // the heading of the Markdown read to scroll to
+	mdDir                   string         // the folder md loads images from
 
 	// Find: what is typed, the files it looks through, and those found.
 	query     string
@@ -652,10 +653,12 @@ func (a *App) filesTree(c *ui.Context, pal *palette, st *filesState) {
 		paneNothing(c, pal, filesIcon, locales.FilesEmpty(), proto.ShortDir(st.root))
 		return
 	}
-	ui.Scroll(c.Key("files-tree")).Grow(1).MinHeight(0).Padding(6, 6, 12, 6).Children(func() {
-		for _, r := range st.treeRows() {
-			a.treeRow(c, pal, st, r)
-		}
+	scrollUnderBar(c, "files-tree", &st.treeScroll, pal.card, func(list ui.Element) {
+		list.Padding(6, 6, 12, 6).Children(func() {
+			for _, r := range st.treeRows() {
+				a.treeRow(c, pal, st, r)
+			}
+		})
 	})
 }
 
@@ -663,51 +666,53 @@ func (a *App) filesTree(c *ui.Context, pal *palette, st *filesState) {
 // finds a file of the folder by its name or path, as typed loosely.
 func (a *App) filesFind(c *ui.Context, pal *palette, st *filesState) {
 	ui.Row(c.Key("files-find")).Height(36).Shrink(0).AlignItems(ui.Center).Gap(7).Padding(0, 8, 0, 12).Children(func() {
-		ui.Icon(c, searchIcon).Size(13, 13).TextColor(pal.textFaint).Shrink(0)
-		in := ui.TextInputBase(c.Key("find"), &st.query).Grow(1).MinWidth(0).FontSize(12.5).
-			Placeholder(locales.FilesFind(filepath.Base(st.root))).Label(locales.FilesFind(filepath.Base(st.root))).
-			Bind(a.paneRef("find-" + st.id))
-		// Asked for, the field keeps asking until it has the keyboard.
-		if st.find {
-			if in.Focused() {
-				st.find = false
-			} else {
-				a.paneRef("find-" + st.id).Focus()
-				in.SetTextSelection(0, utf8.RuneCountInString(st.query))
+		glassToolbar(c, ui.Row(c.Key("find-field")).Grow(1).MinWidth(0).Height(28).Padding(0, 8).Gap(7).AlignItems(ui.Center), pal).Children(func() {
+			controlIcon(c, searchIcon, 13, pal.textFaint, pal.dark).Shrink(0)
+			in := ui.TextInputBase(c.Key("find"), &st.query).Grow(1).MinWidth(0).FontSize(12.5).
+				Placeholder(locales.FilesFind(filepath.Base(st.root))).Label(locales.FilesFind(filepath.Base(st.root))).
+				Bind(a.paneRef("find-" + st.id))
+			// Asked for, the field keeps asking until it has the keyboard.
+			if st.find {
+				if in.Focused() {
+					st.find = false
+				} else {
+					a.paneRef("find-" + st.id).Focus()
+					in.SetTextSelection(0, utf8.RuneCountInString(st.query))
+				}
 			}
-		}
-		st.finding = in.Focused()
-		if st.query != "" {
-			a.indexFiles(st)
-		}
-		n := len(st.found)
-		if st.finding && n > 0 {
-			if in.Shortcut(0, ui.KeyDown) || in.Shortcut(ui.Ctrl, ui.KeyN) {
-				st.hit = (st.hit + 1) % n
-			}
-			if in.Shortcut(0, ui.KeyUp) || in.Shortcut(ui.Ctrl, ui.KeyP) {
-				st.hit = (st.hit + n - 1) % n
-			}
-		}
-		if st.query == "" {
-			st.found, st.foundFor, st.hit = nil, "", 0
-		}
-		if in.Submitted() && st.query != "" && st.hit < n {
-			a.openFound(st, st.found[st.hit])
-		}
-		if st.finding && in.Shortcut(0, ui.KeyEscape) {
+			st.finding = in.Focused()
 			if st.query != "" {
-				st.query = ""
-			} else {
-				a.paneRef(st.id).Focus()
+				a.indexFiles(st)
 			}
-		}
-		if st.query != "" {
-			iconButton(c, "find-clear", closeIcon, locales.FilesFindClear(), pal, func() {
-				st.query = ""
-				a.paneRef(st.id).Focus()
-			})
-		}
+			n := len(st.found)
+			if st.finding && n > 0 {
+				if in.Shortcut(0, ui.KeyDown) || in.Shortcut(ui.Ctrl, ui.KeyN) {
+					st.hit = (st.hit + 1) % n
+				}
+				if in.Shortcut(0, ui.KeyUp) || in.Shortcut(ui.Ctrl, ui.KeyP) {
+					st.hit = (st.hit + n - 1) % n
+				}
+			}
+			if st.query == "" {
+				st.found, st.foundFor, st.hit = nil, "", 0
+			}
+			if in.Submitted() && st.query != "" && st.hit < n {
+				a.openFound(st, st.found[st.hit])
+			}
+			if st.finding && in.Shortcut(0, ui.KeyEscape) {
+				if st.query != "" {
+					st.query = ""
+				} else {
+					a.paneRef(st.id).Focus()
+				}
+			}
+			if st.query != "" {
+				iconButton(c, "find-clear", closeIcon, locales.FilesFindClear(), pal, func() {
+					st.query = ""
+					a.paneRef(st.id).Focus()
+				})
+			}
+		})
 	})
 }
 
@@ -754,29 +759,31 @@ func (a *App) filesFound(c *ui.Context, pal *palette, st *filesState) {
 		paneNothing(c, pal, searchIcon, locales.FilesNoneFound(), st.query)
 		return
 	}
-	ui.Scroll(c.Key("files-found")).Grow(1).MinHeight(0).Padding(6, 6, 12, 6).Children(func() {
-		for i, path := range st.found {
-			rel, _ := filepath.Rel(st.root, path)
-			dir, name := filepath.Split(filepath.ToSlash(rel))
-			row := ui.ButtonBase(c.Key("h-"+path)).Height(26).Shrink(0).AlignItems(ui.Center).Gap(6).
-				Padding(0, 8, 0, 8).Radius(6).Label(rel)
-			switch {
-			case i == st.hit:
-				row.Background(pal.accent.Alpha(0.14)).ScrollIntoView()
-			case row.Hovered():
-				row.Background(pal.rowHover)
+	scrollUnderBar(c, "files-found", &st.foundScroll, pal.card, func(list ui.Element) {
+		list.Padding(6, 6, 12, 6).Children(func() {
+			for i, path := range st.found {
+				rel, _ := filepath.Rel(st.root, path)
+				dir, name := filepath.Split(filepath.ToSlash(rel))
+				row := ui.ButtonBase(c.Key("h-"+path)).Height(26).Shrink(0).AlignItems(ui.Center).Gap(6).
+					Padding(0, 8, 0, 8).Radius(6).Label(rel)
+				switch {
+				case i == st.hit:
+					row.Background(pal.accent.Alpha(0.14)).ScrollIntoView()
+				case row.Hovered():
+					row.Background(pal.rowHover)
+				}
+				if row.Clicked() {
+					a.openFound(st, path)
+				}
+				row.DragDataFrom(func() transfer.Data { d, _ := transfer.FileData(path); return d })
+				row.ContextMenu(func(m *ui.Menu) { a.fileMenu(m, st, path, false) })
+				row.Children(func() {
+					controlIcon(c, entryIcon(fileEntry{name: name}), 14, pal.textMuted, pal.dark).Shrink(0)
+					ui.Text(c, name).FontSize(12.5).TextColor(pal.text).SingleLine().Shrink(0).MaxWidthPercent(70).Ellipsis("…")
+					ui.Text(c, strings.TrimSuffix(dir, "/")).FontSize(11.5).TextColor(pal.textFaint).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
+				})
 			}
-			if row.Clicked() {
-				a.openFound(st, path)
-			}
-			row.DragDataFrom(func() transfer.Data { d, _ := transfer.FileData(path); return d })
-			row.ContextMenu(func(m *ui.Menu) { a.fileMenu(m, st, path, false) })
-			row.Children(func() {
-				ui.Icon(c, entryIcon(fileEntry{name: name})).Size(14, 14).TextColor(pal.textMuted).Shrink(0)
-				ui.Text(c, name).FontSize(12.5).TextColor(pal.text).SingleLine().Shrink(0).MaxWidthPercent(70).Ellipsis("…")
-				ui.Text(c, strings.TrimSuffix(dir, "/")).FontSize(11.5).TextColor(pal.textFaint).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
-			})
-		}
+		})
 	})
 }
 
@@ -811,13 +818,13 @@ func (a *App) treeRow(c *ui.Context, pal *palette, st *filesState, r treeRow) {
 		chev := ui.Box(c).Size(10, 10).Shrink(0).Center()
 		if r.dir {
 			chev.Children(func() {
-				ic := ui.Icon(c, chevronIcon).Size(9, 9).TextColor(pal.textFaint)
+				ic := controlIcon(c, chevronIcon, 9, pal.textFaint, pal.dark)
 				if st.expanded[r.path] {
 					ic.Rotate(90)
 				}
 			})
 		}
-		ui.Icon(c, entryIcon(r.fileEntry)).Size(14, 14).TextColor(pal.textMuted).Shrink(0)
+		controlIcon(c, entryIcon(r.fileEntry), 14, pal.textMuted, pal.dark).Shrink(0)
 		name := ui.Text(c, r.name).FontSize(12.5).TextColor(pal.text).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
 		if r.path == st.open {
 			name.FontWeight(600)
@@ -903,19 +910,21 @@ func (a *App) fileViewer(c *ui.Context, pal *palette, st *filesState, alone bool
 		if f != nil && f.lines > 0 {
 			ui.Text(c, locales.FilesLines(strconv.Itoa(f.lines))).FontSize(11.5).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine().Shrink(0)
 		}
-		if md && f != nil && f.text != "" {
-			if st.source {
-				iconButton(c, "md-preview", previewIcon, locales.FilesPreview(), pal, func() { st.source = false })
-			} else {
-				iconButton(c, "md-source", sourceIcon, locales.FilesSource(), pal, func() { st.source = true })
+		toolbarGroup(c, "file-actions", pal, func() {
+			if md && f != nil && f.text != "" {
+				if st.source {
+					iconButton(c, "md-preview", previewIcon, locales.FilesPreview(), pal, func() { st.source = false })
+				} else {
+					iconButton(c, "md-source", sourceIcon, locales.FilesSource(), pal, func() { st.source = true })
+				}
 			}
-		}
-		if editor := codeEditor(); editor != nil {
+			if editor := codeEditor(); editor != nil {
+				path := st.open
+				iconButton(c, "file-editor", externalIcon, locales.FilesOpenEditor(), pal, func() { editor(path) })
+			}
 			path := st.open
-			iconButton(c, "file-editor", externalIcon, locales.FilesOpenEditor(), pal, func() { editor(path) })
-		}
-		path := st.open
-		iconButton(c, "file-copy", copyIcon, locales.FilesCopyPath(), pal, func() { a.copyText = path })
+			iconButton(c, "file-copy", copyIcon, locales.FilesCopyPath(), pal, func() { a.copyText = path })
+		})
 	})
 	ui.Box(c).Height(1).Shrink(0).Background(pal.divider)
 	switch {
@@ -1058,7 +1067,7 @@ func humanSize(n int64) string {
 func paneNothing(c *ui.Context, pal *palette, svg *ui.SVG, title, detail string) {
 	ui.Column(c).Fill().Center().Gap(6).Padding(24).Children(func() {
 		ui.Box(c).Size(40, 40).Radius(11).Center().Background(pal.chip).TextColor(pal.textMuted).Margin(0, 0, 6, 0).Children(func() {
-			ui.Icon(c, svg).Size(20, 20)
+			controlIcon(c, svg, 20, pal.textMuted, pal.dark)
 		})
 		ui.Text(c, title).FontSize(13.5).FontWeight(600).TextColor(pal.text).TextAlign(ui.Center)
 		if detail != "" {

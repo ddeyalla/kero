@@ -18,7 +18,46 @@ builds only. What each feature is and where it stands is tracked in the
 > open the migrated panes as Tasks: do not go back to one after the new daemon
 > has saved state.
 
+### Verification limits
+
+- Native focus and the separate focused/unfocused idle gates require an
+  unlocked desktop. The final harness correctly rejected this locked-desktop
+  run; earlier cached App focus flags do not establish native focus acceptance.
+- The eight-retained-terminal sample passed the 240 MiB RSS target, but the
+  historical 1.22 GB growth and native allocator ownership remain under
+  investigation (BRU-333). A separate four-pane sample exceeded the 120 MiB
+  RSS and 1,500 app-wakeup targets; see `docs/perf.md` for the distinct counters
+  and measurement limits. The performance epic remains open.
+- Real Spotify sign-in, cold sound and playback after 40 minutes idle, native
+  notification clicks, and fullscreen/Spaces acceptance still require the
+  final user check. Automated tests do not certify those OS/account behaviors.
+
 ### Added
+
+- Added automatic native AppKit key-dispatch-to-paint measurements to the
+  isolated performance harness, with independent focus checks and explicit
+  hardware and compositor limits.
+
+- Project groups can be reordered by dragging their header or using Move
+  Project Up / Down in the context menu, Session menu, palette or CLI. The
+  existing daemon persists their order without a protocol or state change.
+- Sidebar drag feedback uses a lifted glass preview and a neutral insertion
+  rule, with an opaque fallback under Reduce Transparency. The cue does not
+  shift row text. Dragging preserves the active terminal and collapse state.
+- Sessions can be pinned within their project and reordered within their pin
+  section. Pins and order survive restarts; palette and navigation agree.
+- Source update checks now live in Settings > General > Updates as **Check
+  Upstream & Build**, with progress and the last result. **Check for App
+  Updates** checks published builds. The fourth footer icon is removed;
+  the source command remains in the palette and `kero do updates.sync`.
+
+- Compact glass Browser/Files toolbar groups and capsule controls keep the
+  current window layout. Scrolling sidebar, Files and Attention lists soften at their edges;
+  Settings uses a soft header edge. Held sliders and switches use real glass
+  lenses, with opaque fallbacks for Reduce Transparency. macOS control icons
+  use native SF Symbols; program logos remain artwork.
+- Sidebar and pane-header icon buttons retain their previous plain style,
+  without a Liquid Glass capsule or extra group padding.
 
 - Linear is a built-in plugin. Its pane shows the team's issues as a list or a
   board, in the sections Current, Done, Todo and Backlog, each with nested
@@ -115,6 +154,10 @@ builds only. What each feature is and where it stands is tracked in the
   (`ScrollingTree()`) for a pane that scrolls as one page. A horizontal
   slider with a `Width` keeps that width, and one without grows.
 - Plugin icon buttons draw real SF Symbols.
+- Optional memory diagnostics visit every terminal twice, stream all panes,
+  and preserve app/daemon footprint, Go heaps and native VM accounting.
+  `PERF_MEMORY=1 PERF_KEEP=1 sh scripts/perf.sh N`; add `PERF_LAYOUT=split`
+  for N panes in one selected session. See [Performance](perf.md) (BRU-333).
 - `scripts/perf.sh N` measures Shibu Code with N panes against the
   performance budgets: kerod's and the app's footprint, idle CPU, idle
   wakeups and idle frames over 60 s, and frame build and paint times
@@ -125,17 +168,38 @@ builds only. What each feature is and where it stands is tracked in the
   Two tests fail if a screen read or a key's echo starts to allocate with
   the scrollback. Budgets and the first numbers: [Performance](perf.md)
   (BRU-223).
+- **Next Waiting Session** goes from one session that waits on the
+  user to the next: Session › **Next Waiting Session**, the command
+  palette, or `kero do attention.next-blocked`. It takes the sessions
+  whose attention state is `waiting-user`, longest
+  wait first and then by session id, shows the pane that needs you, and
+  puts the keyboard in it. It starts after the session shown when that one
+  waits too, goes on from the one it went to last, and says "Nothing needs
+  you" when none waits. A zoom follows the focus, as when panes are cycled
+  while zoomed, so the jump never lands on a pane the zoom hides. The
+  issue detail's **Open the session**, and a running conversation's
+  **Open**, go to the pane that needs you when the session waits on you,
+  and leave the focus and zoom where they are when it does not. A daemon
+  that predates this state folds every terminal pane instead, as the
+  notifications do. No state is saved for it.
+- A row of the **Attention** pane whose session works on a Linear issue has
+  an **Open issue** button, which opens the Linear view on that issue: the
+  way back from a session to its issue, as the issue detail's **Open the
+  session** is the way to the session.
 - An **Attention** pane: every session that needs the user, in one list,
   the most urgent first — what it is doing or asking, the session and its
   project, the agent, the line that came with it, and how long it has been
   so. A row puts the keyboard in the pane the state came from, where the
   decision is, without zooming. Chips narrow it to **Needs you**,
   **Working**, **Unread** or **Done** and count each; a plain-text search
-  finds a row by its words. A Codex wait whose message the agent did not
-  give says **Focus pane to approve** rather than nothing. `Cmd+Alt+A`,
+  finds a row by its words. A Codex wait adds **Focus pane to approve**
+  to the line kerod gave it. Sessions at rest are not listed. `Cmd+Alt+A`,
   the New Pane chooser's `A`, or `kero split --attention`. It reads the
-  attention state kerod already sends, so it needs no protocol change, and
-  it keeps the filter and search while the pane is open.
+  attention state kerod sends. Its filter, search and scroll position live
+  in the pane Target and return after a restart. The pane view is new to the
+  protocol (`proto.PaneViews`), so an older kerod refuses it: **restart
+  the terminal service once** (when agents are idle) to open an Attention
+  pane. A row's click also ends a zoom on another pane.
 - New icons are SF Symbols, drawn by macOS through AppKit and cached as
   bitmaps, so they match the system at any size and in the light and the
   dark (`symbols_darwin.go`). The Attention pane's mark and its rows'
@@ -149,19 +213,24 @@ builds only. What each feature is and where it stands is tracked in the
   transcript on disk, locally and only as a fallback: a call that has run
   45 seconds with no result is taken for one waiting on the user. Hooks
   and the screen keep their say over it, and an end that came while the
-  app was away keeps its summary across a restart. Codex has no
-  permission-prompt hook, so this scan is its fallback for approvals.
+  app was away keeps its summary across a restart. Codex has a
+  permission-prompt hook, so this scan is its fallback for approvals only
+  when its hooks are not installed.
   **Restart the terminal service once** (when agents are idle) for the
   state to carry it; until then nothing changes for the app.
 - Notifications now follow that attention: a session that comes to need you
   (`waiting-user`) or ends unseen (`unread`) tells once, a return to work
   tells nothing, and the same session and state inside five minutes is
   counted silently, so a chatty agent's loop does not fill Notification
-  Center (`notify-throttle-minutes`). Every session kerod holds is watched,
+  Center (`notify-throttle-minutes`); only a shown notification counts, and
+  a second ask more than 30 seconds after the answer still tells. After
+  kerod restarts, panes it restores unread tell nothing. A session's end
+  names the agent and the folder, never a line of what the agent wrote. A
+  view's unread mark and a clean exit of a plain program tell nothing. Every session kerod holds is watched,
   so a session outside the window or profile you look at still tells.
-  Session › Silence Notifications (or a session's context menu) turns one
-  session's notifications off until you resume it (`kero do
-  session.silence`); the choice is saved (`silence-session`). Unseen ends
+  Session › Silence or Resume Notifications (or a session's context menu)
+  turns one session's notifications off until you resume it (`kero do
+  session.silence session=<id> state=on|off`); the choice is saved (`silence-session`). Unseen ends
   that failed keep the error's title and `notify-on-error`.
 - Accent presets: six hand-tuned themes of the app's own colors — Blue (the
   one it has had), Plum, Rose, Sea, Moss and Graphite. Each is an accent
@@ -222,16 +291,12 @@ builds only. What each feature is and where it stands is tracked in the
   service once** (when agents are idle) for the reports to reach the panes;
   until then the hooks do nothing. No protocol change.
 - `agent-hooks` configuration key, `true` by default.
-- Account usage in the sidebar is a ring for each harness this Mac has
-  installed — Claude, Codex, OpenCode Go or DeepSeek — with the first
-  allowance as its arc and amber once any window reaches 90%, its name
-  beside it where the sidebar has room and rows of rings where it does not.
-  A balance shows its currency's sign, a harness not connected a dashed
-  ring, and a ring whose refresh failed an amber dot. Hovering one makes its
-  name stand out and shows the plan, every allowance window with the
-  percentage and its reset, a balance, why it is not connected, or "Last
-  known usage; refresh failed"; clicking it, or `Cmd+Shift+U`, opens the
-  full modal as before. The CPU and RAM meters stay below the bar.
+- Account usage in the sidebar uses a list with one row per supported
+  provider. Rows show the primary allowance percentage or USD balance; any
+  allowance reaching 90% warns in amber. Hover details retain every window,
+  reset time, plan, full balance, and disconnected or stale state. The Usage
+  header and provider rows open account details; `Cmd+Shift+U` also opens it.
+  Circular usage meters have been removed (BRU-182).
 - Session states read at a glance: a working session turns a loading ring
   (or fills it when its program reports progress), one that needs you shows
   an amber ring with a dot, one done and unseen a filled check, one done and
@@ -304,8 +369,8 @@ builds only. What each feature is and where it stands is tracked in the
   permission, and refreshes only while it is visible, at most every two
   minutes unless you press refresh.
 - The Usage pane is redesigned. A Cost card has a Today, Yesterday and 30 Days
-  segmented control, a donut with the total in its middle (the text shrinks to
-  fit), and a legend of a provider dot, its name and its amount. An amount
+  segmented control, a full total, and a list of each provider's name and
+  amount. An amount
   made with an estimated price shows "≈", and a line "Some amounts are
   estimates" has a tooltip that lists the models priced by estimate. Below it,
   each provider has a section with its mark, name and plan. Each window
@@ -398,9 +463,91 @@ builds only. What each feature is and where it stands is tracked in the
   `1c5a2cea`): opaque with a hairline rim under the first, a stronger rim
   and less show-through under the second. The same MyGo blinks a focused
   terminal's cursor by painting the window again, without building it.
+- The ground of work profiles: the state file now saves profiles, each a
+  thin bundle of references — a name, an accent and a background preset,
+  the ids of the projects and sessions it brings forward, the name of its
+  environment bundle, and when it was made and last used — and which
+  profile is active. Nothing is user-facing yet; the switcher's children
+  build on this. The fields are optional, nothing secret is saved, and
+  both the state file's current version (3) and the protocol's (4) stay as they
+  are. No protocol change.
 
 ### Fixed
 
+- Daemon-only performance runs skip unused native app assets. Wakeup
+  verdicts require an explicitly verified unfocused window; legacy runs
+  with unknown focus report counters without judging that budget.
+- Spotify keeps a visible warning and Retry action beside cached track or
+  queue results after a failed refresh. Repeated retries share pending work,
+  empty-search recovery redraws immediately, and callbacks from retired
+  players cannot replace current playback. Settings selections and project
+  add buttons use their intended native icon tints.
+- Window focus and resource pacing start from the native window state, so an
+  app launched in the background does not assume it has keyboard focus.
+- Notification throttling records native delivery acceptance, including
+  asynchronous macOS authorization. Pending notices stay single-flight;
+  old connection results cannot silence a newer ask after reconnect.
+- Closing a session in the app removes its saved pin and notification
+  silence only after the daemon confirms success. Failed closes preserve
+  both choices.
+- Attention navigation synchronizes fallback pane focus, derives rows when
+  a supported daemon omits its folded state, and reports stale linked
+  sessions instead of failing silently. Codex discovery honors CODEX_HOME.
+
+- CI runs native AppKit UI checks on macOS and backend/plugin checks on Linux.
+  Usage snapshot fixtures use UTC without changing the user's local-time
+  display, so snapshots are stable across runner timezones.
+
+- Notification silence choices survive incremental daemon restore. Only a
+  session observed to disappear in the same daemon epoch is pruned.
+- Identical transcript completions remain distinct after earlier events
+  leave the bounded read window; shifting that window does not replay an
+  old completion.
+
+- New Attention and New Plugin dispatch to their own pane actions. A delayed
+  Spotify player read cannot overwrite a newer pushed playback snapshot.
+- The account Usage title and accessibility labels use the locale catalog.
+
+- Attention transcript discovery continues in bounded slices instead of
+  walking the whole Codex archive in one pass. Switching an agent session
+  clears the previous conversation's scan-owned status and cached verdict.
+- Attention navigation uses idempotent focus and explicit zoom clearing, so
+  a stale client snapshot cannot toggle the asking pane out of view.
+- Attention pane search, filters and scroll survive restart. Target writes
+  preserve newest-state order; a failed unchanged save retries only after an
+  edit or reconnect, preventing an RPC and redraw loop.
+
+- External branch checkouts reach the app within the two-second update target
+  while the daemon is quiet. Focused resource meters refresh every ten seconds
+  so an otherwise idle window stays below ten rebuilds per minute; the resource
+  card describes the actual refresh intervals.
+
+- Spotify track lists and Up next offer Retry after a failed read. An
+  unavailable connection keeps the open album or playlist in place instead
+  of showing an empty successful list or returning to the library.
+- Backdrop grain repeats in a 300-point tile and stays within the requested
+  2–4% strength in both appearances, including dark mode.
+- Native control symbols reuse one template bitmap through hover and ambient
+  color changes, rather than retaining a separate bitmap for every tint.
+
+- Release validation accepts Spotify's macOS automation permission text while
+  continuing to reject signing and bundle identity overrides. CI now runs the
+  same complete test, vet and Python checks as local delivery validation.
+- Releasing current Shibu changes keeps the reviewed upstream base. New Kero
+  releases are incorporated by the separate upstream-check workflow path.
+
+- Native SF Symbol drawing keeps graphics state and temporary AppKit objects
+  on one OS thread, preventing a sporadic graphics-state restore trap.
+
+- The Usage plugin shows spending as a provider list with a full total.
+  The circular cost chart is removed in every pane size.
+- Attention integration preserves the adaptive daemon scheduler and plugin
+  views. Linear issue links open the Linear plugin, and session jumps and
+  notification clicks reveal the asking pane under zoom. Opening an Attention
+  row saves the expanded project in sidebar preferences.
+
+- Output from hidden terminal panes no longer redraws the window. Switching
+  sessions or unzooming a pane shows its latest output immediately (BRU-331).
 - The app connects at once after a terminal service restart. Sessions appear
   as they come back, in their saved order, with up to four restoring at a
   time. The saved state stays intact until restoration finishes (BRU-229).
@@ -526,6 +673,10 @@ builds only. What each feature is and where it stands is tracked in the
   color, and is cut short only between whole characters.
 
 ### Documentation
+
+- The installed agent guide explains Attention state, pane creation, focus
+  and session silence. Performance-overlay tests now exercise the current
+  checkout as well as synthetic fixtures without changing source files.
 
 - Recorded visible, unfocused idle measurements at 1, 4 and 8 panes,
   including a repeat at 4 panes, and the remaining memory, focused-idle and

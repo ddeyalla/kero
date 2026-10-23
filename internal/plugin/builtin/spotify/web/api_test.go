@@ -1546,6 +1546,20 @@ func TestLibraryLoadsInFlightAreShared(t *testing.T) {
 	}
 }
 
+// waitingContext signals when shared has joined the flight and starts
+// waiting. Starting a goroutine alone does not prove that it joined before
+// the server answers; a late caller correctly starts a separate load.
+type waitingContext struct {
+	context.Context
+	waiting chan struct{}
+	once    sync.Once
+}
+
+func (c *waitingContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.waiting) })
+	return c.Context.Done()
+}
+
 func TestAFollowerOutlivesTheCallerThatStartedTheLoad(t *testing.T) {
 	now := testNow()
 	started := make(chan struct{})
@@ -1578,10 +1592,12 @@ func TestAFollowerOutlivesTheCallerThatStartedTheLoad(t *testing.T) {
 		err  error
 	}
 	followed := make(chan answer, 1)
+	followerCtx := &waitingContext{Context: context.Background(), waiting: make(chan struct{})}
 	go func() {
-		list, err := client.Playlists(context.Background())
+		list, err := client.Playlists(followerCtx)
 		followed <- answer{list, err}
 	}()
+	<-followerCtx.waiting
 	// The caller that started the load gives up; the follower still waits.
 	cancel()
 	if err := <-leaderDone; err == nil {

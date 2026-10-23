@@ -62,7 +62,7 @@ func TestTitleMarkSymbols(t *testing.T) {
 		t.Skip("SF Symbols are macOS's")
 	}
 	for _, m := range []string{markNeedsYou, markBug, markWorking, markDone} {
-		if symbolImage(m, titleMarkSize, ui.Hex("#6e6e78"), false) == nil {
+		if symbolImage(m, titleMarkSize, false) == nil {
 			t.Errorf("no SF Symbol %q", m)
 		}
 		if titleMarkLabel(m) == "" {

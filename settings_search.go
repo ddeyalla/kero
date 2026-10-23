@@ -28,6 +28,7 @@ func settingsIndex() []searchEntry {
 		{"general", locales.SetResumeAgents(), "resume-agents claude codex pi opencode conversation restore reboot"},
 		{"general", locales.SetOpenAtLogin(), "startup launch login items"},
 		{"general", locales.SetVersion(), "updates check for updates software update about"},
+		{"general", locales.SetSourceUpdates(), "updates upstream source kero shibu github build repair sync"},
 		{"general", locales.SetAutoCheck(), "updates automatic background daily"},
 		{"general", locales.SetAutoInstall(), "updates automatic install download"},
 

@@ -54,6 +54,11 @@ What the user gave it, its settings and secrets, lives apart, in
 
 ## Commands
 
+Spotify's failed track and Up next lists offer **Retry** in place. A failed
+read keeps the open album or playlist and any cached tracks. An offline
+library also offers Retry, without changing the selected tab. These paths
+live in `internal/plugin/builtin/spotify/drill.go`, `view.go` and `spotify.go`.
+
 A command runs on a pane of its plugin: the focused pane of the session
 shown, another pane of that session, then a pane of another session. A pane
 that has not opened on the plugin's process yet opens for the command. With no
@@ -226,7 +231,7 @@ plugin pane.
 | --- | --- | --- | --- |
 | `spotify` | `player` | `secrets`, `openURL`, `web`, `ambient` | A Spotify player that plays in the app, with no Spotify app open (Premium). A compact player (two rows from 440 points wide) over the library as a grid of covers; a playlist or album opens its track list, and an Up next tab shows the queue. Its album colour tints the app while a track plays. Set the Client ID in Settings › Plugins; **Sign Out** is next to it. |
 | `linear` | `board` | `openURL`, `focus`, `clipboard` | The issues of the team as a list or a board, in the sections Current, Done, Todo and Backlog, with filters and a full issue detail. It is a client of the daemon, which holds the Linear key; see [Linear plugin](linear-workspace.md). Pin it to the sidebar with `kero plugin pin linear`. |
-| `usage` | `usage` | none | A Cost card (donut and legend over Today, Yesterday or 30 Days, from local logs) and a section per provider with its mark, name, plan and each window's bar, pace tick, "% left", reset time and a "Limit in …" flame; a chevron opens Today and Last 30 Days in dollars and tokens. Small panes get a compact form. Accounts refresh only while it is visible, at most every two minutes unless you press refresh; cost reads every 5 minutes. |
+| `usage` | `usage` | none | A Cost card (total and provider list over Today, Yesterday or 30 Days, from local logs) and a section per provider with its mark, name, plan and each window's bar, pace tick, "% left", reset time and a "Limit in …" flame; a chevron opens Today and Last 30 Days in dollars and tokens. Small panes get a compact form. Accounts refresh only while it is visible, at most every two minutes unless you press refresh; cost reads every 5 minutes. |
 
 `openURL` opens the sign-in page, the Spotify developer dashboard and the
 download page in the browser, and Privacy & Security › Automation in System

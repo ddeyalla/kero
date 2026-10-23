@@ -167,26 +167,20 @@ func footRow(v *view) *sdk.Node {
 	return sdk.Row("usage-foot", foot...).Gap(8).Align(protocol.AlignCenter)
 }
 
-// costCard is what the agents cost over the chosen range: a donut of the
-// providers, and a legend that lists them, the costliest first.
+// costCard lists what each provider cost over the chosen range, the
+// costliest first, with the total above the list.
 func costCard(v *view) *sdk.Node {
 	items := make([]protocol.Item, 0, len(rangeKeys))
 	for _, key := range rangeKeys {
 		items = append(items, protocol.Item{ID: key, Title: rangeTitle(key), Active: key == v.rng})
 	}
 	spends := shown(v.costs[costRange(v.rng)])
-	total, _ := totals(spends)
+	total, estimated := totals(spends)
 
-	var segs []protocol.Segment
 	legend := make([]*sdk.Node, 0, len(spends)+1)
-	var described []string
 	for _, s := range spends {
 		hue := providerHue(s.Provider)
 		name := providerName(v, s.Provider)
-		if s.USD > 0 {
-			segs = append(segs, protocol.Segment{ID: s.Provider, Label: name, Value: s.USD, Color: hue})
-		}
-		described = append(described, name+" "+approx(isEstimate(s), money(s.USD)))
 		// The amount is at the right edge; an estimate has a muted sign
 		// before it, which is a node of its own.
 		amount := []*sdk.Node{sdk.Text("leg-usd-"+s.Provider, money(s.USD)).Role(protocol.RoleBody).Lines(1)}
@@ -200,26 +194,20 @@ func costCard(v *view) *sdk.Node {
 		).Gap(6).Align(protocol.AlignCenter))
 	}
 
-	donut := sdk.Donut("usage-donut", segs...).Width(96)
+	totalText := locales.UsagePluginNoValue()
 	if len(spends) == 0 {
-		donut.Center(locales.UsagePluginNoValue(), "")
 		caption := locales.UsagePluginChecking()
 		if v.costLoaded {
 			caption = locales.UsagePluginNoCostLogs()
 		}
 		legend = append(legend, sdk.Text("usage-nocost", caption).Role(protocol.RoleCaption).Color(protocol.ColorMuted))
 	} else {
-		donut.Center(moneyShort(total), locales.UsagePluginCostDollars())
-		donut.Label(locales.UsagePluginCostChart(rangeTitle(v.rng), strings.Join(described, ", ")))
+		totalText = approx(estimated, money(total))
 	}
-
-	legendColumn := sdk.Column("usage-legend", legend...).Gap(6).Grow(1)
-	var body *sdk.Node
-	if layoutFor(v.size) == layoutStacked {
-		body = sdk.Column("usage-cost-body", donut, legendColumn).Gap(12).Align(protocol.AlignCenter)
-	} else {
-		body = sdk.Row("usage-cost-body", donut, legendColumn).Gap(16).Align(protocol.AlignCenter)
-	}
+	body := sdk.Column("usage-cost-body",
+		sdk.Text("usage-cost-total", totalText).Role(protocol.RoleTitle),
+		sdk.Column("usage-legend", legend...).Gap(6),
+	).Gap(12)
 	card := []*sdk.Node{sdk.Segmented("usage-range", items...), body}
 	if models := estimatedModels(spends); len(models) > 0 {
 		// One line says it; the models are for the hover and the screen reader.
@@ -271,7 +259,7 @@ func estimatedModels(spends []cost.Spend) []string {
 	return models
 }
 
-// providerHue is the color a provider has in the donut and its legend.
+// providerHue is the color of a provider in the cost list.
 func providerHue(id string) string {
 	switch id {
 	case "claude":
@@ -659,7 +647,7 @@ func money(usd float64) string {
 	return "$" + whole + "." + frac
 }
 
-// moneyShort is a cost in the little room of the donut's middle: thousands
+// moneyShort is a cost in the compact header: thousands
 // and millions are shortened. The figure is rounded before its unit is
 // chosen, so that $999,960 is $1M and not $1000K.
 func moneyShort(usd float64) string {

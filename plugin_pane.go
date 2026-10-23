@@ -461,7 +461,7 @@ func (a *App) openOnHost(pane string, st *pluginPaneState, size protocol.Size) {
 // app down with it.
 func (a *App) pluginCrash(c *ui.Context, pal *palette, st *pluginPaneState) {
 	ui.Column(c.Key("plugin-crash")).Fill().Center().Gap(8).Padding(24).Children(func() {
-		ui.Icon(c, projectIcon).Size(30, 30).TextColor(pal.danger)
+		controlIcon(c, projectIcon, 30, pal.danger, pal.dark)
 		ui.Text(c, locales.PluginCrashTitle(a.pluginName(st.plugin))).FontSize(13.5).FontWeight(600).TextColor(pal.text).TextAlign(ui.Center)
 		ui.Text(c, st.err).FontSize(12.5).TextColor(pal.textMuted).TextAlign(ui.Center).MaxWidth(420)
 		if path := a.plugins.logs[st.plugin]; path != "" {
@@ -885,7 +885,7 @@ func (a *App) pluginCard(c *ui.Context, pal *palette, p registry.Plugin) {
 	}
 	ui.Column(c.Key("plugin-"+m.ID)).Padding(10, 0).Gap(3).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, projectIcon).Size(15, 15).TextColor(pal.textMuted)
+			controlIcon(c, projectIcon, 15, pal.textMuted, pal.dark)
 			ui.Text(c, m.Name).FontSize(13.5).FontWeight(600).TextColor(pal.text)
 			ui.Text(c, "v"+m.Version).FontSize(11.5).TextColor(pal.textFaint)
 			ui.Text(c, kind).FontSize(11.5).TextColor(pal.textFaint)

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 
 	"kero/locales"
@@ -48,12 +49,12 @@ func popupFace(c *ui.Context, trig ui.Element, text string, open bool, pal *pale
 	case over:
 		bg, disc = tint, ui.Transparent
 	}
-	trig.Background(trig.AnimateColor("bg", bg, hover))
+	controlFace(c, trig, pal, trig.AnimateColor("bg", bg, hover))
 	trig.Children(func() {
 		ui.Text(c, text).FontSize(13).TextColor(pal.text).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
 		d := ui.Box(c.Key("disc")).Size(22, 22).Radius(11).Center().Shrink(0)
 		d.Background(d.AnimateColor("bg", disc, hover)).Children(func() {
-			ui.Icon(c, updownIcon).Size(16, 16).TextColor(pal.text.Alpha(0.85))
+			controlIcon(c, updownIcon, 16, pal.text.Alpha(0.85), pal.dark)
 		})
 	})
 }
@@ -72,7 +73,7 @@ func popup[T comparable](c *ui.Context, key string, value *T, options []T, label
 		spot, maxH = menuSpot(c, key, trig.Bounds(), max(slices.Index(options, *value), 0), len(options))
 	}
 	sel.Popup(func(panel ui.Element) {
-		menuPanel(panel, pal).AttachTo(spot, ui.AnchorTopLeft, ui.AnchorTopLeft)
+		menuPanel(c, panel, pal).AttachTo(spot, ui.AnchorTopLeft, ui.AnchorTopLeft)
 		menuWidths[key] = panel.Bounds().W
 		over := panel.Hovered()
 		ui.Scroll(c.Key("items")).MaxHeight(maxH - 2*menuPad).Children(func() {
@@ -124,8 +125,8 @@ func menuSpot(c *ui.Context, key string, b ui.Rect, at, n int) (ui.Element, floa
 }
 
 // menuPanel styles a menu: rounded, lifted off the window.
-func menuPanel(panel ui.Element, pal *palette) ui.Element {
-	return menu(panel.Padding(menuPad).Radius(13), pal)
+func menuPanel(c *ui.Context, panel ui.Element, pal *palette) ui.Element {
+	return glassPanel(c, panel.Padding(menuPad).Radius(13), pal)
 }
 
 // menuItem styles an item of a menu: a check by the current one, and the
@@ -142,7 +143,7 @@ func menuRow(c *ui.Context, item ui.Element, label string, current, highlighted 
 		fg = ui.Hex("#ffffff")
 	}
 	item.TextColor(fg).Children(func() {
-		mark := ui.Icon(c, checkIcon).Size(12, 12).Shrink(0)
+		mark := controlIcon(c, checkIcon, 12, fg, pal.dark).Shrink(0)
 		if !current {
 			mark.Opacity(0)
 		}
@@ -208,7 +209,7 @@ func (a *App) searchPopup(c *ui.Context, key, value string, options []string, wi
 	room := max(h-(b.Y+b.H)-gap-edge, b.Y-gap-edge)
 	listH := min(300, room-(2*menuPad+2*inset+controlH+2+menuPad))
 	ui.PopoverBase(c.Key(key+"-menu"), trig, &m.open, func(panel ui.Element) {
-		menuPanel(panel, pal).Margin(gap, 0, 0, 0).Width(max(width, 260))
+		menuPanel(c, panel, pal).Margin(gap, 0, 0, 0).Width(max(width, 260))
 		q := strings.ToLower(strings.TrimSpace(m.query))
 		var shown []string
 		exact := false
@@ -237,7 +238,7 @@ func (a *App) searchPopup(c *ui.Context, key, value string, options []string, wi
 		// the menu's edge.
 		frame := ui.Row(c.Key("search")).Margin(inset, inset, menuPad+inset, inset).Cursor(ui.CursorText)
 		frame.Children(func() {
-			ui.Icon(c, searchIcon).Size(12, 12).TextColor(pal.textFaint).Shrink(0)
+			controlIcon(c, searchIcon, 12, pal.textFaint, pal.dark).Shrink(0)
 			in = ui.TextInputBase(c.Key("q"), &m.query).AutoFocus().Grow(1).MinWidth(0).FontSize(13).
 				Placeholder(locales.CommonSearch()).Label(locales.CommonSearch())
 		})
@@ -280,7 +281,7 @@ func (a *App) searchPopup(c *ui.Context, key, value string, options []string, wi
 
 // field styles a text field's frame, around its input.
 func field(c *ui.Context, frame ui.Element, focused bool, pal *palette) ui.Element {
-	frame.Height(controlH+2).Padding(0, 8).Gap(6).Radius(7).AlignItems(ui.Center)
+	frame.Height(controlH+2).Padding(0, 8).Gap(6).Radius((controlH + 2) / 2).AlignItems(ui.Center)
 	stroke := ui.RGBA(0, 0, 0, 0.13)
 	bg := ui.Hex("#ffffff")
 	if pal.dark {
@@ -334,6 +335,7 @@ func sliderLive(c *ui.Context, key string, value *float64, lo, hi float64, width
 	}
 	held := s.Animate("held", b2f(s.Pressed()), press.Duration)
 	accent, dark, focus := pal.accent, pal.dark, s.FocusVisible()
+	transparent := glassShows(c)
 	s.Draw(func(p *ui.Painter, r ui.Rect) {
 		val := *value
 		if live != nil {
@@ -366,14 +368,22 @@ func sliderLive(c *ui.Context, key string, value *float64, lo, hi float64, width
 		if held > 0 {
 			p.Shadow(knob, rad, 0, 8, 14, -3, drop.Alpha(held))
 		}
-		if held < 1 {
+		if held < 1 || !transparent {
 			// A tight shadow edges the knob, a soft one lifts it.
 			p.Shadow(knob, rad, 0, 0.5, 1, 0, ui.RGBA(0, 0, 0, 0.08*(1-held)))
 			p.Shadow(knob, rad, 0, 1.5, 7, 0, ui.RGBA(0, 0, 0, 0.1*(1-held)))
-			p.Fill(knob, face.Alpha(1-held), rad)
+			opacity := float32(1)
+			if transparent {
+				opacity -= held
+			}
+			p.Fill(knob, face.Alpha(opacity), rad)
 		}
 		if held > 0 {
-			// The lens's rim, lit on the inside.
+			// The held knob refracts the track behind it; reduced transparency
+			// keeps the solid knob drawn above.
+			if transparent {
+				glass.Paint(p, knob, rad, glass.Glass{Style: glass.Clear})
+			}
 			p.Stroke(knob, rim.Alpha(held), rad, 1)
 			p.Stroke(ui.Rect{X: knob.X + 1, Y: knob.Y + 1, W: knob.W - 2, H: knob.H - 2}, ui.RGBA(255, 255, 255, 0.25*held), rad-1, 1)
 		}

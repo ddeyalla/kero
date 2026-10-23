@@ -423,13 +423,25 @@ func (p *plugin) drillTree(s *session) *sdk.Node {
 		}
 		body = sdk.Column("tracks-note", lines...).Gap(8)
 	case s.tracksState == tracksFailed && len(s.tracks) == 0:
-		body = sdk.EmptyState("state-tracks-failed", locales.SpotifyTracksFailed(), "").Grow(1)
+		body = sdk.EmptyState("state-tracks-failed", locales.SpotifyTracksFailed(), locales.SpotifyRetryDetail()).Action(locales.SpotifyRetry()).Grow(1)
 	case s.tracksState == tracksLoading && len(s.tracks) == 0:
 		body = sdk.EmptyState("state-loading", locales.SpotifyLibraryLoading(), "").Grow(1)
 	case len(s.tracks) == 0:
 		body = sdk.EmptyState("state-no-tracks", locales.SpotifyNoTracks(), locales.SpotifyNoTracksDetail()).Grow(1)
 	default:
 		body = sdk.List("tracks", trackItems(s.tracks, "t-", s.playingURI())...).Grow(1)
+		if s.tracksState == tracksFailed {
+			detail := locales.SpotifyRetryDetail()
+			if s.tracksError == libNetworkDown {
+				detail = locales.SpotifyOffline()
+			} else if s.tracksError == libRateLimited {
+				detail = locales.SpotifyRateLimited()
+			}
+			body = sdk.Column("tracks-cached",
+				sdk.EmptyState("state-tracks-failed", locales.SpotifyTracksFailed(), detail).Action(locales.SpotifyRetry()),
+				body,
+			).Gap(8).Grow(1)
+		}
 	}
 	return sdk.Column("library-content", head, body).Gap(8).Grow(1)
 }
@@ -437,12 +449,21 @@ func (p *plugin) drillTree(s *session) *sdk.Node {
 // queueContent is the tracks that come next, or its empty state.
 func (p *plugin) queueContent(s *session) *sdk.Node {
 	switch {
+	case s.queuePending && len(s.queue) == 0:
+		return sdk.EmptyState("state-loading", locales.SpotifyLibraryLoading(), "").Grow(1)
 	case len(s.queue) > 0:
-		return sdk.List("queue", trackItems(s.queue, "q-", "")...).Grow(1)
+		list := sdk.List("queue", trackItems(s.queue, "q-", "")...).Grow(1)
+		if s.queueFailed {
+			return sdk.Column("queue-cached",
+				sdk.EmptyState("state-tracks-failed", locales.SpotifyTracksFailed(), locales.SpotifyRetryDetail()).Action(locales.SpotifyRetry()),
+				list,
+			).Gap(8).Grow(1)
+		}
+		return list
 	case !s.queueLoaded:
 		return sdk.EmptyState("state-loading", locales.SpotifyLibraryLoading(), "").Grow(1)
 	case s.queueFailed:
-		return sdk.EmptyState("state-tracks-failed", locales.SpotifyTracksFailed(), "").Grow(1)
+		return sdk.EmptyState("state-tracks-failed", locales.SpotifyTracksFailed(), locales.SpotifyRetryDetail()).Action(locales.SpotifyRetry()).Grow(1)
 	}
 	return sdk.EmptyState("state-queue-empty", locales.SpotifyQueueEmpty(), locales.SpotifyQueueEmptyDetail()).Grow(1)
 }
@@ -496,14 +517,14 @@ func (p *plugin) libraryContent(s *session) *sdk.Node {
 	case libPremiumLapsed:
 		return sdk.EmptyState("state-premium", locales.SpotifyPremium(), locales.SpotifyPremiumDetail()).Grow(1)
 	case libFailed:
-		return sdk.EmptyState("state-library-failed", locales.SpotifyLibraryFailed(), "").Grow(1)
+		return sdk.EmptyState("state-library-failed", locales.SpotifyLibraryFailed(), locales.SpotifyRetryDetail()).Action(locales.SpotifyRetry()).Grow(1)
 	}
 
 	if s.loading && len(s.entries) == 0 && s.tab != tabQueue {
 		return sdk.EmptyState("state-loading", locales.SpotifyLibraryLoading(), "").Grow(1)
 	}
 	if s.lib == libNetworkDown && len(s.entries) == 0 && s.tab != tabQueue {
-		return sdk.EmptyState("state-offline", locales.SpotifyOffline(), locales.SpotifyLibraryFailed()).Grow(1)
+		return sdk.EmptyState("state-offline", locales.SpotifyOffline(), locales.SpotifyRetryDetail()).Action(locales.SpotifyRetry()).Grow(1)
 	}
 	if s.lib == libRateLimited && len(s.entries) == 0 && s.tab != tabQueue {
 		return sdk.EmptyState("state-rate-limited", locales.SpotifyRateLimitedTitle(), locales.SpotifyRateLimitedDetail()).Grow(1)
