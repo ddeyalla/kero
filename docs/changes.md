@@ -313,11 +313,18 @@ its own way. The fold is in
 [`internal/daemon/attention.go`](../internal/daemon/attention.go)
 (`sessionAttention`, filled by `sessionInfo`).
 
-A pane's own word comes from its marks, in this order: the agent's hook
-report, then the program's OSC 7501, then the transcript scan, then the
-screen detection. The first three are records on the pane (`records`,
-`soft`); the fold reads the resulting status, so only the most urgent
-pane's words show, and of two as urgent, the first pane's.
+A pane's own word comes from its marks. The program's own OSC 7501 report
+is a record that stands until it is dismissed. The agent's hook reports and
+the transcript scan are records too, but "soft" ones (`records`, `soft`):
+the screen detection may overrule them when it shows the contrary (the
+agent's prompt back after Esc, a permission granted), and the scan yields
+to every other record on the pane. So the order is: the program's own
+report, then the hooks, then the scan, each of which the screen may
+overrule when it contradicts. (An earlier version of this note put the
+screen last. The code never did, and keeps it so: a transcript can lag
+behind the screen, which is right the moment it is read.) The fold reads
+the resulting status, so only the most urgent pane's words show, and of two
+as urgent, the first pane's.
 
 The transcript scan is the fallback for what no other signal says.
 Claude Code and Codex keep their conversations on disk, and the daemon
@@ -330,56 +337,159 @@ a pane with no other record, takes back what it said when the transcript
 does, and retires on any report of another's. `internal/detect` stays the
 last fallback for an agent with no transcript or no hooks.
 
-Capability note: **Codex has no permission-prompt hook**, so the scan is
-its fallback for approval detection — 45 seconds after the call began, not
-the moment it asks. Claude Code reports the prompt itself.
+Capability note: Codex has a permission-prompt hook
+([`hook_events.go`](../internal/cli/hook_events.go)). The scan is the
+fallback for Codex's approvals only when its hooks are not installed — 45
+seconds after the call began, not the moment it asks. Claude Code reports
+the prompt itself.
+
+Codex transcript discovery reads at most 256 directory entries or directory
+opens for one pane in a pass (`transcript_discovery.go`). An unfinished
+search continues on the next pass, so an older session beyond the first
+slice remains discoverable. Only one directory descriptor stays open per
+search; completing the search, closing the pane or changing the agent
+session releases it. Known transcripts use only a stat and a bounded tail
+read. A new agent conversation also drops the old scan-owned status and
+cached verdict, so one conversation cannot inherit another's work.
+
+The scan reads the file without the pane's lock (the lookup, the stat and
+the tail), and takes it only to plan the read and to apply what it found,
+checking that the pane did not change meanwhile. Passes never overlap, and
+the tick loop runs one on its own goroutine. A turn's end is told once by
+which end it is (the count of turn ends in the tail and the parses that
+told another thing), not by its words, so two turns that end on "Done." are
+two ends. The scan marks an end unread only where another signal already
+did (a transcript older than the daemon would otherwise mark every restored
+pane), but it ends the work it began itself. A session's row and its
+attention are folded from one look at each pane (`readPane`).
 
 An end that comes while the app is away survives a restart: the pane's
 summary is saved with its unread mark (`savedPane.Summary`,
 [`internal/daemon/store.go`](../internal/daemon/store.go)) and a restored
 pane shows it. Nothing else of the fold is saved; it is computed again from
-the marks the daemon restored. The protocol and the saved state stay
-additive (Version 3 and 2): the field is optional and a daemon of before
-says none.
+the marks the daemon restored. The attention and summary fields are
+optional; this completion changes neither the daemon protocol version nor
+the saved-state version.
 
 Code: [`internal/daemon/attention.go`](../internal/daemon/attention.go),
+[`internal/daemon/transcript_discovery.go`](../internal/daemon/transcript_discovery.go),
 [`internal/daemon/store.go`](../internal/daemon/store.go),
 [`internal/daemon/osc.go`](../internal/daemon/osc.go) (`applyReport`),
 [`internal/proto/proto.go`](../internal/proto/proto.go) (`Attention`).
 Tests: `attention_test.go`, `store_test.go` (`TestRestoreKeepsSummary`).
 
+## Attention navigation
+
+A session that waits on the user can be gone to, and the next one can be
+gone to after it. Moving between them is `attention.next-blocked`
+(Session › **Next Waiting Session**, the command palette, or
+`kero do attention.next-blocked` from an agent's shell). It has no default
+shortcut: the menu, the palette and the CLI reach it, and no key is taken
+from a pane's program for it.
+
+**The cycle.** The action reads each session's fold (`foldOf`, shared with
+the notifications), so it, the notifications and the attention pane see one
+truth. The sessions it visits are those whose state
+is `waiting-user`, ordered by `Attention.Since` ascending and then by the
+session's id: the longest wait first, and the same order when two came at
+the same millisecond, whatever order kerod sent them in. Nothing is saved
+for the order; the app keeps the session it went to last in
+`App.attentionLast` ([`attention_nav.go`](../attention_nav.go),
+`nextBlocked`). A press goes after the session shown when it waits, else
+after the session it went to last, else to the longest wait, and wraps. So
+a press from a waiting session goes on to the next, and looking at a
+session that does not wait does not start the cycle over. With no session
+waiting it
+is a no-op and says "Nothing needs you", as Jump to Session Needing You
+does. A session that stops waiting leaves the cycle, and the next press
+goes on from where it was. A daemon of before this feature sends no
+attention state; `foldOf` then folds every terminal pane (waiting is
+`Status == Waiting`), and such sessions have no `Since`, so they come first
+and are ordered by id.
+
+**Focus.** `focusAttention(session, pane)` is the one way to take the user
+to what a session needs; the issue detail and the cycle use it. It opens the session's project in the sidebar, selects the
+session, and moves both the app's focus and kerod's (`focus`) to the pane
+the attention came from; the pane's terminal then takes the keyboard, as
+the app's pane focus does (`setFocus`). A pane named that has closed since
+the state came falls back to the pane the session was in last, so a stale
+row never focuses nothing.
+
+A zoom follows the focus, exactly as it does when panes are cycled while
+zoomed: when the session is zoomed on another pane, the zoom moves to the
+named pane. That is what keeps the jump from landing on a pane the zoom
+hides, and the session stays zoomed on the pane the user came to see
+rather than dropping to the whole layout. The focus request also reaches kerod when the local pane already has
+focus. The daemon moves its actual zoom with that focus, without a toggle
+based on a possibly stale client snapshot. A row click explicitly clears
+zoom with the existing empty-pane `zoom` request, then uses the same focus
+path to reveal the full layout.
+
+**Linear round trip.** A session linked to an issue shows in the issue's
+detail, and the detail's **Open the session**, like a running
+conversation's **Open**, now goes through `focusAttentionOf(session)`: the
+session is selected, and when it waits on the user the pane its attention
+came from is in front. A session at rest keeps its focus and zoom, since
+the fold names its first pane then, which needs nobody. The other end is
+the attention pane's **Open issue** button (`attentionIssueButton` in
+`attention_pane.go`), shown on a row whose session has a `TaskID`: it
+opens the issue in the Linear plugin (`openAttentionIssue`). An existing
+Linear pane in the selected session keeps its filters; otherwise a new pane
+is split with the issue in its saved target. The row's own click is skipped for that press. Nothing
+new is stored: both ends read the link the daemon already keeps for the
+task (`session.link`, the panes' `TaskID`, `savedPane.Task`), and the app
+keeps no link of its own.
+
+Code: [`attention_nav.go`](../attention_nav.go), `actions.go` (`run`),
+[`internal/actions/actions.go`](../internal/actions/actions.go),
+[`app.go`](../app.go) (`session.attention` action from the Linear plugin).
+Tests: `attention_nav_test.go` (cycle order and wrap, no session waiting,
+a zoomed session, a closed pane, the issue detail's jump, a session at
+rest, a daemon with no fold); `attention_pane_test.go`
+(`TestAttentionRowOpensIssue`).
+
 ## The Attention pane
 
 The **Attention** pane shows what needs the user, of every session, in one
 list. It reads `Session.Attention` as kerod sends it and holds no state of
-its own beyond the list: it runs nothing in the daemon, so it needs no
-protocol change, and a kerod that does not send the state leaves the list
-empty rather than breaking it. Its own state — the filter, the search,
-where it is scrolled to — is the app's, one per pane (`App.attention`,
-`attention_pane.go`). The pane itself is a view as Tasks, Files and
+its own beyond the list: it runs nothing in the daemon. A kerod that does
+not send the state leaves the list empty. The pane view itself is new to
+the protocol, though: `"attention"` joins `proto.PaneViews`, and a kerod
+that predates it refuses the pane (`internal/daemon/sessions.go`), so the
+terminal service needs a restart once, when agents are idle. Its own
+state — the filter, the search, where it is scrolled to — is stored as
+JSON in the existing pane Target (`attentionTarget`, `attention_pane.go`).
+The app keeps one live view per pane and prunes it when the pane closes.
+Changed state uses `pane.target`; one write is in flight at a time and its
+completion sends only the newest state that arrived meanwhile. A rejected
+target stays dirty without automatic per-frame retries; changed input or a
+new daemon connection permits another attempt. The daemon coalesces its
+saved-state writes. A restart restores the view; invalid
+filters or scroll positions fall back to the default.
+
+The pane is a view as Tasks, Files and
 Browser are: kerod keeps it and its Target across a restart.
 
 A row says the state's mark and name, the session's name and its project,
 the agent, the line the state came with, and how long it has been so
 (`ago`). Rows are the sessions of the sidebar's order, the most urgent
-first — `waiting-user`, `running`, `unread`, `done`, `idle`, the daemon's
+first — `waiting-user`, `running`, `unread`, `done`, the daemon's
 order — and of two as urgent, the one whose state came last. A click
 selects the session and puts the keyboard in the pane the state came from
-(`Attention.Pane`), where the decision is; it does not zoom, so the panes
-beside it stay in sight.
+(`Attention.Pane`), where the decision is; it does not zoom, and it ends a zoom
+on another pane, so the panes beside it stay in sight.
 
 The chips narrow the list to a state and count what each shows: **All**,
 **Needs you**, **Working**, **Unread**, **Done**. The copy is the app's
 own, as the sidebar and the footer say it: `waiting-user` is **Needs
-you**. Idle sessions, at rest, have no chip: they are in **All**, last.
+you**. Idle sessions, at rest, need nothing and are not listed.
 The search finds what a row says — its name, project, agent, message and
 state — as plain text, and Escape clears it.
 
-An approval shows the hook's own words. Codex has no permission hook, so
-its wait comes from the transcript scan (above) and may carry no message
-from the agent: where the message is absent, the row says **Focus pane to
-approve** instead of nothing, since the approval is in the pane. A hook's
-message is shown exactly as the hook sent it.
+An approval shows the hook's own words. Codex supports a permission hook;
+when it is not installed the transcript scan is its fallback. Every Codex
+wait appends **Focus pane to approve**, including a daemon's generic
+message, because the approval is answered in the pane.
 
 Code: [`attention_pane.go`](../attention_pane.go) (`attentionPane`,
 `attentionRows`, `gotoAttention`, `attentionSummary`),
@@ -415,6 +525,7 @@ The Attention pane's mark and its rows' states are symbols:
 `bell.badge`, `hand.raised.fill`, `arrow.triangle.2.circlepath`,
 `checkmark.circle.fill`, `checkmark.circle` and `circle`. The app's older
 icons stay SVG, as they are. Tests: `symbols_test.go`.
+
 ## Notifications from attention
 
 The app tells of a session by comparing the attention kerod folded
@@ -428,35 +539,55 @@ The app tells of a session by comparing the attention kerod folded
   is what changes, and the same session and state inside
   `notify-throttle-minutes` (five by default, `0` for no throttle) is
   counted silently, so a chatty agent's loop does not fill Notification
-  Center. A turn that begins again after the window tells again;
+  Center. Only a notification that was shown starts the throttle: an ask
+  the user saw in the focused session, or one a setting turned off, holds
+  nothing back. A session that asks again less than 30 seconds after it
+  left the state is a loop; one that asks again later (a real second ask
+  after an approval) tells even inside the window;
+- a clean exit of a plain program, and a view pane's unread mark, tell
+  nothing; an exit with a non-zero code is a failure;
+- after kerod restarts and the app reconnects, the watch starts anew:
+  panes kerod brings back idle and unread are not news;
 - an unseen end whose pane failed keeps the error's title and body, and
   `notify-on-error` decides it; `notify-on-waiting` and `notify-on-done`
   decide the rest, as they did. The sound, the Dock badge and the bounce
   stay as they were; the badge counts the sessions whose fold waits
   (`waiting-user`), not a pane's status.
 
-Focus is the only filter: the session the user is in, in a window in
-front, tells nothing. The watch itself knows nothing of windows or
+Focus is the only filter: the session the user is in, in a window that is
+in front and has the keyboard, tells nothing, and neither does a zoomed
+session's pane in sight (another pane of it that asks does tell). A click
+on a notification selects its session and moves into the pane it comes
+from through `focusAttention`, so a zoom follows the asking pane.
+The watch itself knows nothing of windows or
 profiles — it is handed every session the daemon holds, so a session in a
 profile the user is not looking at still tells. That is the global rule
 the profiles of `feat/profiles-a1` will need; no profiles code is built
 here, and a later filter must not hide a session's attention from this
 watch.
 
-A session can be silenced: **Session › Silence Notifications**, the
-session's context menu, or `kero do session.silence` turns its
+A session can be silenced: **Session › Silence or Resume Notifications**,
+the session's context menu, or `kero do session.silence [session=<id or
+name>] [state=on|off]` turns its
 notifications off until the user resumes them. The list is saved with the
-settings (`silence-session`) and survives a restart of the app. A silenced
+settings (`silence-session`) and survives a restart of the app; ids of
+sessions that were closed fall off the list at the next state. Without
+`session=` the action is about the selected session, and without `state=`
+it toggles. A silenced
 session tells nothing; once resumed, its next turn tells, inside the same
 throttle window. A daemon of before the `Attention` field says none, so
-`foldOf` reads the fold from the session's lead pane: nothing goes quiet
-in that window.
+`foldOf` folds all terminal panes, so a wait in a non-lead pane still
+notifies. View panes and plain successful shell exits do not notify.
 
-What a notification says is the session's name and one line of what it
-needs — the fold's `Msg`, which is the hook's or the screen's line, cut to
-80 bytes by kerod — or the agent and the folder when the fold has none.
-Nothing more of the conversation is read for it, and no credential goes in
-it.
+What a notification says is the session's name and, for a wait or a
+failure, one line of what it needs: the fold's `Msg`, which is the hook's
+or the screen's line (or the name of the tool call a wait hangs on), cut to
+80 bytes by kerod. A session's end never uses the fold's line: kerod can
+fold it from the agent's own transcript (the last message of a Codex turn),
+and what an agent wrote is not for a notification, so an end says the agent
+and the folder. The transcript scan is kerod's existing one; the
+notification does not read more of it. A daemon of before the `Attention`
+field is read pane by pane, and the most urgent pane wins.
 
 Code: [`attention_notify.go`](../attention_notify.go) (`attentionWatch`,
 `foldOf`), [`app.go`](../app.go) (`notify`, `tell`, `toggleSilence`),
@@ -1480,7 +1611,8 @@ there is no protocol or saved-state format change.
 - `Run` in `internal/daemon/daemon.go` reads a restore plan, starts the accept
   loop, then restores sessions in a background goroutine. The initial
   transcript scan runs only after that restore returns; `scanPass` in
-  `internal/daemon/attention.go` locks each pane while reading its transcript.
+  `internal/daemon/attention.go` takes a snapshot and applies results under the
+  pane lock, while transcript disk reads run without it.
 - `restore` in `internal/daemon/store.go` loads the state, workspace, projects
   and task runs. `restoreInBackground` uses up to four workers. History feeds
   and shell forks run outside `d.mu`; `restoreRun.publish` inserts a whole
@@ -1875,6 +2007,25 @@ text in the light and the dark, and writes shots of them to
 `TestPaletteIsGlass` checks that the palette shows the terminal through it
 where an opaque panel would be one shade, and `TestGlassTextContrast` that
 the palette's muted text keeps 4.5 to 1 on the glass, light and dark.
+
+## Attention integration on current Shibu
+
+The B1–B4 fixes share the existing adaptive tick scheduler: transcript scans
+run off the tick goroutine and the atomic scan guard prevents overlapping
+passes. `scanTranscript` owns the pane lock; `scanPass` does not take it
+again. The branch watcher and elapsed-time scan cadence remain intact.
+Screen overrides and the 30-second re-ask loop rule are intentional owner
+choices (BRU-261 and BRU-269).
+
+Linear links use the built-in Linear plugin, rather than the removed Linear
+screen. Its `session.attention session=<id>` action passes through `focusAttentionOf`, and
+notification clicks through `focusAttention`, so the pane that needs the user
+stays visible under zoom. An Attention row also saves a project fold it opens.
+
+Attention search, filters and scroll survive restart through the pane
+Target. Missing Codex transcripts are discovered in bounded, continuing
+slices. The transcript dedupe retains what it told after a screen override
+to avoid reclaiming the same working state on every scan.
 
 ## Hidden terminal redraws (BRU-331)
 

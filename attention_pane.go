@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 
+	"kero/internal/client"
+	"kero/internal/plugin/protocol"
 	"kero/internal/proto"
 
 	"kero/locales"
@@ -94,12 +97,24 @@ func attentionFilterLabel(filter string) string {
 	return attentionLabel(filter)
 }
 
+// attentionTarget is the restart-safe state of the view, stored in the
+// shared pane target without changing the daemon's saved-state format.
+type attentionTarget struct {
+	Filter string  `json:"filter,omitempty"`
+	Query  string  `json:"query,omitempty"`
+	Scroll float32 `json:"scroll,omitempty"`
+}
+
 // attentionView is what an Attention pane holds while it shows: the
 // filter and search of the list, and where it is scrolled to.
 type attentionView struct {
-	filter string // one of attentionFilters, "" all of them
-	query  string // plain text, found in what a row says
-	scroll ui.ScrollState
+	filter      string // one of attentionFilters, "" all of them
+	query       string // plain text, found in what a row says
+	scroll      ui.ScrollState
+	saved       string         // target last restored or acknowledged
+	saving      bool           // one target write at a time
+	failed      string         // rejected target, still dirty
+	writeClient *client.Client // connection that attempted the write
 }
 
 // attentionViewOf is the view of the pane with the id, made as it first
@@ -111,9 +126,66 @@ func (a *App) attentionViewOf(pane string) *attentionView {
 	st := a.attention[pane]
 	if st == nil {
 		st = &attentionView{}
+		if p := a.paneOf(pane); p != nil {
+			var target attentionTarget
+			if json.Unmarshal([]byte(p.Target), &target) == nil {
+				if slices.Contains(attentionFilters, target.Filter) {
+					st.filter = target.Filter
+				}
+				st.query = target.Query
+				if target.Scroll > 0 {
+					st.scroll.Y = target.Scroll
+				}
+			}
+			st.saved = p.Target
+		}
 		a.attention[pane] = st
 	}
 	return st
+}
+
+// saveAttentionView keeps only changed view state in the pane's existing
+// target. The daemon coalesces its saved-state writes, as for other views.
+func (a *App) saveAttentionView(p *proto.Pane, st *attentionView) {
+	target := attentionTarget{Filter: st.filter, Query: st.query, Scroll: st.scroll.Y}
+	data, err := json.Marshal(target)
+	if err != nil {
+		return
+	}
+	if string(data) == st.saved {
+		return
+	}
+	// An untouched, empty pane keeps its empty target.
+	if p.Target == "" && target.Filter == "" && target.Query == "" && target.Scroll == 0 {
+		return
+	}
+	p.Target = string(data)
+	if st.saving || a.cl == nil || string(data) == st.failed && st.writeClient == a.cl {
+		return
+	}
+	st.saving = true
+	st.writeClient = a.cl
+	sent := p.Target
+	a.call("pane.target", proto.TargetParams{Pane: p.ID, Target: sent}, func(err error) { a.attentionViewSaved(p.ID, st, sent, err) })
+}
+
+// attentionViewSaved serializes target writes. Typing or scrolling while
+// one is in flight sends only the newest state after it, so goroutine
+// scheduling cannot let an older request overwrite the final state.
+func (a *App) attentionViewSaved(pane string, st *attentionView, sent string, err error) {
+	st.saving = false
+	if err != nil {
+		// The callback redraws. Leave this target dirty, but do not submit it
+		// again on that redraw. New input or a new connection permits a retry.
+		st.failed = sent
+		a.toast(err.Error())
+		return
+	}
+	st.failed = ""
+	st.saved = sent
+	if p := a.paneOf(pane); p != nil && a.attention[pane] == st {
+		a.saveAttentionView(p, st)
+	}
 }
 
 // attentionRow is a session on the pane's list: its state, and the pane
@@ -124,14 +196,16 @@ type attentionRow struct {
 	agent   string
 }
 
-// attentionRows are the sessions that have an attention, the most urgent
-// first, and of two as urgent the one whose state came last, so that a
+// attentionRows are the sessions that have an attention to show — not
+// those at rest — the most urgent first, and of two as urgent the one whose state came last, so that a
 // new wait is at the top of its kind.
 func (a *App) attentionRows() []attentionRow {
 	var rows []attentionRow
 	for _, g := range a.groups() {
 		for _, s := range g.sessions {
-			if s.Attention == nil || s.Attention.State == "" {
+			// A session at rest needs nothing: kerod sends the idle state
+			// for it, and it is no row.
+			if s.Attention == nil || s.Attention.State == "" || s.Attention.State == proto.AttentionIdle {
 				continue
 			}
 			// The agent that needs the user is the one of the pane the
@@ -203,6 +277,7 @@ func (a *App) attentionSay(r attentionRow) string {
 // a row for each session that needs the user.
 func (a *App) attentionPane(c *ui.Context, pal *palette, s *proto.Session, p *proto.Pane, body ui.Element) {
 	st := a.attentionViewOf(p.ID)
+	defer a.saveAttentionView(p, st)
 	rows := a.attentionRows()
 	if len(rows) == 0 {
 		a.attentionNothing(c, pal, locales.AttentionEmptyTitle(), locales.AttentionEmptyDetail(), nil)
@@ -304,9 +379,7 @@ func (a *App) attentionRowView(c *ui.Context, pal *palette, r attentionRow) {
 		bg = pal.rowHover
 	}
 	row.Background(row.AnimateColor("bg", bg, hover))
-	if row.Clicked() {
-		a.gotoAttention(r)
-	}
+	issue := false
 	color := attentionColor(pal, r.att.State)
 	row.Children(func() {
 		ui.Row(c.Key("state")).Gap(6).AlignItems(ui.Center).Width(96).Shrink(0).Children(func() {
@@ -328,18 +401,98 @@ func (a *App) attentionRowView(c *ui.Context, pal *palette, r attentionRow) {
 			}
 			ui.Text(c, ago(r.att.Since, c.Now())).FontSize(12).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine().Shrink(0)
 		})
+		if r.session.TaskID != "" {
+			issue = a.attentionIssueButton(c, pal, r.session.TaskID)
+		}
 	})
+	// The issue's button is the row's own click when it is the target.
+	if !issue && row.Clicked() {
+		a.gotoAttention(r)
+	}
+}
+
+// attentionIssueButton is a row's way to the issue its session works on:
+// the mark of a link out, which opens the Linear workspace on that issue.
+// It is the other end of the issue detail's way to the session, and it
+// reports whether it was clicked.
+func (a *App) attentionIssueButton(c *ui.Context, pal *palette, task string) bool {
+	label := locales.AttentionOpenIssue(task)
+	b := ui.ButtonBase(c.Key("issue")).Size(26, 26).Radius(6).Center().Shrink(0).Label(label).Tooltip(label)
+	switch {
+	case b.Pressed():
+		b.Background(pal.rowHover.Alpha(0.12))
+	case b.Hovered():
+		b.Background(pal.rowHover)
+	}
+	b.Children(func() {
+		symbolMark(c, "arrow.up.right.square", 14, pal.textMuted, pal.dark)
+	})
+	if !b.Clicked() {
+		return false
+	}
+	a.openAttentionIssue(task)
+	return true
+}
+
+// openAttentionIssue opens the issue in a Linear plugin pane. An existing
+// pane in this session keeps its filters; without one, a new pane opens.
+func (a *App) openAttentionIssue(task string) {
+	s := a.session(a.selected)
+	if s == nil {
+		return
+	}
+	for i := range s.Panes {
+		p := &s.Panes[i]
+		if p.View != proto.PanePlugins {
+			continue
+		}
+		target, err := protocol.DecodeTarget(p.Target)
+		if err != nil || target.Plugin != "linear" {
+			continue
+		}
+		st := a.pluginPaneState(p)
+		state := map[string]json.RawMessage{}
+		if len(st.state) > 0 {
+			if err := json.Unmarshal(st.state, &state); err != nil {
+				continue
+			}
+		}
+		if state == nil {
+			state = map[string]json.RawMessage{}
+		}
+		state["open"], _ = json.Marshal(task)
+		data, _ := json.Marshal(state)
+		if st.opened && a.plugins.host != nil {
+			a.plugins.host.Close(p.ID)
+		}
+		st.opened, st.visible = false, false
+		a.pluginStateSaved("linear", p.ID, data)
+		a.focusAttention(s.ID, p.ID)
+		return
+	}
+	state, _ := json.Marshal(map[string]string{"open": task})
+	target, err := protocol.EncodeTarget(protocol.Target{Plugin: "linear", Widget: "board", State: state})
+	if err != nil {
+		a.toast(err.Error())
+		return
+	}
+	a.splitTarget(s, "", "right", proto.PanePlugins, target)
 }
 
 // attentionSummary is a row's one line: what the hook said, exactly, and
-// where an agent says nothing, the state's own words. A Codex pane is the
-// one that says nothing of an approval — its scan reads the transcript
-// and names the call — so its row says what to do instead.
+// where an agent says nothing, the state's own words. A Codex pane's
+// approval is found by the transcript scan, not asked for by a hook, so
+// its row says what to do after whatever kerod worded the wait as.
 func (a *App) attentionSummary(r attentionRow) string {
-	if r.att.Msg != "" {
+	codexWait := r.att.State == proto.AttentionWaitingUser && r.agent == "codex"
+	switch {
+	case r.att.Msg != "" && codexWait:
+		// kerod words every wait, so a Codex one always has a message
+		// ("Needs permission"); the way to answer it follows.
+		return r.att.Msg + " · " + locales.AttentionApprove()
+	case r.att.Msg != "":
 		return r.att.Msg
-	}
-	if r.att.State == proto.AttentionWaitingUser && r.agent == "codex" {
+	case codexWait:
 		return locales.AttentionApprove()
 	}
 	return attentionLabel(r.att.State)
@@ -347,16 +500,18 @@ func (a *App) attentionSummary(r attentionRow) string {
 
 // gotoAttention shows a row's session and puts the keyboard in the pane
 // that needs the user, where the decision is: not zoomed, so that the
-// panes beside it stay in sight.
+// panes beside it stay in sight. A zoom on another pane is ended, as
+// setFocus alone would leave it hiding the target.
 func (a *App) gotoAttention(r attentionRow) {
-	delete(a.prefs.Collapsed, r.session.Project)
-	a.selectSession(r.session.ID)
 	s := a.session(r.session.ID)
-	if s == nil || r.att.Pane == "" || s.PaneByID(r.att.Pane) == nil {
+	if s == nil {
 		return
 	}
-	a.setFocus(s, r.att.Pane)
-	a.paneRef(r.att.Pane).Focus()
+	// Empty pane explicitly clears the daemon's zoom, even if the local
+	// snapshot says none. A toggle based on that snapshot can hide the row.
+	s.Zoomed = ""
+	a.call("zoom", proto.FocusParams{Session: s.ID}, nil)
+	a.focusAttention(s.ID, r.att.Pane)
 }
 
 // attentionNothing is the pane's empty state, as the Linear and Tasks

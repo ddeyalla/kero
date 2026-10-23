@@ -224,11 +224,19 @@ func (d *Daemon) sessionInfo(s *session) proto.Session {
 	slices.SortStableFunc(panes, func(a, b *pane) int {
 		return slices.Index(order, a.info.ID) - slices.Index(order, b.info.ID)
 	})
+	// One look at each pane serves its row and the session's attention,
+	// so that the two never tell of different moments.
+	reads := make(map[*pane]paneRead, len(panes))
 	for _, p := range panes {
 		p.mu.Lock()
 		pi := p.info
 		pi.Command = slices.Clone(pi.Command)
 		pi.Records = slices.Clone(pi.Records)
+		if p.closed {
+			reads[p] = paneRead{closed: true}
+		} else {
+			reads[p] = paneRead{pa: paneAttention(p), id: p.info.ID}
+		}
 		p.mu.Unlock()
 		info.Panes = append(info.Panes, pi)
 	}
@@ -236,7 +244,7 @@ func (d *Daemon) sessionInfo(s *session) proto.Session {
 		info.Pane = info.Panes[i]
 		info.Lead = info.Panes[i].ID
 	}
-	info.Attention = protoAttention(sessionAttention(s))
+	info.Attention = protoAttention(foldAttention(s, reads))
 	info.Created, info.Restored = s.created, s.restored
 	return info
 }

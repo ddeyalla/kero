@@ -19,12 +19,13 @@ A **session** is a unit of work: one task, one agent, one long-running process. 
 | Jump to session needing you | <kbd>⌘</kbd> <kbd>J</kbd>                   |
 | Next / previous session    | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>]</kbd> / <kbd>[</kbd> |
 | Rename session             | <kbd>⌘</kbd> <kbd>R</kbd>                    |
-| Silence or resume a session's notifications | Session menu, its context menu, or `kero do session.silence` |
+| Silence or resume a session's notifications | Session menu, its context menu, or `kero do session.silence [session=<id>] [state=on\|off]` |
 | Close session              | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>W</kbd>       |
 
 Notifications follow a session's attention: one when it needs you, one when
-its turn ends unseen, and none of the same session and state again inside
-`notify-throttle-minutes` (five by default). [Silencing a
+its turn ends unseen, and none of a loop (the same session and state again
+within 30 seconds of the answer) inside `notify-throttle-minutes` (five by
+default). [Silencing a
 session](./changes.md#notifications-from-attention) keeps it quiet until you
 resume it, also across a restart.
 

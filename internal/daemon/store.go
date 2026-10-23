@@ -154,14 +154,24 @@ type savedProfile struct {
 	Background string   `json:"background,omitempty"`
 	Projects   []string `json:"projects,omitempty"`
 	Sessions   []string `json:"sessions,omitempty"`
-	// EnvRef names the env bundle the profile runs with, which the env
-	// child of epic A lands.
-	EnvRef    string `json:"envRef,omitempty"`
-	CreatedAt int64  `json:"createdAt,omitempty"`
-	LastUsed  int64  `json:"lastUsed,omitempty"`
+	EnvRef     string   `json:"envRef,omitempty"`
+	CreatedAt  int64    `json:"createdAt,omitempty"`
+	LastUsed   int64    `json:"lastUsed,omitempty"`
 }
 
 func (d *Daemon) statePath() string { return filepath.Join(d.dir, "state.json") }
+
+// savedSummary is the words a pane's attention would show of an unread
+// end, which a restore keeps for it: only for a pane whose turn ended
+// unseen. What a working or waiting pane says is no end's, and would read
+// as one once the restore brings the pane back idle and unread; s.mu is
+// held.
+func savedSummary(p *pane) string {
+	if a := paneAttention(p); a.State == attentionUnread && p.info.Status == proto.Idle {
+		return a.Msg
+	}
+	return ""
+}
 
 // historyPath is where a pane's history is kept, for a restore.
 func (d *Daemon) historyPath(id string) string { return filepath.Join(d.dir, "sessions", id+".vt") }
@@ -231,7 +241,7 @@ func (d *Daemon) saveState() {
 			p.mu.Lock()
 			sp := savedPane{ID: p.info.ID, View: p.info.View, Target: p.info.Target, Dir: p.info.Dir, Command: p.info.Command,
 				Agent: p.info.AgentSession, Task: p.info.TaskID, Created: p.info.Created, Cols: p.info.Cols, Rows: p.info.Rows,
-				Status: p.info.Status, Since: p.info.Since, Unread: p.info.Unread, Summary: paneAttention(p).Msg}
+				Status: p.info.Status, Since: p.info.Since, Unread: p.info.Unread, Summary: savedSummary(p)}
 			switch p.info.Status {
 			case proto.Failed:
 				sp.Message = p.info.Message
@@ -589,7 +599,11 @@ func (d *Daemon) restorePane(sid string, sp savedPane, when string, saved int64)
 	}
 	// What the pane's attention said when it was saved, for an unread
 	// end to show whose message a restore does not keep.
-	p.summary = sp.Summary
+	// A saved Working or Waiting pane comes back as an unread end of
+	// no words: what its row said then ("Working · 30%") was no end's.
+	if sp.Status != proto.Working && sp.Status != proto.Waiting {
+		p.summary = sp.Summary
+	}
 	// What the session showed, down to where its cursor was, with the
 	// new shell under it: what a program drew below the cursor, as an
 	// agent's status bar, goes, rather than show under the new shell's

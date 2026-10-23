@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 
+	"kero/internal/plugin/protocol"
 	"kero/internal/proto"
 )
 
@@ -72,6 +75,26 @@ func TestAttentionPaneEmpty(t *testing.T) {
 	}
 }
 
+// A real kerod sends the idle state for a quiet session, not no state:
+// with every session idle the pane is still empty, and has no rows.
+func TestAttentionPaneEmptyIdle(t *testing.T) {
+	a := testAttention(t,
+		attnFixture{state: proto.AttentionIdle, agent: "claude"},
+		attnFixture{state: proto.AttentionIdle, agent: "codex"},
+	)
+	if rows := a.attentionRows(); len(rows) != 0 {
+		t.Fatalf("idle sessions made %d rows, want 0", len(rows))
+	}
+	tt := ui.NewTester(a.view, 1280, 720)
+	frames(tt)
+	if !tt.HasText("Nothing needs you") {
+		t.Errorf("no empty state with every session idle; texts %q", tt.Texts())
+	}
+	if tt.HasText("All") {
+		t.Errorf("the toolbar shows with no rows; texts %q", tt.Texts())
+	}
+}
+
 // A session that needs the user is a row: its state, its name and its
 // project, what the hook said, the agent and how long it has been so.
 func TestAttentionPaneRow(t *testing.T) {
@@ -97,18 +120,26 @@ func TestAttentionPaneMany(t *testing.T) {
 	a := testAttention(t, f...)
 	tt := ui.NewTester(a.view, 1280, 720)
 	frames(tt)
-	if got := len(a.attentionRows()); got != 10 {
-		t.Fatalf("%d rows, want 10", got)
+	// The two idle sessions are no rows.
+	if got := len(a.attentionRows()); got != 8 {
+		t.Fatalf("%d rows, want 8", got)
 	}
 	// The most urgent first: the last fixture of each kind is the
 	// oldest, so a kind's own order is newest first.
 	rows := a.attentionRows()
-	if rows[0].att.State != proto.AttentionWaitingUser || rows[9].att.State != proto.AttentionIdle {
-		t.Fatalf("rows go %s…%s, want waiting-user…idle", rows[0].att.State, rows[9].att.State)
+	if rows[0].att.State != proto.AttentionWaitingUser || rows[7].att.State != proto.AttentionDone {
+		t.Fatalf("rows go %s…%s, want waiting-user…done", rows[0].att.State, rows[7].att.State)
 	}
-	for i, want := range []string{"task 1", "task 2", "task 5"} {
-		if !tt.HasText(want) {
-			t.Errorf("row %d: no %q; texts %q", i, want, tt.Texts())
+	// The sidebar names every session, so the rows' own words are what
+	// prove each is listed: "work N" is only in a row.
+	for _, i := range []int{1, 2, 3, 4, 6, 7, 8, 9} {
+		if want := fmt.Sprintf("work %d", i); !tt.HasText(want) {
+			t.Errorf("no row saying %q; texts %q", want, tt.Texts())
+		}
+	}
+	for _, unwanted := range []string{"work 5", "work 10"} {
+		if tt.HasText(unwanted) {
+			t.Errorf("an idle session is a row saying %q", unwanted)
 		}
 	}
 	shot(t, tt, "attention-many")
@@ -214,40 +245,271 @@ func TestAttentionPaneSearch(t *testing.T) {
 }
 
 // A row's click shows its session and puts the keyboard in the pane that
-// needs the user.
+// needs the user, though the session was left in another pane, zoomed.
 func TestAttentionRowFocusesPane(t *testing.T) {
 	a := testAttention(t, attnFixture{state: proto.AttentionWaitingUser, msg: "Bash command needs approval", agent: "claude"})
+	s := a.session("s2")
+	s.Focus = "bs2"
+	s.Zoomed = "bs2"
+	a.focus = map[string]string{"s2": "bs2"}
 	tt := ui.NewTester(a.view, 1280, 720)
 	frames(tt)
-	if err := tt.Click("task 1"); err != nil {
+	// The row's own words, which the sidebar does not say.
+	if err := tt.Click("Bash command needs approval"); err != nil {
 		t.Fatal(err)
 	}
 	frames(tt)
 	if a.selected != "s2" {
 		t.Fatalf("the row selected %q, want s2", a.selected)
 	}
-	if got := a.focusOf(a.session("s2")); got != "as2" {
+	s = a.session("s2")
+	if got := a.focusOf(s); got != "as2" {
 		t.Fatalf("the row focused %q, want the pane that needs the user", got)
+	}
+	if s.Zoomed != "" {
+		t.Fatalf("the zoom on %q stayed, hiding the pane that needs the user", s.Zoomed)
 	}
 }
 
-// A Codex pane says nothing of an approval — its state is the transcript
-// scan's — so its row says what to do; a hook's message shows as it is.
+// The state of a pane that closed is dropped with it.
+func TestAttentionViewPruned(t *testing.T) {
+	a := testAttention(t)
+	a.loaded = true
+	a.attentionViewOf("b").query = "x"
+	a.attentionViewOf("gone").query = "y"
+	a.sweepViews()
+	if _, ok := a.attention["gone"]; ok {
+		t.Error("the view of a closed pane stayed")
+	}
+	if _, ok := a.attention["b"]; !ok {
+		t.Error("the view of an open pane was dropped")
+	}
+}
+
+// kerod words every wait (paneWaitMsg: "Needs you" at the least), so a
+// Codex approval always has a message; its row still says what to do.
 func TestAttentionCodexApproval(t *testing.T) {
 	a := testAttention(t,
-		attnFixture{state: proto.AttentionWaitingUser, agent: "codex"},
-		attnFixture{state: proto.AttentionWaitingUser, agent: "claude"},
+		attnFixture{state: proto.AttentionWaitingUser, msg: "Needs you", agent: "codex"},
+		attnFixture{state: proto.AttentionWaitingUser, msg: "Needs you", agent: "claude"},
 	)
 	rows := a.attentionRows()
-	if got := a.attentionSummary(rows[0]); got != "Focus pane to approve" {
-		t.Fatalf("a silent Codex wait says %q", got)
+	if got := a.attentionSummary(rows[0]); got != "Needs you · Focus pane to approve" {
+		t.Fatalf("a Codex wait says %q", got)
 	}
 	if got := a.attentionSummary(rows[1]); got != "Needs you" {
-		t.Fatalf("a silent hook says %q", got)
+		t.Fatalf("a Claude wait says %q", got)
 	}
-	// A message the hook gave is shown as it is, Codex or not.
 	rows[0].att.Msg = "Waiting on exec"
-	if got := a.attentionSummary(rows[0]); got != "Waiting on exec" {
+	if got := a.attentionSummary(rows[0]); got != "Waiting on exec · Focus pane to approve" {
 		t.Fatalf("the hook's message shows as %q", got)
+	}
+	// Only a wait: a Codex turn that ran has no approval to give.
+	rows[0].att.State, rows[0].att.Msg = proto.AttentionRunning, ""
+	if got := a.attentionSummary(rows[0]); got != "Working" {
+		t.Fatalf("a Codex run says %q", got)
+	}
+}
+
+// A row of a session working on an issue offers the issue, which opens in
+// the Linear view; a row of a session with none offers nothing.
+func TestAttentionRowOpensIssue(t *testing.T) {
+	a := testAttention(t,
+		attnFixture{state: proto.AttentionWaitingUser, msg: "Approve", agent: "claude"},
+		attnFixture{state: proto.AttentionWaitingUser, msg: "Approve too", agent: "claude"})
+	a.session("s2").TaskID = "BRU-25"
+	a.st.Linear = &proto.LinearState{Status: proto.LinearOK, Team: "BRU"}
+	target, _ := protocol.EncodeTarget(protocol.Target{Plugin: "linear", Widget: "board", State: json.RawMessage(`{"query":"keep"}`)})
+	a.session("s1").Panes = append(a.session("s1").Panes, proto.Pane{ID: "linear", View: proto.PanePlugins, Target: target})
+	var saved string
+	a.plugins.saveTarget = func(pane, target string) { saved = target }
+	tt := ui.NewTester(a.view, 1280, 720)
+	frames(tt)
+	if _, ok := tt.Find("Open issue BRU-25"); !ok {
+		t.Fatalf("no way to the issue; texts %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Open issue"); ok {
+		t.Error("a session with no issue offers one")
+	}
+	if err := tt.Click("Open issue BRU-25"); err != nil {
+		t.Fatal(err)
+	}
+	frames(tt)
+	targetState, err := protocol.DecodeTarget(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]string
+	if err := json.Unmarshal(targetState.State, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state["open"] != "BRU-25" || state["query"] != "keep" || a.focusOf(a.session("s1")) != "linear" {
+		t.Fatalf("issue target %s, focus %s", saved, a.focusOf(a.session("s1")))
+	}
+	if a.selected == "s2" {
+		t.Error("the button also opened the row's session")
+	}
+
+	// Back on the pane, with the session's issue gone: no button.
+	a.show, a.selected = "session", "s1"
+	a.session("s2").TaskID = ""
+	frames(tt)
+	if _, ok := tt.Find("Open issue BRU-25"); ok {
+		t.Error("a session with no issue offers one")
+	}
+}
+
+// Filters, search and scroll belong to the pane target, so reconstructing
+// the client keeps the same view without a daemon format migration.
+func TestAttentionTargetRoundTrip(t *testing.T) {
+	a := testAttention(t, attnFixture{state: proto.AttentionWaitingUser, msg: "Approve", agent: "codex"})
+	p := a.paneOf("b")
+	p.Target = `{"filter":"waiting-user","query":"Approve","scroll":104}`
+	st := a.attentionViewOf("b")
+	if st.filter != proto.AttentionWaitingUser || st.query != "Approve" || st.scroll.Y != 104 {
+		t.Fatalf("restored filter=%q query=%q scroll=%v", st.filter, st.query, st.scroll.Y)
+	}
+	st.filter, st.query, st.scroll.Y = proto.AttentionRunning, "next", 52
+	a.saveAttentionView(p, st)
+	target := p.Target
+	delete(a.attention, "b")
+	restored := a.attentionViewOf("b")
+	if restored.filter != proto.AttentionRunning || restored.query != "next" || restored.scroll.Y != 52 {
+		t.Fatalf("round trip target %s: %+v", target, restored)
+	}
+	a.saveAttentionView(p, restored)
+	if p.Target != target {
+		t.Fatal("unchanged view rewrote its target")
+	}
+}
+
+func TestAttentionTargetInvalid(t *testing.T) {
+	for _, target := range []string{`broken`, `null`, `{"filter":"invalid","query":"keep","scroll":-20}`} {
+		a := testAttention(t)
+		a.paneOf("b").Target = target
+		st := a.attentionViewOf("b")
+		if st.filter != "" || st.scroll.Y != 0 {
+			t.Fatalf("invalid target %q restored %+v", target, st)
+		}
+	}
+}
+
+func TestAttentionInputSavesTarget(t *testing.T) {
+	a := testAttention(t, attnFixture{state: proto.AttentionRunning, msg: "Working", agent: "codex"})
+	tt := ui.NewTester(a.view, 1280, 720)
+	frames(tt)
+	a.attentionViewOf("b").query = "Working"
+	frames(tt)
+	var saved struct {
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal([]byte(a.paneOf("b").Target), &saved); err != nil || saved.Query != "Working" {
+		t.Fatalf("input not saved: %q, %v", a.paneOf("b").Target, err)
+	}
+}
+
+// State changes while a target write is pending cannot overtake it. A
+// tester has no native window callback queue, so it delivers the same
+// completion handler explicitly after the peer acknowledges the request.
+func TestAttentionTargetWritesNewestAfterPending(t *testing.T) {
+	a := testAttention(t)
+	p := a.paneOf("b")
+	st := a.attentionViewOf("b")
+	requests := attentionRPC(t, a)
+	st.query = "first"
+	a.saveAttentionView(p, st)
+	sent := p.Target
+	st.query = "final"
+	a.saveAttentionView(p, st)
+	select {
+	case req := <-requests:
+		var params proto.TargetParams
+		if req.Method != "pane.target" || json.Unmarshal(req.Params, &params) != nil || params.Target != sent {
+			t.Fatalf("first request %+v", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no initial target write")
+	}
+	select {
+	case req := <-requests:
+		t.Fatalf("pending target was overtaken: %+v", req)
+	case <-time.After(10 * time.Millisecond):
+	}
+	a.attentionViewSaved(p.ID, st, sent, nil)
+	select {
+	case req := <-requests:
+		var params proto.TargetParams
+		if json.Unmarshal(req.Params, &params) != nil {
+			t.Fatal("invalid target params")
+		}
+		var target attentionTarget
+		if json.Unmarshal([]byte(params.Target), &target) != nil || target.Query != "final" {
+			t.Fatalf("final target %q", params.Target)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("latest state was not saved after completion")
+	}
+}
+
+// A rejected target remains dirty without causing a redraw/request loop.
+// New input or a new connection may retry, always with the newest view.
+func TestAttentionTargetFailureWaitsForChangeOrReconnect(t *testing.T) {
+	a := testAttention(t)
+	p := a.paneOf("b")
+	st := a.attentionViewOf("b")
+	requests := attentionRPC(t, a)
+	st.query = "first"
+	a.saveAttentionView(p, st)
+	sent := p.Target
+	select {
+	case <-requests:
+	case <-time.After(time.Second):
+		t.Fatal("no initial save")
+	}
+	a.attentionViewSaved(p.ID, st, sent, errors.New("target rejected"))
+	tt := ui.NewTester(a.view, 1280, 720)
+	frames(tt)
+	frames(tt)
+	select {
+	case req := <-requests:
+		t.Fatalf("failed save retried without a change: %+v", req)
+	case <-time.After(20 * time.Millisecond):
+	}
+	if st.saved == sent || st.query != "first" {
+		t.Fatalf("failure acknowledged or lost dirty state: saved=%q query=%q", st.saved, st.query)
+	}
+	st.query = "newest"
+	frames(tt)
+	select {
+	case req := <-requests:
+		var params proto.TargetParams
+		var target attentionTarget
+		if json.Unmarshal(req.Params, &params) != nil || json.Unmarshal([]byte(params.Target), &target) != nil || target.Query != "newest" {
+			t.Fatalf("changed target not sent: %+v", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("new input did not permit save")
+	}
+	sent = p.Target
+	a.attentionViewSaved(p.ID, st, sent, errors.New("still rejected"))
+	// The client object changes when the daemon control connection recovers.
+	// Its first frame must retry the latest dirty state once.
+	recovered := attentionRPC(t, a)
+	frames(tt)
+	select {
+	case req := <-recovered:
+		var params proto.TargetParams
+		if json.Unmarshal(req.Params, &params) != nil || params.Target != sent {
+			t.Fatalf("recovery lost newest target: %+v", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reconnection did not permit retry")
+	}
+	a.attentionViewSaved(p.ID, st, sent, nil)
+	frames(tt)
+	select {
+	case req := <-recovered:
+		t.Fatalf("acknowledged target resent: %+v", req)
+	case <-time.After(20 * time.Millisecond):
 	}
 }

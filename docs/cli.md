@@ -120,6 +120,9 @@ kero daemon status|stop|restart  # manage kerod
 kero actions                     # list them
 kero do pane.split.right
 kero do sidebar.toggle
+kero do session.attention session=<id or name>  # focus what this session needs
+kero do attention.next-blocked   # the next session waiting on you
+kero do session.silence session=<id or name> state=on   # on, off; no state toggles
 ```
 
 A plugin's commands are actions too, as `plugin.<id>.<command>`. `kero actions` lists them with the app's own. A command runs on a pane of its plugin, and opens one when there is none.
@@ -127,6 +130,14 @@ A plugin's commands are actions too, as `plugin.<id>.<command>`. `kero actions` 
 ```sh
 kero do plugin.example.refresh
 ```
+Arguments are `key=value` pairs after the action; an action reads the ones it knows.
+
+`attention.next-blocked` goes to the next session whose attention state is
+`waiting-user` (for an older daemon, the fold of all terminal panes), longest
+wait first, and puts the pane that needs you in
+front. With none waiting it does nothing and says so. It has no default
+shortcut; the Session menu, the command palette and `kero do` reach it.
+
 
 ## Exit status
 

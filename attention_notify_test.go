@@ -1,9 +1,12 @@
 package main
 
 import (
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"kero/internal/client"
 	"kero/internal/proto"
 	"kero/internal/settings"
 
@@ -69,8 +72,9 @@ func TestAttentionWatchTellsEachTurnOnce(t *testing.T) {
 	if got := w.watch(sessions, false, nil, window); len(got) != 0 {
 		t.Fatalf("work told %v", states(got))
 	}
+	w.shown(got[0])
 	// A chatty agent asks again at once: counted, not announced.
-	at = at.Add(time.Minute)
+	at = at.Add(10 * time.Second)
 	sessions[0] = attentionSession("s1", attentionWaitingUser, "Needs permission once more")
 	if got := w.watch(sessions, false, nil, window); len(got) != 0 {
 		t.Fatalf("a repeat inside the window told %v", states(got))
@@ -85,6 +89,54 @@ func TestAttentionWatchTellsEachTurnOnce(t *testing.T) {
 	sessions[0] = attentionSession("s1", attentionWaitingUser, "Needs permission once more")
 	if got := w.watch(sessions, false, nil, window); len(got) != 1 {
 		t.Fatalf("past the window told %v, want one", states(got))
+	}
+}
+
+// A second ask a while after the answer is a real one, not a loop: it
+// tells inside the window, as long as the first was shown.
+func TestAttentionWatchRealSecondAsk(t *testing.T) {
+	w := newAttentionWatch()
+	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	clockAt(w, &at)
+	window := 5 * time.Minute
+	sessions := []proto.Session{attentionSession("s1", attentionRunning, "")}
+	w.watch(sessions, false, nil, window)
+	sessions[0] = attentionSession("s1", attentionWaitingUser, "Needs you")
+	got := w.watch(sessions, false, nil, window)
+	w.shown(got[0])
+	at = at.Add(5 * time.Second)
+	sessions[0] = attentionSession("s1", attentionRunning, "")
+	w.watch(sessions, false, nil, window)
+	// Two minutes of work, then it asks again: inside the window, but a
+	// new turn.
+	at = at.Add(2 * time.Minute)
+	sessions[0] = attentionSession("s1", attentionWaitingUser, "Needs you again")
+	if got := w.watch(sessions, false, nil, window); len(got) != 1 {
+		t.Fatalf("a real second ask told %v, want one", states(got))
+	}
+}
+
+// An event the app did not show holds nothing back: only shown starts the
+// throttle.
+func TestAttentionWatchUnshownDoesNotThrottle(t *testing.T) {
+	w := newAttentionWatch()
+	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	clockAt(w, &at)
+	window := 5 * time.Minute
+	sessions := []proto.Session{attentionSession("s1", attentionRunning, "")}
+	w.watch(sessions, false, nil, window)
+	sessions[0] = attentionSession("s1", attentionWaitingUser, "Needs you")
+	if got := w.watch(sessions, false, nil, window); len(got) != 1 {
+		t.Fatalf("told %v", states(got))
+	}
+	// Not shown. It works for a moment, and asks again.
+	at = at.Add(5 * time.Second)
+	sessions[0] = attentionSession("s1", attentionRunning, "")
+	w.watch(sessions, false, nil, window)
+	at = at.Add(5 * time.Second)
+	sessions[0] = attentionSession("s1", attentionWaitingUser, "Needs you")
+	if got := w.watch(sessions, false, nil, window); len(got) != 1 {
+		t.Fatalf("an unshown ask held the next back: %v", states(got))
 	}
 }
 
@@ -180,14 +232,15 @@ func attentionApp(t *testing.T, sessions ...proto.Session) (*App, *[]attentionNo
 	a := testApp(t)
 	a.st.Sessions = sessions
 	sent := &[]attentionNote{}
-	a.deliver = func(id, title, body string) {
-		*sent = append(*sent, attentionNote{Session: id, Title: title, Body: body})
+	a.deliver = func(id, pane, title, body string) {
+		*sent = append(*sent, attentionNote{Session: id, Pane: pane, Title: title, Body: body})
 	}
 	return a, sent
 }
 
 type attentionNote struct {
 	Session string
+	Pane    string
 	Title   string
 	Body    string
 }
@@ -279,6 +332,167 @@ func TestNotifyRespectsTheToggles(t *testing.T) {
 	a.notify(false)
 	if len(*sent) != 0 {
 		t.Fatalf("notices off, told %v", *sent)
+	}
+}
+
+// kerod restores the panes of a busy session idle and unread when it
+// restarts. The app reconnects, the fold says unread for each, and none of
+// it is news.
+func TestReconnectTellsNothingOfRestoredPanes(t *testing.T) {
+	a, sent := attentionApp(t,
+		attentionSession("s1", attentionRunning, "Working"),
+		attentionSession("s2", attentionRunning, "Working"),
+	)
+	a.selected, a.active = "other", true
+	a.notify(false)
+	cl := &client.Client{}
+	a.cl = cl
+	a.disconnected(cl)
+	a.st.Sessions[0] = attentionSession("s1", attentionUnread, "Turn ended")
+	a.st.Sessions[1] = attentionSession("s2", attentionUnread, "Turn ended")
+	a.notify(false)
+	if len(*sent) != 0 {
+		t.Fatalf("a reconnect told %v", *sent)
+	}
+	// The watch is new, not blind: the turns after tell.
+	a.st.Sessions[0] = attentionSession("s1", attentionRunning, "Working")
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "Needs you")
+	a.notify(false)
+	if len(*sent) != 1 {
+		t.Fatalf("after a reconnect told %v, want one", *sent)
+	}
+}
+
+// A session that asks while the user looks at it shows nothing, and does
+// not hold back the genuine ask after the user has gone elsewhere.
+func TestFocusedAskDoesNotPoisonTheThrottle(t *testing.T) {
+	a, sent := attentionApp(t,
+		attentionSession("s1", attentionRunning, ""),
+		attentionSession("s2", attentionRunning, ""),
+	)
+	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	clockAt(a.watch, &at)
+	a.selected, a.active = "s1", true
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "Needs you")
+	a.notify(false)
+	if len(*sent) != 0 {
+		t.Fatalf("the focused session told %v", *sent)
+	}
+	// Answered; the user goes to s2; s1 asks again inside the window.
+	at = at.Add(5 * time.Second)
+	a.st.Sessions[0] = attentionSession("s1", attentionRunning, "")
+	a.notify(false)
+	a.selected = "s2"
+	at = at.Add(5 * time.Second)
+	a.st.Sessions[0] = attentionSession("s1", attentionWaitingUser, "Needs you again")
+	a.notify(false)
+	if len(*sent) != 1 || (*sent)[0].Session != "s1" {
+		t.Fatalf("told %v, want exactly one for s1", *sent)
+	}
+}
+
+// What an agent wrote reaches a notification nowhere: a session's end says
+// the agent and the folder, whatever line the fold holds.
+func TestDoneNotificationNeverCarriesTheFoldLine(t *testing.T) {
+	a, sent := attentionApp(t, attentionSession("s1", attentionRunning, ""))
+	a.selected, a.active = "other", true
+	a.notify(false)
+	a.st.Sessions[0] = attentionSession("s1", attentionUnread, "Use sk-fake-token for the deploy")
+	a.notify(false)
+	if len(*sent) != 1 {
+		t.Fatalf("told %v", *sent)
+	}
+	if body := (*sent)[0].Body; strings.Contains(body, "sk-fake-token") || body != locales.NotifyDoneBody("", proto.ShortDir("")) {
+		t.Errorf("body %q", body)
+	}
+}
+
+// A view with an unread mark, a clean exit of a plain program and a
+// program that failed to exit well: the first two say nothing, the last
+// is a failure.
+func TestFoldOfViewsAndExits(t *testing.T) {
+	view := proto.Pane{ID: "v", View: "tasks", Unread: true}
+	s := attentionSession("s1", attentionUnread, "", view)
+	if f := foldOf(&s); f.State != attentionIdle {
+		t.Errorf("an unread view folds %q", f.State)
+	}
+	clean := proto.Pane{ID: "p", Status: proto.Exited, Unread: true}
+	s = attentionSession("s1", attentionUnread, "Exited with code 0", clean)
+	if f := foldOf(&s); f.State != attentionDone {
+		t.Errorf("a clean exit folds %q", f.State)
+	}
+	bad := proto.Pane{ID: "p", Status: proto.Exited, ExitCode: 2, Unread: true}
+	s = attentionSession("s1", attentionUnread, "Exited with code 2", bad)
+	if f := foldOf(&s); f.State != attentionUnread || !f.Failed {
+		t.Errorf("a failed exit folds %+v", f)
+	}
+	// An agent that quit cleanly is still an end the user may want.
+	agent := proto.Pane{ID: "p", Status: proto.Exited, Agent: "claude", Unread: true}
+	s = attentionSession("s1", attentionUnread, "", agent)
+	if f := foldOf(&s); f.State != attentionUnread || f.Failed {
+		t.Errorf("an agent's exit folds %+v", f)
+	}
+}
+
+// A daemon of before the field: every pane has its say, the most urgent
+// wins.
+func TestFoldOfOlderDaemonReadsEveryPane(t *testing.T) {
+	s := proto.Session{ID: "s1", Lead: "a", Panes: []proto.Pane{
+		{ID: "a", Status: proto.Idle},
+		{ID: "b", Status: proto.Waiting, Message: "Needs permission"},
+	}}
+	if f := foldOf(&s); f.State != attentionWaitingUser || f.Pane != "b" {
+		t.Errorf("fold %+v", f)
+	}
+}
+
+// The focus filter reads the window, not only the selection, and a zoomed
+// session's other panes are out of sight.
+func TestLookingReadsWindowAndZoom(t *testing.T) {
+	a, _ := attentionApp(t, attentionSession("s1", attentionRunning, ""))
+	s := &a.st.Sessions[0]
+	a.selected, a.active, a.focused = "s1", true, true
+	if !a.looking(s, "p") {
+		t.Error("not looking at the selected session")
+	}
+	a.focused = false
+	if a.looking(s, "p") {
+		t.Error("looking with the window without the keyboard")
+	}
+	a.focused = true
+	s.Zoomed = "q"
+	if a.looking(s, "p") || !a.looking(s, "q") {
+		t.Error("zoom does not decide what is in sight")
+	}
+}
+
+// Silence by session and by state, and idempotent; closed sessions fall
+// off the list after the first real state.
+func TestSilenceArgsAndPruning(t *testing.T) {
+	a, _ := attentionApp(t,
+		attentionSession("s1", attentionRunning, ""),
+		attentionSession("s2", attentionRunning, ""),
+	)
+	a.selected = "s1"
+	a.run("session.silence", map[string]string{"session": "s2", "state": "on"})
+	a.run("session.silence", map[string]string{"session": "s2", "state": "on"})
+	if !a.silenced("s2") || a.silenced("s1") || len(a.set.SilencedSessions) != 1 {
+		t.Fatalf("silenced %v", a.set.SilencedSessions)
+	}
+	a.run("session.silence", map[string]string{"session": "s2", "state": "off"})
+	if a.silenced("s2") {
+		t.Fatal("s2 not resumed")
+	}
+	a.run("session.silence", nil)
+	if !a.silenced("s1") {
+		t.Fatal("the selected session is the default")
+	}
+	a.set.SilencedSessions = []string{"s1", "gone"}
+	a.pruneSilenced()
+	if !slices.Equal(a.set.SilencedSessions, []string{"s1"}) {
+		t.Fatalf("pruned %v", a.set.SilencedSessions)
 	}
 }
 

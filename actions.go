@@ -110,7 +110,13 @@ func (a *App) run(id string, args map[string]string) {
 	case "palette.open":
 		a.openPalette()
 	case "session.attention":
-		a.jumpToAttention()
+		if id := args["session"]; id != "" {
+			a.focusAttentionOf(a.sessionNamed(id))
+		} else {
+			a.jumpToAttention()
+		}
+	case "attention.next-blocked":
+		a.nextBlocked()
 	case "session.next":
 		a.selectOffset(1)
 	case "session.previous":
@@ -118,7 +124,20 @@ func (a *App) run(id string, args map[string]string) {
 	case "session.rename":
 		a.startRename(a.selected)
 	case "session.silence":
-		a.toggleSilence(a.selected)
+		// The session named by session=<id or name>, else the selected one;
+		// state=on|off makes it idempotent, else it toggles.
+		id := a.selected
+		if want := args["session"]; want != "" {
+			id = a.sessionNamed(want)
+		}
+		switch args["state"] {
+		case "on":
+			a.setSilence(id, true)
+		case "off":
+			a.setSilence(id, false)
+		default:
+			a.toggleSilence(id)
+		}
 	case "pane.restart":
 		if s != nil {
 			a.restartSession(a.focusOf(s))
@@ -149,7 +168,6 @@ func (a *App) run(id string, args map[string]string) {
 		a.openView(s, "", proto.PaneBrowser, false)
 	case "pane.new.plugin":
 		a.newPluginPane()
-	case "pane.new.attention":
 		a.openView(s, "", proto.PaneAttention, false)
 	case "pane.even":
 		a.evenPanes(s)
@@ -183,7 +201,9 @@ func (a *App) run(id string, args map[string]string) {
 func (a *App) item(id string) *mygo.MenuItem {
 	act, _ := actions.Find(id)
 	return &mygo.MenuItem{
-		Label:       a.actionLabel(id),
+		// A menu bar item is built once, so its label cannot follow a
+		// session's state: the silence toggle reads the same all along.
+		Label:       actionTitle(id),
 		Accelerator: a.accelerator(act),
 		Click: func(*mygo.MenuItem, *mygo.Window) {
 			a.update(func() { a.run(id, nil) })
@@ -194,47 +214,48 @@ func (a *App) item(id string) *mygo.MenuItem {
 // actionTitles are the actions' titles in the language the app shows;
 // an Action's Title stays English, for `kero actions`.
 var actionTitles = map[string]func() string{
-	"settings.open":      locales.ActionSettings,
-	"cli.install":        locales.ActionInstallCli,
-	"app.quitAll":        locales.ActionQuitAll,
-	"session.new":        locales.ActionNewSession,
-	"session.newHome":    locales.ActionNewSessionHome,
-	"project.open":       locales.ActionOpenProject,
-	"palette.open":       locales.ActionGoToSession,
-	"session.attention":  locales.ActionJumpToAttention,
-	"session.next":       locales.ActionNextSession,
-	"session.previous":   locales.ActionPreviousSession,
-	"session.rename":     locales.ActionRenameSession,
-	"session.silence":    locales.ActionSilenceSession,
-	"project.moveUp":     locales.ProjectMoveUp,
-	"project.moveDown":   locales.ProjectMoveDown,
-	"session.pin":        locales.SessionPin,
-	"session.unpin":      locales.SessionUnpin,
-	"session.moveUp":     locales.SessionMoveUp,
-	"session.moveDown":   locales.SessionMoveDown,
-	"pane.restart":       locales.ActionRestartPane,
-	"pane.close":         locales.ActionClose,
-	"session.close":      locales.ActionCloseSession,
-	"find.open":          locales.ActionFind,
-	"find.next":          locales.ActionFindNext,
-	"find.previous":      locales.ActionFindPrevious,
-	"pane.split.right":   locales.ActionSplitRight,
-	"pane.split.down":    locales.ActionSplitDown,
-	"pane.even":          locales.ActionEvenPanes,
-	"pane.new.attention": locales.ActionNewAttentionPane,
-	"pane.new.plugin":    locales.ActionNewPluginPane,
-	"browser.location":   locales.ActionBrowserLocation,
-	"pane.zoom":          locales.ActionZoomPane,
-	"pane.next":          locales.ActionNextPane,
-	"pane.previous":      locales.ActionPreviousPane,
-	"pane.left":          locales.ActionPaneLeft,
-	"pane.right":         locales.ActionPaneRight,
-	"pane.up":            locales.ActionPaneAbove,
-	"pane.down":          locales.ActionPaneBelow,
-	"sidebar.toggle":     locales.ActionToggleSidebar,
-	"text.bigger":        locales.ActionBigger,
-	"text.smaller":       locales.ActionSmaller,
-	"text.reset":         locales.ActionActualSize,
+	"attention.next-blocked": locales.ActionNextBlocked,
+	"settings.open":          locales.ActionSettings,
+	"cli.install":            locales.ActionInstallCli,
+	"app.quitAll":            locales.ActionQuitAll,
+	"session.new":            locales.ActionNewSession,
+	"session.newHome":        locales.ActionNewSessionHome,
+	"project.open":           locales.ActionOpenProject,
+	"palette.open":           locales.ActionGoToSession,
+	"session.attention":      locales.ActionJumpToAttention,
+	"session.next":           locales.ActionNextSession,
+	"session.previous":       locales.ActionPreviousSession,
+	"session.rename":         locales.ActionRenameSession,
+	"session.silence":        locales.ActionSilenceSession,
+	"project.moveUp":         locales.ProjectMoveUp,
+	"project.moveDown":       locales.ProjectMoveDown,
+	"session.pin":            locales.SessionPin,
+	"session.unpin":          locales.SessionUnpin,
+	"session.moveUp":         locales.SessionMoveUp,
+	"session.moveDown":       locales.SessionMoveDown,
+	"pane.restart":           locales.ActionRestartPane,
+	"pane.close":             locales.ActionClose,
+	"session.close":          locales.ActionCloseSession,
+	"find.open":              locales.ActionFind,
+	"find.next":              locales.ActionFindNext,
+	"find.previous":          locales.ActionFindPrevious,
+	"pane.split.right":       locales.ActionSplitRight,
+	"pane.split.down":        locales.ActionSplitDown,
+	"pane.even":              locales.ActionEvenPanes,
+	"pane.new.attention":     locales.ActionNewAttentionPane,
+	"pane.new.plugin":        locales.ActionNewPluginPane,
+	"browser.location":       locales.ActionBrowserLocation,
+	"pane.zoom":              locales.ActionZoomPane,
+	"pane.next":              locales.ActionNextPane,
+	"pane.previous":          locales.ActionPreviousPane,
+	"pane.left":              locales.ActionPaneLeft,
+	"pane.right":             locales.ActionPaneRight,
+	"pane.up":                locales.ActionPaneAbove,
+	"pane.down":              locales.ActionPaneBelow,
+	"sidebar.toggle":         locales.ActionToggleSidebar,
+	"text.bigger":            locales.ActionBigger,
+	"text.smaller":           locales.ActionSmaller,
+	"text.reset":             locales.ActionActualSize,
 }
 
 // actionTitle is an action's title as the menus, the palette and
@@ -298,7 +319,7 @@ func (a *App) menu() *mygo.Menu {
 		kero,
 		{Label: locales.MenuSession(), Submenu: a.items("Session",
 			[]string{"session.new", "session.newHome", "project.open"},
-			[]string{"palette.open", "session.attention", "session.next", "session.previous"},
+			[]string{"palette.open", "session.attention", "attention.next-blocked", "session.next", "session.previous"},
 			[]string{"project.moveUp", "project.moveDown"},
 			[]string{"session.pin", "session.unpin", "session.moveUp", "session.moveDown"},
 			[]string{"session.rename", "session.silence", "pane.restart"},

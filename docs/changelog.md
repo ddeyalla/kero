@@ -154,17 +154,38 @@ builds only. What each feature is and where it stands is tracked in the
   Two tests fail if a screen read or a key's echo starts to allocate with
   the scrollback. Budgets and the first numbers: [Performance](perf.md)
   (BRU-223).
+- **Next Waiting Session** goes from one session that waits on the
+  user to the next: Session › **Next Waiting Session**, the command
+  palette, or `kero do attention.next-blocked`. It takes the sessions
+  whose attention state is `waiting-user`, longest
+  wait first and then by session id, shows the pane that needs you, and
+  puts the keyboard in it. It starts after the session shown when that one
+  waits too, goes on from the one it went to last, and says "Nothing needs
+  you" when none waits. A zoom follows the focus, as when panes are cycled
+  while zoomed, so the jump never lands on a pane the zoom hides. The
+  issue detail's **Open the session**, and a running conversation's
+  **Open**, go to the pane that needs you when the session waits on you,
+  and leave the focus and zoom where they are when it does not. A daemon
+  of before this state folds every terminal pane instead, as the
+  notifications do. No state is saved for it.
+- A row of the **Attention** pane whose session works on a Linear issue has
+  an **Open issue** button, which opens the Linear view on that issue: the
+  way back from a session to its issue, as the issue detail's **Open the
+  session** is the way to the session.
 - An **Attention** pane: every session that needs the user, in one list,
   the most urgent first — what it is doing or asking, the session and its
   project, the agent, the line that came with it, and how long it has been
   so. A row puts the keyboard in the pane the state came from, where the
   decision is, without zooming. Chips narrow it to **Needs you**,
   **Working**, **Unread** or **Done** and count each; a plain-text search
-  finds a row by its words. A Codex wait whose message the agent did not
-  give says **Focus pane to approve** rather than nothing. `Cmd+Alt+A`,
+  finds a row by its words. A Codex wait adds **Focus pane to approve**
+  to the line kerod gave it. Sessions at rest are not listed. `Cmd+Alt+A`,
   the New Pane chooser's `A`, or `kero split --attention`. It reads the
-  attention state kerod already sends, so it needs no protocol change, and
-  it keeps the filter and search while the pane is open.
+  attention state kerod sends. Its filter, search and scroll position live
+  in the pane Target and return after a restart. The pane view is new to the
+  protocol (`proto.PaneViews`), so an older kerod refuses it: **restart
+  the terminal service once** (when agents are idle) to open an Attention
+  pane. A row's click also ends a zoom on another pane.
 - New icons are SF Symbols, drawn by macOS through AppKit and cached as
   bitmaps, so they match the system at any size and in the light and the
   dark (`symbols_darwin.go`). The Attention pane's mark and its rows'
@@ -178,19 +199,24 @@ builds only. What each feature is and where it stands is tracked in the
   transcript on disk, locally and only as a fallback: a call that has run
   45 seconds with no result is taken for one waiting on the user. Hooks
   and the screen keep their say over it, and an end that came while the
-  app was away keeps its summary across a restart. Codex has no
-  permission-prompt hook, so this scan is its fallback for approvals.
+  app was away keeps its summary across a restart. Codex has a
+  permission-prompt hook, so this scan is its fallback for approvals only
+  when its hooks are not installed.
   **Restart the terminal service once** (when agents are idle) for the
   state to carry it; until then nothing changes for the app.
 - Notifications now follow that attention: a session that comes to need you
   (`waiting-user`) or ends unseen (`unread`) tells once, a return to work
   tells nothing, and the same session and state inside five minutes is
   counted silently, so a chatty agent's loop does not fill Notification
-  Center (`notify-throttle-minutes`). Every session kerod holds is watched,
+  Center (`notify-throttle-minutes`); only a shown notification counts, and
+  a second ask more than 30 seconds after the answer still tells. After
+  kerod restarts, panes it restores unread tell nothing. A session's end
+  names the agent and the folder, never a line of what the agent wrote. A
+  view's unread mark and a clean exit of a plain program tell nothing. Every session kerod holds is watched,
   so a session outside the window or profile you look at still tells.
-  Session › Silence Notifications (or a session's context menu) turns one
-  session's notifications off until you resume it (`kero do
-  session.silence`); the choice is saved (`silence-session`). Unseen ends
+  Session › Silence or Resume Notifications (or a session's context menu)
+  turns one session's notifications off until you resume it (`kero do
+  session.silence session=<id> state=on|off`); the choice is saved (`silence-session`). Unseen ends
   that failed keep the error's title and `notify-on-error`.
 - Accent presets: six hand-tuned themes of the app's own colors — Blue (the
   one it has had), Plum, Rose, Sea, Moss and Graphite. Each is an accent
@@ -434,6 +460,15 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- Attention transcript discovery continues in bounded slices instead of
+  walking the whole Codex archive in one pass. Switching an agent session
+  clears the previous conversation's scan-owned status and cached verdict.
+- Attention navigation uses idempotent focus and explicit zoom clearing, so
+  a stale client snapshot cannot toggle the asking pane out of view.
+- Attention pane search, filters and scroll survive restart. Target writes
+  preserve newest-state order; a failed unchanged save retries only after an
+  edit or reconnect, preventing an RPC and redraw loop.
+
 - External branch checkouts reach the app within the two-second update target
   while the daemon is quiet. Focused resource meters refresh every ten seconds
   so an otherwise idle window stays below ten rebuilds per minute; the resource
@@ -458,6 +493,10 @@ builds only. What each feature is and where it stands is tracked in the
 
 - The Usage plugin shows spending as a provider list with a full total.
   The circular cost chart is removed in every pane size.
+- Attention integration preserves the adaptive daemon scheduler and plugin
+  views. Linear issue links open the Linear plugin, and session jumps and
+  notification clicks reveal the asking pane under zoom. Opening an Attention
+  row saves the expanded project in sidebar preferences.
 
 - Output from hidden terminal panes no longer redraws the window. Switching
   sessions or unzooming a pane shows its latest output immediately (BRU-331).

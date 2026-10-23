@@ -513,8 +513,8 @@ func TestDetailWrites(t *testing.T) {
 
 	// Open the running session; resume the ended run in a new one.
 	r.press("p1", "run0-open")
-	waitFor(t, "select", func() bool { return len(r.d.called("select")) == 1 })
-	if got := r.d.called("select")[0].params.(proto.FocusParams); got.Session != "s1" {
+	waitFor(t, "attention focus", func() bool { return len(r.d.called("do")) == 1 })
+	if got := r.d.called("do")[0].params.(proto.DoParams); got.Action != "session.attention" || got.Args["session"] != "s1" {
 		t.Fatalf("select %+v", got)
 	}
 	r.d.handlers["create"] = func(params any, out any) error {
@@ -527,8 +527,8 @@ func TestDetailWrites(t *testing.T) {
 	if got.Task != "BRU-1" || got.Dir != "/y" || !slices.Equal(got.Command, []string{"codex", "resume", "def456"}) || got.Name != "bru-1-codex" {
 		t.Fatalf("resume created %+v", got)
 	}
-	waitFor(t, "the new session shown", func() bool { return len(r.d.called("select")) == 2 })
-	if r.d.called("select")[1].params.(proto.FocusParams).Session != "new-session" {
+	waitFor(t, "the new session shown", func() bool { return len(r.d.called("select")) == 1 })
+	if r.d.called("select")[0].params.(proto.FocusParams).Session != "new-session" {
 		t.Fatal("the new session was not selected")
 	}
 

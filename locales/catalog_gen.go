@@ -134,6 +134,16 @@ func (msgs Messages) ActionJumpToAttention() string {
 	return Catalog.Format(msgs.locale, "actionJumpToAttention", nil)
 }
 
+// ActionNextBlocked says "Next Waiting Session"
+// in the language the app shows.
+func ActionNextBlocked() string { return In(i18n.Locale()).ActionNextBlocked() }
+
+// ActionNextBlocked says "Next Waiting Session"
+// in the language of msgs.
+func (msgs Messages) ActionNextBlocked() string {
+	return Catalog.Format(msgs.locale, "actionNextBlocked", nil)
+}
+
 // ActionNextSession says "Next Session"
 // in the language the app shows.
 func ActionNextSession() string { return In(i18n.Locale()).ActionNextSession() }
@@ -164,11 +174,11 @@ func (msgs Messages) ActionRenameSession() string {
 	return Catalog.Format(msgs.locale, "actionRenameSession", nil)
 }
 
-// ActionSilenceSession says "Silence Notifications for This Session"
+// ActionSilenceSession says "Silence or Resume Notifications for This Session"
 // in the language the app shows.
 func ActionSilenceSession() string { return In(i18n.Locale()).ActionSilenceSession() }
 
-// ActionSilenceSession says "Silence Notifications for This Session"
+// ActionSilenceSession says "Silence or Resume Notifications for This Session"
 // in the language of msgs.
 func (msgs Messages) ActionSilenceSession() string {
 	return Catalog.Format(msgs.locale, "actionSilenceSession", nil)
@@ -5792,6 +5802,16 @@ func AttentionApprove() string { return In(i18n.Locale()).AttentionApprove() }
 // in the language of msgs.
 func (msgs Messages) AttentionApprove() string {
 	return Catalog.Format(msgs.locale, "attentionApprove", nil)
+}
+
+// AttentionOpenIssue says "Open issue {issue}"
+// in the language the app shows.
+func AttentionOpenIssue(issue string) string { return In(i18n.Locale()).AttentionOpenIssue(issue) }
+
+// AttentionOpenIssue says "Open issue {issue}"
+// in the language of msgs.
+func (msgs Messages) AttentionOpenIssue(issue string) string {
+	return Catalog.Format(msgs.locale, "attentionOpenIssue", map[string]any{"issue": issue})
 }
 
 // PaneShow says "Show in This Pane"
