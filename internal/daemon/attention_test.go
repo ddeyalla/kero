@@ -448,7 +448,7 @@ func TestTailLinesKeepsWholeLines(t *testing.T) {
 		{"an empty file says nothing", empty, 20, ""},
 		{"no file at all says nothing", filepath.Join(dir, "none"), 20, ""},
 	} {
-		if got := tailLines(c.path, c.n); string(got) != c.want {
+		if got, _ := tailLines(c.path, c.n); string(got) != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
@@ -915,5 +915,92 @@ func TestScanNewAgentSessionDropsOldWork(t *testing.T) {
 	}
 	if _, ok := p.records[scanRecordID]; ok {
 		t.Fatal("new conversation retained old scan record")
+	}
+}
+
+// The previous completion can leave the bounded tail before an identical
+// new completion arrives. Counting markers within that tail loses turns.
+func TestScanIdenticalEndsBeyondTailWindow(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			p, path := claimPane(t, agent)
+			completion := clA(ts, "Done.") + clS(ts, "turn_duration")
+			if agent == "codex" {
+				completion = cxE(ts, "task_complete", `,"last_agent_message":"Done."`)
+			}
+			p.mu.Lock()
+			p.info.Unread = true
+			p.mu.Unlock()
+			scanBurn(t, path, completion)
+			runScanIs(t, p, scanBase, true)
+			p.input(nil)
+			padding := strings.Repeat(`{"type":"padding","value":"`+strings.Repeat("x", 4096)+`"}`+"\n", 70)
+			if len(padding) <= scanTail {
+				t.Fatal("fixture does not roll tail window")
+			}
+			scanBurn(t, path, completion, padding, completion)
+			p.mu.Lock()
+			p.info.Unread = true
+			p.mu.Unlock()
+			runScanIs(t, p, scanBase.Add(time.Second), true)
+			claimRecord(t, p, "done")
+			runScanIs(t, p, scanBase.Add(2*time.Second), false)
+		})
+	}
+}
+
+// Sliding the tail start must not change the identity of a completion
+// still within the window. Absolute offsets, not tail-relative positions,
+// keep an old event dismissed when unrelated transcript lines are added.
+func TestScanEndIdentitySurvivesTailShift(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	padding := `{"type":"padding","value":"` + strings.Repeat("x", 4096) + `"}` + "\n"
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			p, path := claimPane(t, agent)
+			completion := clA(ts, "Done.") + clS(ts, "turn_duration")
+			if agent == "codex" {
+				completion = cxE(ts, "task_complete", `,"last_agent_message":"Done."`)
+			}
+			prefix := strings.Repeat(padding, 50)
+			first := prefix + completion
+			p.mu.Lock()
+			p.info.Unread = true
+			p.mu.Unlock()
+			scanBurn(t, path, first)
+			runScanIs(t, p, scanBase, true)
+			p.input(nil)
+			scanBurn(t, path, first, strings.Repeat(padding, 24))
+			data, at := tailLines(path, scanTail)
+			if at <= 0 || len(data) > scanTail {
+				t.Fatalf("tail did not slide within budget: offset=%d len=%d", at, len(data))
+			}
+			p.mu.Lock()
+			p.info.Unread = true
+			p.mu.Unlock()
+			runScanIs(t, p, scanBase.Add(time.Second), false)
+			claimRecord(t, p, "")
+		})
+	}
+}
+
+// Optional source event ids may be numeric or strings. They distinguish
+// rewritten completion events without making valid transcript lines fail
+// decoding solely because an otherwise unused id has a different shape.
+func TestScanCompletionSourceIDs(t *testing.T) {
+	ts := scanBase.Format(time.RFC3339Nano)
+	for _, agent := range []string{"claude", "codex"} {
+		line := clA(ts, "Done.") + clS(ts, "turn_duration")
+		if agent == "codex" {
+			line = cxE(ts, "task_complete", `,"last_agent_message":"Done."`)
+		}
+		first := strings.ReplaceAll(line, `{"type":`, `{"id":7,"type":`)
+		second := strings.ReplaceAll(line, `{"type":`, `{"id":8,"type":`)
+		v, one := parseScanTail(agent, []byte(first), scanBase)
+		_, two := parseScanTail(agent, []byte(second), scanBase)
+		if v.state != "done" || !one.present || one == two {
+			t.Fatalf("%s: numeric ids lost completion identity: verdict=%+v one=%+v two=%+v", agent, v, one, two)
+		}
 	}
 }

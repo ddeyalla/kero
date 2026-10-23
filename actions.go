@@ -168,6 +168,7 @@ func (a *App) run(id string, args map[string]string) {
 		a.openView(s, "", proto.PaneBrowser, false)
 	case "pane.new.plugin":
 		a.newPluginPane()
+	case "pane.new.attention":
 		a.openView(s, "", proto.PaneAttention, false)
 	case "pane.even":
 		a.evenPanes(s)

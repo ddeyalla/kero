@@ -135,7 +135,7 @@ func (a *App) usageSidebar(c *ui.Context, pal *palette) {
 	var shown usage.Report
 	var card bool
 	ui.Column(c.Key("account-usage")).Width(a.prefs.SidebarWidth).Shrink(0).Padding(6, 12, 8, 12).Gap(1).Children(func() {
-		header := ui.ButtonBase(c.Key("usage-details")).Height(24).Radius(5).Padding(0, 8).Label("Account usage").Tooltip(a.tip(locales.UsageDetailsHint(), "usage.open"))
+		header := ui.ButtonBase(c.Key("usage-details")).Height(24).Radius(5).Padding(0, 8).Label(locales.UsageAccountTitle()).Tooltip(a.tip(locales.UsageDetailsHint(), "usage.open"))
 		if header.Hovered() {
 			header.Background(pal.rowHover)
 		}
@@ -320,7 +320,7 @@ func (a *App) usageModal(c *ui.Context, pal *palette) {
 	w, h := c.Size()
 	ui.DialogBase(c.Key("usage-modal"), &a.usage.open, func(backdrop, panel ui.Element) {
 		backdrop.Background(pal.overlay)
-		floating(panel.Width(min(640, w-32)).Height(min(720, h-40)).Radius(14).Background(pal.popover), pal).Clip().Label("Account usage")
+		floating(panel.Width(min(640, w-32)).Height(min(720, h-40)).Radius(14).Background(pal.popover), pal).Clip().Label(locales.UsageAccountTitle())
 		if panel.OverlayShortcut(ui.Cmd, ui.KeyR) {
 			a.refreshUsage()
 		}
@@ -334,7 +334,7 @@ func (a *App) usageModal(c *ui.Context, pal *palette) {
 func (a *App) usageContent(c *ui.Context, pal *palette) {
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).Height(64).Shrink(0).Padding(12, 20, 0, 24).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "Account usage").FontSize(20).Bold().TextColor(pal.text)
+			ui.Text(c, locales.UsageAccountTitle()).FontSize(20).Bold().TextColor(pal.text)
 			ui.Spacer(c)
 			label := "Refresh"
 			if a.usage.loading {

@@ -326,9 +326,9 @@ type scanRead struct {
 	missed  bool // no file was found
 	pending bool // a bounded discovery needs another pass
 	gone    bool // the file was known, and is not there
-	parsed  bool // the file changed: v and ends are of its tail
+	parsed  bool // the file changed: v and end are of its tail
 	v       scanVerdict
-	ends    int
+	end     scanEnd
 }
 
 // scanAgent is the agent session whose transcript the scan may read for
@@ -378,7 +378,7 @@ func (s *pane) scanTranscript(now time.Time) bool {
 		s.discovery = nil
 		s.scanAgentID = a.Agent + ":" + a.ID
 		s.transcriptPath, s.scanKey, s.scanTold, s.scanToldMsg = "", "", "", ""
-		s.scanV, s.scanEnds, s.scanTurn, s.scanToldTurn = scanVerdict{}, 0, 0, 0
+		s.scanV, s.scanEnd, s.scanTurn, s.scanToldTurn = scanVerdict{}, scanEnd{}, 0, 0
 		s.scanMissed = time.Time{}
 		s.mu.Unlock()
 		old.close()
@@ -443,7 +443,11 @@ func (j scanJob) read(now time.Time) scanRead {
 		return r
 	}
 	if r.key = scanKeyOf(st); r.key != j.key {
-		r.v, r.ends = parseScanEnds(j.agent, tailLines(r.path, scanTail), now)
+		data, at := tailLines(r.path, scanTail)
+		r.v, r.end = parseScanTail(j.agent, data, now)
+		if r.end.present {
+			r.end.offset += at
+		}
 		r.parsed = true
 	}
 	return r
@@ -474,10 +478,10 @@ func (s *pane) scanApply(now time.Time, job scanJob, read scanRead) bool {
 		// thing, or another end, is another turn's: what was said of
 		// the one is no news of it.
 		s.scanKey = read.key
-		if read.v != s.scanV || read.ends != s.scanEnds {
+		if read.v != s.scanV || read.end != s.scanEnd {
 			s.scanTurn++
 		}
-		s.scanV, s.scanEnds = read.v, read.ends
+		s.scanV, s.scanEnd = read.v, read.end
 	}
 	state, msg := scanVerdictOf(s.scanV, now.UnixMilli())
 	if state == "" {
@@ -616,17 +620,18 @@ func codexTranscript(session string) string {
 	return path
 }
 
-// tailLines is the last at most n bytes of a file, of whole lines only:
-// what a pass reads of a transcript, never a line half written.
-func tailLines(path string, n int64) []byte {
+// tailLines reads at most n bytes, of complete lines only, and returns
+// their absolute source offset. A moving read window must never change a
+// turn-end event's identity, and a partial final line is not an event.
+func tailLines(path string, n int64) ([]byte, int64) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, 0
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil || st.Size() == 0 {
-		return nil
+		return nil, 0
 	}
 	at := st.Size() - n
 	if at < 0 {
@@ -638,41 +643,41 @@ func tailLines(path string, n int64) []byte {
 		data = data[:read]
 	}
 	if err != nil && err != io.EOF {
-		return nil
+		return nil, 0
 	}
 	if at > 0 {
 		// The read began mid-line: its partial one is not a line.
 		if i := bytes.IndexByte(data, '\n'); i >= 0 {
 			data = data[i+1:]
+			at += int64(i + 1)
 		} else {
-			return nil
+			return nil, 0
 		}
 	}
 	if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
-		return data[:i+1]
+		return data[:i+1], at
 	}
-	return nil // no whole line in it
+	return nil, 0 // no whole line in it
 }
 
 // parseScan reads a transcript's tail, by the agent that wrote it, and
 // says what its end tells; now is the pass's time, for lines that say
 // none of their own.
 func parseScan(agent string, data []byte, now time.Time) scanVerdict {
-	v, _ := parseScanEnds(agent, data, now)
+	v, _ := parseScanTail(agent, data, now)
 	return v
 }
 
-// parseScanEnds is parseScan, and how many turn ends the tail told: with
-// the verdict, what tells one turn's end from another's of the same
-// words.
-func parseScanEnds(agent string, data []byte, now time.Time) (scanVerdict, int) {
+// parseScanTail returns the verdict and the last turn-end identity. Its
+// offset is relative to data; the file reader makes it absolute.
+func parseScanTail(agent string, data []byte, now time.Time) (scanVerdict, scanEnd) {
 	switch agent {
 	case "claude":
-		return claudeScanEnds(data, now)
+		return claudeScanTail(data, now)
 	case "codex":
-		return codexScanEnds(data, now)
+		return codexScanTail(data, now)
 	}
-	return scanVerdict{}, 0
+	return scanVerdict{}, scanEnd{}
 }
 
 // parsedScan is what a transcript's tail says, as a scan reads it
@@ -690,8 +695,18 @@ type parsedScan struct {
 	// calls counts the calls the tail added, so that two of an age pick
 	// the one written first, not whichever a map's walk finds first.
 	calls int
-	// ends counts the turn ends the tail told.
-	ends int
+	// end identifies the last completion, independent of how many earlier
+	// completions still fit in the bounded read window.
+	end scanEnd
+}
+
+// scanEnd is a completion's stable source identity. Absolute byte position
+// distinguishes identical lines even when timestamps or event IDs repeat.
+type scanEnd struct {
+	timestamp string
+	id        string
+	offset    int64
+	present   bool
 }
 
 // scanCall is a call the transcript shows under way: what it runs, when
@@ -721,6 +736,8 @@ type scanLine struct {
 	Type      string          `json:"type"`
 	Subtype   string          `json:"subtype"`
 	Timestamp string          `json:"timestamp"`
+	ID        json.RawMessage `json:"id"`
+	UUID      json.RawMessage `json:"uuid"`
 	IsMeta    bool            `json:"isMeta"`
 	Message   json.RawMessage `json:"message"`
 	Payload   json.RawMessage `json:"payload"`
@@ -762,14 +779,17 @@ func (m claudeMsg) content(fn func(claudeItem)) {
 // lines say what it wrote and what it runs; its user lines, of results
 // and of the user's own word; its system lines, of a turn's end.
 func claudeScan(data []byte, now time.Time) scanVerdict {
-	v, _ := claudeScanEnds(data, now)
+	v, _ := claudeScanTail(data, now)
 	return v
 }
 
-// claudeScanEnds is claudeScan, with the count of the turn ends it read.
-func claudeScanEnds(data []byte, now time.Time) (scanVerdict, int) {
+// claudeScanTail is claudeScan, with the last completion's source identity.
+func claudeScanTail(data []byte, now time.Time) (scanVerdict, scanEnd) {
 	ps := &parsedScan{pending: map[string]scanCall{}}
+	var offset int64
 	for _, line := range bytes.Split(data, []byte("\n")) {
+		start := offset
+		offset += int64(len(line) + 1)
 		if len(line) == 0 {
 			continue
 		}
@@ -826,12 +846,12 @@ func claudeScanEnds(data []byte, now time.Time) (scanVerdict, int) {
 			case "turn_duration", "stop_hook_summary":
 				// The turn ended, its calls with it.
 				ps.turnEnd = true
-				ps.ends++
+				ps.end = scanEnd{timestamp: l.Timestamp, id: string(l.UUID) + ":" + string(l.ID), offset: start, present: true}
 				clear(ps.pending)
 			}
 		}
 	}
-	return ps.claudeEnd(), ps.ends
+	return ps.claudeEnd(), ps.end
 }
 
 // claudeEnd is what the tail's end tells, its calls first: one under
@@ -868,14 +888,17 @@ type codexPayload struct {
 // began, ended, or was stopped; its response items say of calls and of
 // messages.
 func codexScan(data []byte, now time.Time) scanVerdict {
-	v, _ := codexScanEnds(data, now)
+	v, _ := codexScanTail(data, now)
 	return v
 }
 
-// codexScanEnds is codexScan, with the count of the turn ends it read.
-func codexScanEnds(data []byte, now time.Time) (scanVerdict, int) {
+// codexScanTail is codexScan, with the last completion's source identity.
+func codexScanTail(data []byte, now time.Time) (scanVerdict, scanEnd) {
 	ps := &parsedScan{pending: map[string]scanCall{}}
+	var offset int64
 	for _, line := range bytes.Split(data, []byte("\n")) {
+		start := offset
+		offset += int64(len(line) + 1)
 		if len(line) == 0 {
 			continue
 		}
@@ -899,7 +922,7 @@ func codexScanEnds(data []byte, now time.Time) (scanVerdict, int) {
 				clear(ps.pending)
 			case "task_complete":
 				ps.done, ps.doneSeen = p.LastAgentMessage, true
-				ps.ends++
+				ps.end = scanEnd{timestamp: l.Timestamp, id: string(l.UUID) + ":" + string(l.ID), offset: start, present: true}
 				ps.started, ps.aborted = false, false
 			case "turn_aborted":
 				// The turn was stopped: its calls are over.
@@ -928,7 +951,7 @@ func codexScanEnds(data []byte, now time.Time) (scanVerdict, int) {
 			}
 		}
 	}
-	return ps.codexEnd(), ps.ends
+	return ps.codexEnd(), ps.end
 }
 
 // codexEnd is what the tail's end tells, as a Claude one does: its

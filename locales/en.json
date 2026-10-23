@@ -947,6 +947,7 @@
   "linearPriorityIs": "Priority: {priority}",
   "linearRefreshSynced": "Refresh. {synced}",
   "usageTitle": "Usage",
+  "usageAccountTitle": "Account usage",
   "usageDetailsHint": "Account allowances and reset times",
   "usagePercentUsed": "{percent}% used",
   "usageBalanceRemaining": "{balance} remaining",

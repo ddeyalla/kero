@@ -3,7 +3,18 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
-## Performance completion verification
+## Delivery review corrections
+
+`actions.go` dispatches `pane.new.attention` separately from `pane.new.plugin`;
+`pane_action_dispatch_test.go` drives the action through its daemon split
+request. Spotify's `readNow` in `internal/plugin/builtin/spotify/spotify.go`
+captures the engine generation and pushed-playback sequence before reading;
+a response from an older engine or before a newer push is discarded. The
+blocked-read regression in `playback_order_test.go` verifies that an old
+response cannot replace the newer visible track. Account Usage titles and
+accessibility labels share `usageAccountTitle` in the locale catalog.
+
+## Performance measurements and idle scheduling
 
 `internal/daemon/branch.go` checks inexpensive HEAD metadata every 1.6 seconds
 independently of the slower pane tick, so a checkout by another process no
@@ -356,9 +367,11 @@ The scan reads the file without the pane's lock (the lookup, the stat and
 the tail), and takes it only to plan the read and to apply what it found,
 checking that the pane did not change meanwhile. Passes never overlap, and
 the tick loop runs one on its own goroutine. A turn's end is told once by
-which end it is (the count of turn ends in the tail and the parses that
-told another thing), not by its words, so two turns that end on "Done." are
-two ends. The scan marks an end unread only where another signal already
+which end it is (the last completion's timestamp, optional event id and
+absolute source byte offset), not by its words or by how many earlier ends
+still fit in the tail. Two turns that end on "Done." remain distinct even
+when more than 256 KB separates them. Sliding the bounded read window
+does not replay an older completion. The scan marks an end unread only where another signal already
 did (a transcript older than the daemon would otherwise mark every restored
 pane), but it ends the work it began itself. A session's row and its
 attention are folded from one look at each pane (`readPane`).
@@ -570,8 +583,10 @@ A session can be silenced: **Session › Silence or Resume Notifications**,
 the session's context menu, or `kero do session.silence [session=<id or
 name>] [state=on|off]` turns its
 notifications off until the user resumes them. The list is saved with the
-settings (`silence-session`) and survives a restart of the app; ids of
-sessions that were closed fall off the list at the next state. Without
+settings (`silence-session`) and survives a restart of the app. A choice
+is removed only when a session already observed in the current daemon
+epoch disappears. Unknown or late-restored ids remain through partial
+startup snapshots and daemon restarts; absence alone is not closure. Without
 `session=` the action is about the selected session, and without `state=`
 it toggles. A silenced
 session tells nothing; once resumed, its next turn tells, inside the same

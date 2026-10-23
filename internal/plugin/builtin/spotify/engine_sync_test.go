@@ -155,7 +155,7 @@ func TestSigningInWithTheStreamingScopeMakesTheEngineThePlayer(t *testing.T) {
 	}
 
 	// A pushed snapshot reaches the pane, with no read of the desktop app.
-	f.emit(transport.Snapshot{State: transport.StatePlaying, Track: "Juicy", Artist: "The Notorious B.I.G."})
+	f.hold(transport.Snapshot{State: transport.StatePlaying, Track: "Juicy", Artist: "The Notorious B.I.G."})
 	p.mu.Lock()
 	track, mode := s.snap.Track, s.playback
 	p.mu.Unlock()

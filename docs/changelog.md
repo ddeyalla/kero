@@ -18,6 +18,17 @@ builds only. What each feature is and where it stands is tracked in the
 > open the migrated panes as Tasks: do not go back to one after the new daemon
 > has saved state.
 
+### Verification limits
+
+- The eight-retained-terminal sample passed the 240 MiB RSS target, but the
+  historical 1.22 GB growth and native allocator ownership remain under
+  investigation (BRU-333). A separate four-pane sample exceeded the 120 MiB
+  RSS and 1,500 app-wakeup targets; see `docs/perf.md` for the distinct counters
+  and measurement limits. The performance epic remains open.
+- Real Spotify sign-in, cold sound and playback after 40 minutes idle, native
+  notification clicks, and fullscreen/Spaces acceptance still require the
+  final user check. Automated tests do not certify those OS/account behaviors.
+
 ### Added
 
 - Added automatic native AppKit key-dispatch-to-paint measurements to the
@@ -460,6 +471,16 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- Notification silence choices survive incremental daemon restore. Only a
+  session observed to disappear in the same daemon epoch is pruned.
+- Identical transcript completions remain distinct after earlier events
+  leave the bounded read window; shifting that window does not replay an
+  old completion.
+
+- New Attention and New Plugin dispatch to their own pane actions. A delayed
+  Spotify player read cannot overwrite a newer pushed playback snapshot.
+- The account Usage title and accessibility labels use the locale catalog.
+
 - Attention transcript discovery continues in bounded slices instead of
   walking the whole Codex archive in one pass. Switching an agent session
   clears the previous conversation's scan-owned status and cached verdict.
@@ -625,6 +646,10 @@ builds only. What each feature is and where it stands is tracked in the
   color, and is cut short only between whole characters.
 
 ### Documentation
+
+- The installed agent guide explains Attention state, pane creation, focus
+  and session silence. Performance-overlay tests now exercise the current
+  checkout as well as synthetic fixtures without changing source files.
 
 - Recorded visible, unfocused idle measurements at 1, 4 and 8 panes,
   including a repeat at 4 panes, and the remaining memory, focused-idle and

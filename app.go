@@ -451,6 +451,7 @@ func (a *App) setState(st proto.State) {
 		st.Linear = a.st.Linear
 	}
 	a.pruneSessionPins(st)
+	a.pruneSilenced(st)
 	a.st, a.loaded = st, true
 	// Terminals of panes gone go too.
 	live := map[string]bool{}
@@ -466,9 +467,6 @@ func (a *App) setState(st proto.State) {
 	}
 	a.reconcileSelection(first)
 	a.notify(first)
-	if !first {
-		a.pruneSilenced()
-	}
 	a.updateTitle()
 }
 
@@ -643,14 +641,24 @@ func (a *App) setSilence(id string, off bool) {
 	}
 }
 
-// pruneSilenced forgets the silenced sessions kerod no longer holds, so the
-// list does not grow with every session ever closed. It waits for a real
-// state: before the first, or on an empty one, the list says nothing yet.
-func (a *App) pruneSilenced() {
-	if len(a.st.Sessions) == 0 {
+// pruneSilenced forgets only sessions observed to disappear in this
+// daemon epoch. Startup restoration is incremental: a persisted id absent
+// from a partial state may still return, so absence alone is not closure.
+func (a *App) pruneSilenced(st proto.State) {
+	if !a.loaded || a.st.Started != st.Started || len(a.set.SilencedSessions) == 0 {
 		return
 	}
-	next := slices.DeleteFunc(slices.Clone(a.set.SilencedSessions), func(id string) bool { return a.session(id) == nil })
+	live := make(map[string]bool, len(st.Sessions))
+	for _, s := range st.Sessions {
+		live[s.ID] = true
+	}
+	gone := make(map[string]bool)
+	for _, s := range a.st.Sessions {
+		if !live[s.ID] {
+			gone[s.ID] = true
+		}
+	}
+	next := slices.DeleteFunc(slices.Clone(a.set.SilencedSessions), func(id string) bool { return gone[id] })
 	if len(next) == len(a.set.SilencedSessions) {
 		return
 	}

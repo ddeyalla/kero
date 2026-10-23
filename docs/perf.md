@@ -4,6 +4,23 @@ What Shibu Code may cost, how to measure it with one command, and what it
 cost when the measurement was added (BRU-223, the first step of BRU-222).
 Every performance change records its numbers here, before and after.
 
+## Delivery verification, 2026-10-23
+
+The combined candidate was measured after integrating the UI, Usage, profile,
+Attention and performance changes. These are separate workloads and counters:
+
+| Workload | Result | Acceptance |
+| --- | --- | --- |
+| Final harness smoke, one pane, 100 native key dispatches | Key-to-paint p99 30.4 ms | Passes 50 ms; its two-second idle sample is not idle-budget evidence |
+| Ordinary four-pane fixture, 60 seconds idle | App RSS 146.4 MiB; app/daemon interrupt wakeups 1,530/350 per minute; combined CPU 0.21%; 8 builds/min | Combined wakeups below 2,000, but app wakeups above 1,500 and RSS above 120 MiB. Window focus was not independently recorded in this noninjected run |
+| Ordinary eight-pane fixture, 60 seconds idle | App RSS 143.9 MiB; app/daemon interrupt wakeups 1,340/371 per minute; combined CPU 0.19%; 8 builds/min | Numeric RSS/wakeup targets pass; window focus was not independently recorded |
+| Eight visited terminals, all retained, 17 confirmed visits | Peak sampled app RSS 214.6 MiB; settled RSS 214.5 MiB; footprint 318.3 MiB streaming and 174.8 MiB settled | RSS below the 240 MiB eight-pane target; footprint is a separate counter. Forced diagnostic GC makes this a memory workload, not an idle benchmark |
+
+These measurements do not close BRU-222, BRU-333 or the smaller-workload
+acceptance gaps. The historical 1.22 GB daily-app growth has not reproduced;
+native VM categories are recorded without inventing allocator ownership.
+No unsupported GC or memory limit was added to make a measurement pass.
+
 ## Budgets
 
 | Measure | Budget | How it is measured |
@@ -18,8 +35,9 @@ Every performance change records its numbers here, before and after.
 | Allocations of `screen()` | Flat with the scrollback; ≤ 16 KB a call | `TestScreenAllocsFlatWithScrollback` |
 | Allocations of a key's echo | Flat with the scrollback; ≤ 52 KB in 1,400 objects (kerod), ≤ 20 KB in 350 objects (app) | `TestFrameAllocsFlatWithScrollback` |
 
-The budgets hold at 1, 4, 8 and 12 panes, each with a full scrollback
-(BRU-222). The last two rows are tests, which `go test ./...` runs, so a
+The budgets are targets at 1, 4, 8 and 12 panes, each with a full scrollback
+(BRU-222); the measurements below distinguish passes, misses and unmeasured
+conditions. The last two rows are tests, which `go test ./...` runs, so a
 regression fails the checks without the app.
 
 ## Measuring

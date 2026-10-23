@@ -490,7 +490,12 @@ func TestSilenceArgsAndPruning(t *testing.T) {
 		t.Fatal("the selected session is the default")
 	}
 	a.set.SilencedSessions = []string{"s1", "gone"}
-	a.pruneSilenced()
+	previous := a.st
+	previous.Sessions = append(slices.Clone(previous.Sessions), attentionSession("gone", attentionIdle, ""))
+	a.setState(previous)
+	next := a.st
+	next.Sessions = slices.DeleteFunc(slices.Clone(next.Sessions), func(s proto.Session) bool { return s.ID == "gone" })
+	a.setState(next)
 	if !slices.Equal(a.set.SilencedSessions, []string{"s1"}) {
 		t.Fatalf("pruned %v", a.set.SilencedSessions)
 	}
@@ -506,4 +511,40 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// Restored sessions arrive incrementally. Absence is evidence of closure
+// only after the session was observed in this same daemon epoch.
+func TestSilencedSessionsSurvivePartialRestore(t *testing.T) {
+	a := testApp(t)
+	a.loaded = false
+	a.set.SilencedSessions = []string{"early", "late", "unknown"}
+	state := func(epoch int64, ids ...string) proto.State {
+		st := proto.State{Started: epoch}
+		for _, id := range ids {
+			st.Sessions = append(st.Sessions, attentionSession(id, attentionIdle, ""))
+		}
+		return st
+	}
+	a.setState(state(1, "early"))
+	a.setState(state(1, "early"))
+	if !a.silenced("late") || !a.silenced("unknown") {
+		t.Fatalf("partial restore removed unobserved silence: %v", a.set.SilencedSessions)
+	}
+	a.setState(state(1, "early", "late"))
+	a.setState(state(1, "late"))
+	if a.silenced("early") || !a.silenced("late") || !a.silenced("unknown") {
+		t.Fatalf("observed closure pruned wrong IDs: %v", a.set.SilencedSessions)
+	}
+	// A daemon restart starts a fresh observation epoch; late may return.
+	a.setState(state(2, "early"))
+	a.setState(state(2, "early"))
+	if !a.silenced("late") || !a.silenced("unknown") {
+		t.Fatalf("new epoch removed late restored silence: %v", a.set.SilencedSessions)
+	}
+	a.setState(state(2, "early", "late"))
+	a.setState(state(2))
+	if a.silenced("late") || !a.silenced("unknown") {
+		t.Fatalf("empty state failed observed closure: %v", a.set.SilencedSessions)
+	}
 }

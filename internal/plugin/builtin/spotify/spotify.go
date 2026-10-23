@@ -254,6 +254,9 @@ type plugin struct {
 	// engineGen numbers the engines, so that a timer or a fetch of an
 	// older engine does not act on a newer one, or on none.
 	engineGen int
+	// playbackSeq changes when the player pushes a snapshot, so a read
+	// already in flight cannot replace it with an older answer.
+	playbackSeq uint64
 }
 
 // session is one pane's state.
@@ -684,6 +687,7 @@ func playbackState(err error, snap transport.Snapshot) playbackMode {
 // playback is the monitor's emit hook: a new snapshot goes to every pane.
 func (p *plugin) playback(snap transport.Snapshot) {
 	p.mu.Lock()
+	p.playbackSeq++
 	var queued []string
 	for pane, s := range p.panes {
 		// The track the player held before a press on a row made the pane
@@ -1780,6 +1784,7 @@ func (p *plugin) activePlayer() transport.Player {
 func (p *plugin) readNow() {
 	p.mu.Lock()
 	player := p.player
+	engineGen, playbackSeq := p.engineGen, p.playbackSeq
 	p.mu.Unlock()
 	if player == nil {
 		return
@@ -1791,6 +1796,10 @@ func (p *plugin) readNow() {
 		return
 	}
 	p.mu.Lock()
+	if engineGen != p.engineGen || playbackSeq != p.playbackSeq {
+		p.mu.Unlock()
+		return
+	}
 	for _, s := range p.panes {
 		// What the engine gives back is the last state it pushed, which
 		// a pane that shows a guess has seen already.

@@ -109,6 +109,17 @@ class MemoryWorkloadTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "seam changed"):
                 memory.prepare(root, Path(directory) / "overlay")
 
+    def test_overlay_matches_current_checkout_without_modifying_it(self):
+        root = Path(__file__).resolve().parent.parent
+        names = ("main.go", "view.go", "panes.go")
+        before = {name: (root / name).read_bytes() for name in names}
+        with tempfile.TemporaryDirectory() as directory:
+            path = memory.prepare(root, Path(directory) / "overlay")
+            replacements = json.loads(path.read_text())["Replace"]
+            self.assertEqual(set(replacements), {str(root / name) for name in names})
+            self.assertTrue(all(Path(value).is_file() for value in replacements.values()))
+        self.assertEqual(before, {name: (root / name).read_bytes() for name in names})
+
 
 if __name__ == "__main__":
     unittest.main()

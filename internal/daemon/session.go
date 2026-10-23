@@ -72,8 +72,8 @@ type pane struct {
 	discovery      *transcriptDiscovery
 	scanKey        string
 	scanV          scanVerdict
-	scanEnds       int // the turn ends the last parse read
-	scanTurn       int // counts the parses that told another thing or end
+	scanEnd        scanEnd // the last completion identity read
+	scanTurn       int     // counts the parses that told another thing or end
 	scanTold       string
 	scanToldMsg    string
 	scanToldTurn   int

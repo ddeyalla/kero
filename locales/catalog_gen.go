@@ -7114,6 +7114,16 @@ func (msgs Messages) UsageTitle() string {
 	return Catalog.Format(msgs.locale, "usageTitle", nil)
 }
 
+// UsageAccountTitle says "Account usage"
+// in the language the app shows.
+func UsageAccountTitle() string { return In(i18n.Locale()).UsageAccountTitle() }
+
+// UsageAccountTitle says "Account usage"
+// in the language of msgs.
+func (msgs Messages) UsageAccountTitle() string {
+	return Catalog.Format(msgs.locale, "usageAccountTitle", nil)
+}
+
 // UsageDetailsHint says "Account allowances and reset times"
 // in the language the app shows.
 func UsageDetailsHint() string { return In(i18n.Locale()).UsageDetailsHint() }
