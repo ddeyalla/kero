@@ -528,21 +528,23 @@ is quiet failed its two-second deadline before the change and passes after.
 The daemon retains its quiet pane/sysctl cadence and thirty-second full
 repository refresh.
 
-The following sixty-second idle samples independently observed focus and
-activation every second throughout the interval. The final harness observes
-every five seconds to reduce its diagnostic overhead. Each key sample used
-the native AppKit input path, the real PTY echo and the next UI-thread turn
-after the matching frame, as described above. They are not transport-only
-latencies or measurements of compositor presentation.
+The following sixty-second idle samples observed cached App focus and
+activation flags every second. A later native-window check found that these
+flags could stay true on a locked desktop. These samples therefore do not
+establish native focus acceptance. The corrected harness checks the native
+window every five seconds and fails closed while the desktop is locked.
+Each key sample used direct native AppKit dispatch, the real PTY echo and the
+next UI-thread turn after the matching frame. Hardware, OS queue and
+compositor presentation remain outside the measurement.
 
 | Fixtures | Window | Idle builds/min | App + kerod CPU | App / kerod interrupt wakeups/min | Native key p50 / p99 / max, 100 samples | App RSS / footprint |
 | --- | --- | --- | --- | --- | --- | --- |
-| 4 | focused, active | 7 | 0.263 % | 1,745 / 440 | 11.60 / 20.55 / 45.91 ms | 106.1 / 255.5 MiB |
-| 8 | focused, active | 5 | 0.226 % | 1,428 / 426 | 12.21 / 16.93 / 25.31 ms | 144.0 / 126.1 MiB |
+| 4 | cached focused/active flags only | 7 | 0.263 % | 1,745 / 440 | 11.60 / 20.55 / 45.91 ms | 106.1 / 255.5 MiB |
+| 8 | cached focused/active flags only | 5 | 0.226 % | 1,428 / 426 | 12.21 / 16.93 / 25.31 ms | 144.0 / 126.1 MiB |
 
-The focused rebuild, CPU and native key-dispatch budgets pass in these
-samples. Focused wakeups are reported separately: the agreed 2,000/min
-budget applies to visible, unfocused windows. Both daemon samples remain
+The numeric rebuild, CPU and direct-dispatch values are below their limits,
+but native focused acceptance remains unverified. Wakeups in these diagnostic
+samples cannot establish the agreed 2,000/min visible, unfocused budget. Both daemon samples remain
 under its 500/min limit after the independent HEAD check. The ordinary GUI
 fixture has one attached client terminal; it does not establish eight
 retained terminals' cost.
