@@ -48,6 +48,9 @@ The complete native UI gate runs on macOS, where AppKit glass, native menu
 shortcuts and the app's allocation budgets apply. A separate Linux job tests
 the internal backend and plugin packages. Native UI budgets are retained,
 not raised to accommodate Linux's different renderer and menu conventions.
+Both jobs install the same pinned Gitleaks version as the security workflow,
+because the complete Python suite exercises real Git hooks in disposable
+repositories. Missing scanner dependencies cannot silently skip those tests.
 
 ## Session organization and update controls
 

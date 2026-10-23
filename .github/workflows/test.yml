@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: Install scanner for real Git-hook tests
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
       - run: |
           shibu_go=$(command -v go)
           PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" "$shibu_go" test ./...
@@ -35,6 +37,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: Install scanner for real Git-hook tests
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
       - run: |
           shibu_go=$(command -v go)
           PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" "$shibu_go" test ./internal/...
