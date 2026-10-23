@@ -15,13 +15,11 @@ Status:
 
 Current release: **2.0.7-local.2** (Kero 2.0.7), 2026-10-23.
 
-> Updating to 2.0.7-local.1 needs one restart of the terminal service
-> (daemon protocol 3), when agents are idle. Until then, Linear, task links
-> and the Tasks, Files and Browser panes don't work; everything else does.
-
-The next release (Unreleased) needs one more restart of the terminal service:
-it changes the daemon protocol and saved state (Tasks panes become Linear
-plugin panes), and an older build cannot open the migrated panes.
+> Updating from a build before 2.0.7-local.2 requires one terminal-service
+> restart when agents are idle (protocol 4, saved state 3). Tasks panes become
+> Linear plugin panes; an older build cannot open the migrated panes.
+> The capsule-outline fix is UI-only and requires no further service restart
+> when 2.0.7-local.2 or later is already running.
 
 ## Control boundaries
 

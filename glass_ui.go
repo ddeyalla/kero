@@ -92,9 +92,7 @@ func glassScrim(c *ui.Context, pal *palette) ui.Color {
 // Content stays opaque; only the controls use the regular glass material.
 // The system transparency preference restores an opaque control surface.
 func glassToolbar(c *ui.Context, e ui.Element, pal *palette) ui.Element {
-	// Keep the capsule's boundary on white content, where glass's lit rim
-	// alone blends into the backdrop. Insetting avoids ancestor clip edges.
-	e.Radius(16).InsetShadow(0, 0, 0, 0.5, pal.text.Alpha(0.12))
+	e.Radius(16)
 	if !glassShows(c) {
 		return e.Background(pal.control)
 	}
@@ -104,6 +102,8 @@ func glassToolbar(c *ui.Context, e ui.Element, pal *palette) ui.Element {
 // toolbarGroup keeps the existing compact hit targets in a single capsule.
 func toolbarGroup(c *ui.Context, key string, pal *palette, children func()) {
 	e := ui.Row(c.Key(key)).Shrink(0).Gap(0).Padding(2).AlignItems(ui.Center)
+	// Fields that already have an outline use glassToolbar directly.
+	e.InsetShadow(0, 0, 0, 0.5, pal.text.Alpha(0.12))
 	glassToolbar(c, e, pal).Children(children)
 }
 
