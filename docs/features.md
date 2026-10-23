@@ -13,7 +13,7 @@ Status:
 - **Tested**: automated checks passed; installed-app manual acceptance is
   not claimed. Rows that say **Measured** give their remaining limits explicitly.
 
-Current release: **2.0.7-local.2** (Kero 2.0.7), 2026-10-23.
+Current release: **2.0.7-local.3** (Kero 2.0.7), 2026-10-23.
 
 > Updating from a build before 2.0.7-local.2 requires one terminal-service
 > restart when agents are idle (protocol 4, saved state 3). Tasks panes become
@@ -25,7 +25,7 @@ Current release: **2.0.7-local.2** (Kero 2.0.7), 2026-10-23.
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| Complete glass capsule outlines over white content, including Reduce Transparency | Browser toolbar and plugin filter controls | Unreleased | Tested with native tester pixel regressions and shots |
+| Complete glass capsule outlines over white content, including Reduce Transparency | Browser toolbar and plugin filter controls | 2.0.7-local.3 | Tested with native tester pixel regressions and shots |
 
 ## Delivery recovery
 

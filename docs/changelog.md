@@ -10,6 +10,14 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
+No pending changes.
+
+## [2.0.7-local.3] - 2026-10-23
+
+- Includes Kero 2.0.7 (`7b60cc3f5090`) and Shibu customizations.
+- Preserves the Shibu app identity, icon, usage features and separate data folders.
+- Signed background updates apply on the next launch; no automatic restart.
+
 ### Fixed
 
 - Browser toolbar and plugin filter capsules keep a complete outline on
