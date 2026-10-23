@@ -152,6 +152,9 @@ func toggle(c *ui.Context, on *bool, pal *palette) ui.Element {
 // controlFace is the shared material for controls that sit above content.
 // The opaque fallback keeps their boundary visible with Reduce Transparency.
 func controlFace(c *ui.Context, e ui.Element, pal *palette, tint ui.Color) ui.Element {
+	// The material's white highlight disappears on white panes. An inset
+	// hairline keeps the whole control visible without changing its layout.
+	e.InsetShadow(0, 0, 0, 0.5, pal.text.Alpha(0.12))
 	if !glassShows(c) {
 		return face(e, pal, tint.Over(pal.control))
 	}

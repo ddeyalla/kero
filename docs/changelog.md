@@ -10,7 +10,11 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
-No pending changes.
+### Fixed
+
+- Browser toolbar and plugin filter capsules keep a complete outline on
+  white panes. A subtle inset hairline prevents the glass highlight from
+  disappearing into the background, including with Reduce Transparency.
 
 ## [2.0.7-local.2] - 2026-10-23
 

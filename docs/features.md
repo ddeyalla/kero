@@ -23,6 +23,12 @@ The next release (Unreleased) needs one more restart of the terminal service:
 it changes the daemon protocol and saved state (Tasks panes become Linear
 plugin panes), and an older build cannot open the migrated panes.
 
+## Control boundaries
+
+| Feature | How to use it | Since | Status |
+| --- | --- | --- | --- |
+| Complete glass capsule outlines over white content, including Reduce Transparency | Browser toolbar and plugin filter controls | Unreleased | Tested with native tester pixel regressions and shots |
+
 ## Delivery recovery
 
 | Feature | How to use it | Since | Status |

@@ -92,7 +92,9 @@ func glassScrim(c *ui.Context, pal *palette) ui.Color {
 // Content stays opaque; only the controls use the regular glass material.
 // The system transparency preference restores an opaque control surface.
 func glassToolbar(c *ui.Context, e ui.Element, pal *palette) ui.Element {
-	e.Radius(16)
+	// Keep the capsule's boundary on white content, where glass's lit rim
+	// alone blends into the backdrop. Insetting avoids ancestor clip edges.
+	e.Radius(16).InsetShadow(0, 0, 0, 0.5, pal.text.Alpha(0.12))
 	if !glassShows(c) {
 		return e.Background(pal.control)
 	}
