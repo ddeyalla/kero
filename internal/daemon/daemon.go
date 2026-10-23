@@ -330,16 +330,16 @@ func (d *Daemon) forgetLinear() {
 // of a kerod at rest (docs/perf.md, BRU-336). What a tick reads of a quiet
 // pane changes with output, as a command that starts or ends, a cd or a
 // branch switched in it, so a quiet pane loses nothing but what changed
-// outside it: a branch switched elsewhere, or a transcript written without
-// a word on the screen, seen within tickSlow rather than seconds.
+// outside it: a transcript written without a word on the screen is seen
+// within tickSlow rather than seconds. Branch HEAD checks have their own
+// cheap loop (branchLoop), so an external checkout is still seen promptly.
 const (
 	tickFast  = 400 * time.Millisecond
 	tickSlow  = 10 * time.Second
 	tickQuiet = 10 * time.Second
-	// The agents' transcripts are scanned this often, and the HEAD files
-	// of the branches checked: slow reads, of what else told nothing.
-	scanEvery   = 12 * tickFast
-	branchCheck = 4 * tickFast
+	// The agents' transcripts are scanned this often: slow reads, of
+	// what else told nothing.
+	scanEvery = 12 * tickFast
 )
 
 // tickPace is the pace of the tick loop: fast within quiet of when
@@ -377,10 +377,11 @@ func (d *Daemon) stir() {
 func (d *Daemon) tickLoop() { d.tickLoopWith(tickPace{tickFast, tickSlow, tickQuiet}) }
 
 func (d *Daemon) tickLoopWith(pace tickPace) {
+	go d.branchLoop()
 	t := time.NewTimer(pace.fast)
 	defer t.Stop()
 	start := time.Now()
-	active, scanned, branched := start, start, start
+	active, scanned := start, start
 	for {
 		select {
 		case <-d.quit:
@@ -416,10 +417,6 @@ func (d *Daemon) tickLoopWith(pace tickPace) {
 		if now.Sub(scanned) >= scanEvery {
 			scanned = now
 			d.scanPass(now)
-		}
-		if now.Sub(branched) >= branchCheck {
-			branched = now
-			d.branchTick(now)
 		}
 		// Nothing to keep: go, rather than linger in the background.
 		if idle && idleFor > 30*time.Second {

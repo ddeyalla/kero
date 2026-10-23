@@ -34,6 +34,16 @@ type Messages struct{ locale string }
 // source language.
 func In(locale string) Messages { return Messages{locale} }
 
+// ResourceUpdateInfo says "Across all apps. RAM includes active, wired and compressed memory; reclaimable cache is excluded. Updates every 10 se…"
+// in the language the app shows.
+func ResourceUpdateInfo() string { return In(i18n.Locale()).ResourceUpdateInfo() }
+
+// ResourceUpdateInfo says "Across all apps. RAM includes active, wired and compressed memory; reclaimable cache is excluded. Updates every 10 se…"
+// in the language of msgs.
+func (msgs Messages) ResourceUpdateInfo() string {
+	return Catalog.Format(msgs.locale, "resourceUpdateInfo", nil)
+}
+
 // ActionSettings says "Settings…"
 // in the language the app shows.
 func ActionSettings() string { return In(i18n.Locale()).ActionSettings() }

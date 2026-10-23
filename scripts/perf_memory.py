@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import math
 
 import importlib.util
 _spec = importlib.util.spec_from_file_location("perf_probe", Path(__file__).with_name("perf_probe.py"))
@@ -23,11 +24,31 @@ HOOK = r'''
 var perfLastView atomic.Value
 var perfPaints sync.Map
 var perfPaintSequence atomic.Uint64
+var perfKeys = struct {
+    sync.Mutex
+    expected string
+    started time.Time
+    samples []float64
+    awaiting bool
+}{}
 
-func perfPainted(id string, r ui.Rect, fixtureReady bool) {
+func perfPainted(id string, r ui.Rect, text string) {
     perfPaints.Store(id, map[string]any{
-        "sequence": perfPaintSequence.Add(1), "width": r.W, "height": r.H, "fixture_ready": fixtureReady,
+        "sequence": perfPaintSequence.Add(1), "width": r.W, "height": r.H, "fixture_ready": strings.Contains(text, "PERF-READY"),
     })
+    perfKeys.Lock()
+    ready := perfKeys.awaiting && strings.Contains(strings.ReplaceAll(text, "\n", ""), perfKeys.expected)
+    if ready { perfKeys.awaiting = false }
+    perfKeys.Unlock()
+    if ready {
+        // The next main-thread turn is after the frame containing the echo
+        // has completed, including its presentation call. Queue/scheduler
+        // delay is included, so this endpoint does not understate paint.
+        go func() { mygo.RunOnMain(func() {
+            perfKeys.Lock(); defer perfKeys.Unlock()
+            perfKeys.samples = append(perfKeys.samples, float64(time.Since(perfKeys.started))/float64(time.Millisecond))
+        }) }()
+    }
 }
 var perfViewSequence uint64
 
@@ -70,11 +91,51 @@ func init() {
         runtime.ReadMemStats(&m)
         json.NewEncoder(w).Encode(m)
     })
+    mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method == "POST" {
+            mygo.RunOnMain(func() {
+                app := objc.ID(objc.GetClass("NSApplication")).Send(objc.RegisterName("sharedApplication"))
+                window := app.Send(objc.RegisterName("keyWindow"))
+                if window == 0 { return }
+                pool := objc.ID(objc.GetClass("NSAutoreleasePool")).Send(objc.RegisterName("new"))
+                defer pool.Send(objc.RegisterName("drain"))
+                perfKeys.Lock()
+                if perfKeys.awaiting { perfKeys.Unlock(); return }
+                letter := uint16('a' + len(perfKeys.samples)%26)
+                if len(perfKeys.samples) == 0 { perfKeys.expected = ""; letter = '~' }
+                perfKeys.expected += string(rune(letter))
+                perfKeys.started, perfKeys.awaiting = time.Now(), true
+                perfKeys.Unlock()
+                event := perfCreateKey(0, 0, true)
+                perfKeyUnicode(event, 1, &letter)
+                key := objc.ID(objc.GetClass("NSEvent")).Send(objc.RegisterName("eventWithCGEvent:"), event)
+                window.Send(objc.RegisterName("sendEvent:"), key)
+                perfRelease(event)
+                release := perfCreateKey(0, 0, false)
+                up := objc.ID(objc.GetClass("NSEvent")).Send(objc.RegisterName("eventWithCGEvent:"), release)
+                window.Send(objc.RegisterName("sendEvent:"), up)
+                perfRelease(release)
+            })
+        }
+        perfKeys.Lock(); defer perfKeys.Unlock()
+        json.NewEncoder(w).Encode(map[string]any{"samples_ms": perfKeys.samples, "awaiting": perfKeys.awaiting})
+    })
     mux.HandleFunc("/debug/pprof/", httppprof.Index)
     mux.HandleFunc("/debug/pprof/profile", httppprof.Profile)
     srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5*time.Second}
     if err := os.WriteFile(filepath.Join(dir, "address"), []byte("http://"+ln.Addr().String()), 0600); err != nil { panic(err) }
     go srv.Serve(ln)
+}
+var perfCreateKey func(uintptr, uint16, bool) uintptr
+var perfKeyUnicode func(uintptr, uintptr, *uint16)
+var perfRelease func(uintptr)
+func init() {
+    if os.Getenv("SHIBU_PERF_DIAGNOSTICS") == "" || len(os.Args) != 1 { return }
+    lib, err := purego.Dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+    if err != nil { panic(err) }
+    purego.RegisterLibFunc(&perfCreateKey, lib, "CGEventCreateKeyboardEvent")
+    purego.RegisterLibFunc(&perfKeyUnicode, lib, "CGEventKeyboardSetUnicodeString")
+    purego.RegisterLibFunc(&perfRelease, lib, "CFRelease")
 }
 '''
 
@@ -93,7 +154,9 @@ def prepare(root, directory):
     httppprof "net/http/pprof"
     "sync"
     "sync/atomic"
-    "time"''', 1) + HOOK
+    "time"
+    "github.com/ebitengine/purego"
+    "github.com/ebitengine/purego/objc"''', 1) + HOOK
     view = (root / "view.go").read_text()
     seam = 'func (a *App) view(c *ui.Context) {'
     if view.count(seam) != 1:
@@ -103,9 +166,7 @@ def prepare(root, directory):
     paint_seam = 'termView := terminal.View(c.Key("term"), e.term).Fill().Bind(ref)'
     if panes.count(paint_seam) != 1:
         raise ValueError("panes.go paint seam changed")
-    if '"strings"' not in panes:
-        panes = panes.replace('import (', 'import (\n "strings"', 1)
-    panes = panes.replace(paint_seam, paint_seam + '\n termView.DrawOver(func(_ *ui.Painter, r ui.Rect) { text, _ := e.term.TailText(8); perfPainted(p.ID, r, strings.Contains(text, "PERF-READY")) })', 1)
+    panes = panes.replace(paint_seam, paint_seam + '\n termView.DrawOver(func(_ *ui.Painter, r ui.Rect) { text, _ := e.term.TailText(8); perfPainted(p.ID, r, text) })', 1)
     replacements = {}
     for name, content in [("main.go", main), ("view.go", view), ("panes.go", panes)]:
         overlay = directory / name
@@ -172,6 +233,14 @@ def painted_visit(state, session, pane, sequence, paint_sequence):
             and paint.get("fixture_ready") is True)
 
 
+def latency_summary(samples):
+    if not samples or any(not math.isfinite(n) or n < 0 for n in samples):
+        raise ValueError("latency samples must be finite and nonnegative")
+    ordered = sorted(samples)
+    return {"count": len(ordered), "p50_ms": ordered[math.ceil(len(ordered)*.5)-1],
+            "p99_ms": ordered[math.ceil(len(ordered)*.99)-1], "max_ms": ordered[-1]}
+
+
 class Workload:
     def __init__(self, directory, app, daemon, panes, busy):
         self.directory = Path(directory).resolve()
@@ -201,6 +270,59 @@ class Workload:
 
     def frames(self):
         return perf_probe.frames((self.directory / "app.log").read_text(errors="replace").splitlines())["count"]
+
+    def gui(self):
+        """Native AppKit key dispatch through the real PTY echo to a completed frame."""
+        self.cli("focus", self.sessions[0])
+        wait_for(self.state, lambda s: s and s["focused"] and s["active"] and s["terms"],
+                 "isolated native window focused")
+        time.sleep(float(os.environ.get("PERF_SETTLE", 15)))
+        log = self.directory / "app.log"
+        lines_before = len(log.read_text().splitlines())
+        before = perf_probe.sample([self.app, self.daemon])
+        observations = []
+        until = time.monotonic() + float(os.environ.get("PERF_IDLE", 60))
+        while time.monotonic() < until:
+            state = self.state()
+            observations.append({"time": time.time(), "focused": state["focused"], "active": state["active"]})
+            time.sleep(min(5, max(0, until-time.monotonic())))
+        after = perf_probe.sample([self.app, self.daemon])
+        idle_frames = perf_probe.frames(log.read_text().splitlines()[lines_before:])
+        stable = all(s["focused"] and s["active"] for s in observations)
+        samples = []
+        if stable:
+            for i in range(100):
+                request = urllib.request.Request(self.address+"/keys", method="POST")
+                with self.http.open(request, timeout=10) as response:
+                    response.read()
+                result = wait_for(lambda: json.loads(self.get("/keys")),
+                                  lambda r: len(r.get("samples_ms") or []) == i+1,
+                                  f"native key {i+1} echo painted", timeout=5)
+                samples = result["samples_ms"]
+                time.sleep(.03)
+        result = {"window_stayed_focused": stable, "window_observations": observations,
+                  "before": before, "after": after, "idle_frames": idle_frames,
+                  "app_idle": perf_probe.idle_rates(before, after, self.app),
+                  "daemon_idle": perf_probe.idle_rates(before, after, self.daemon),
+                  "key_to_paint": latency_summary(samples) if samples else None,
+                  "key_samples_ms": samples,
+                  "key_scope": "Native NSEvent dispatch to this app's key window, through the normal terminal input, kerod and PTY echo, to the next UI-thread turn after the matching frame. Excludes hardware and OS event-queue latency; includes scheduler and completion-queue delay. No screenshot or compositor-presentation claim."}
+        (self.directory / "gui.json").write_text(json.dumps(result, indent=2))
+        lines_before = len(log.read_text().splitlines())
+        self.cli("send", self.sessions[0], "", "--enter")
+        time.sleep(self.busy+1)
+        busy_frames = perf_probe.frames(log.read_text().splitlines()[lines_before:])
+        result["streaming_frames"] = busy_frames
+        (self.directory / "gui.json").write_text(json.dumps(result, indent=2))
+        base = json.loads((self.directory / "base.json").read_text())
+        print("\n".join(perf_probe.report(self.panes, (self.directory / "feed.txt").stat().st_size,
+                                       self.daemon, base, before, after, app=self.app,
+                                       idle_frames=idle_frames, busy_frames=busy_frames,
+                                       key_latency=result["key_to_paint"])), flush=True)
+        print("Window independently focused throughout idle:", stable, flush=True)
+        print(result["key_scope"], flush=True)
+        if not stable:
+            raise RuntimeError("native window lost focus: idle/key acceptance not established")
 
     def cli(self, *args):
         return subprocess.check_output([self.bin, *args], text=True, timeout=30)
@@ -334,7 +456,7 @@ def main():
     prepare_args = commands.add_parser("prepare")
     prepare_args.add_argument("root")
     prepare_args.add_argument("directory")
-    for name in ("run", "baseline"):
+    for name in ("run", "baseline", "gui"):
         run_args = commands.add_parser(name)
         run_args.add_argument("directory")
         run_args.add_argument("app", type=int)
@@ -351,6 +473,8 @@ def main():
             if state["terms"] or state["selected"]:
                 raise RuntimeError(f"baseline already has terminals or selection: {state}")
             workload.capture("empty", native=False)
+        elif args.command == "gui":
+            workload.gui()
         else:
             workload.run()
 

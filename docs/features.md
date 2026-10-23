@@ -25,6 +25,7 @@ plugin panes), and an older build cannot open the migrated panes.
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
+| Performance verification with native input and independently observed focus | `sh scripts/perf.sh 1`, `4` or `8`; `PERF_MEMORY=1` profiles retained terminals | Unreleased | Native input/idle gates measured; exact native memory ownership investigation remains open |
 | Release validation permits Spotify automation consent while guarding the app identity; CI runs all local delivery checks | `scripts/check.sh`, Shibu checks and Shibu updates workflows | Unreleased | Tested |
 | Linear plugin: list or board in the sections Current, Done, Todo and Backlog with nested folds; Current follows the focused session; filters for assignee, project, label, priority, search and canceled; full issue detail (Markdown, properties, status picker, runs with Resume, sub-issues, relations, activity) | The sidebar pin, the **Tasks** entry of the New Pane chooser (`Cmd+Alt+L`), `kero split --tasks` | Unreleased | Untried |
 | Sidebar pins: a plugin widget has a row in the sidebar; a click focuses its pane in the selected session or splits one in | Pane header menu, Settings › Plugins, command palette, `kero plugin pin\|unpin <plugin> [widget]` | Unreleased | Untried |

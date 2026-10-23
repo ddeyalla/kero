@@ -110,8 +110,17 @@ class PerfProbeTest(unittest.TestCase):
         self.assertTrue(lines["app idle frames built"].endswith("ok"))
         self.assertIn("100/min", lines["app idle frames painted again"])
         self.assertTrue(lines["frame build p50 / p99 (streaming)"].endswith("OVER"))
-        self.assertTrue(lines["app footprint (1 pane shown)"].endswith("OVER"))
+        self.assertFalse(lines["app footprint (1 pane shown)"].endswith("OVER"))
+        self.assertTrue(lines["app resident (RSS) per pane"].endswith("OVER"))
         self.assertIn("not measured", lines["key -> paint p99"])
+
+    def test_rss_budget_is_not_physical_footprint(self):
+        base = sample(0, {7: counters(0, 0, 0, 12, 20)})
+        before = sample(100, {7: counters(1, 0, 0, 80, 100), 9: counters(1, 0, 0, 260, 220)})
+        after = sample(160, {7: counters(1, 0, 0, 80, 100), 9: counters(1, 0, 0, 260, 220)})
+        text = "\n".join(probe.report(8, 16*MB, 7, base, before, after, app=9))
+        lines = {line.split("  ")[0]: line for line in text.splitlines()}
+        self.assertTrue(lines["app resident (RSS) per pane"].endswith("ok"))
 
     def test_report_hidden_window(self):
         base = sample(0.0, {7: counters(0.1, 0, 0, 12, 20)})

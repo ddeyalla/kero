@@ -20,16 +20,35 @@ import (
 // branchEvery, when it is told something may have moved (branchWatch.due:
 // the user focused a pane or looked at a session, or a pane's agent or
 // directory changed), and as the HEAD file it read last changes, which
-// the tick checks every 1.6 s with a stat each: a branch switched shows
+// a separate loop checks every 1.6 s with a stat each: a branch switched shows
 // within 2 s, and an idle daemon reads no repository.
-const branchEvery = 30 * time.Second
+const (
+	branchEvery = 30 * time.Second
+	branchCheck = 1600 * time.Millisecond
+)
 
-// branchWatch is what the tick knows of the branches; only the tick's
+// branchWatch is what the branch loop knows; only that loop's
 // goroutine uses it, but due, which others set.
 type branchWatch struct {
 	due   atomic.Bool
 	at    time.Time            // the last full read
 	heads map[string]time.Time // the HEAD files read then, with their times
+}
+
+// branchLoop keeps HEAD checks independent of the slower pane tick. A
+// checkout from another process produces no terminal output to wake that
+// tick, but must still update the session within two seconds.
+func (d *Daemon) branchLoop() {
+	t := time.NewTicker(branchCheck)
+	defer t.Stop()
+	for {
+		select {
+		case <-d.quit:
+			return
+		case now := <-t.C:
+			d.branchTick(now)
+		}
+	}
 }
 
 // branchTick reads the branches again when due, or when a HEAD file

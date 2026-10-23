@@ -3,6 +3,19 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Performance completion verification
+
+`internal/daemon/branch.go` checks inexpensive HEAD metadata every 1.6 seconds
+independently of the slower pane tick, so a checkout by another process no
+longer waits ten seconds. `resources.go` refreshes focused meters every ten
+seconds and unfocused meters every thirty seconds, with an immediate reading
+on regained focus. `scripts/perf.sh` uses a temporary diagnostics overlay from
+`scripts/perf_memory.py` to send 100 native AppKit key-down/up pairs only to its
+own isolated window and follow each real PTY echo through painting. The
+endpoint and listener never enter production builds. See `docs/perf.md` for
+measured samples, distinct RSS and physical-footprint counters, native-input
+scope and the remaining BRU-333 native-allocation ownership investigation.
+
 ## Release validation and CI
 
 Release mode publishes the reviewed source on the pinned upstream base in

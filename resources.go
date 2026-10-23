@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/resources"
+	"kero/locales"
 )
 
 // resourcePeriod is how often the app reads the Mac's CPU and RAM while
@@ -21,7 +22,7 @@ import (
 // window does not have the focus, so the meters then move twice a minute, and
 // read again at once as it comes back.
 const (
-	resourcePeriod = 5 * time.Second
+	resourcePeriod = 10 * time.Second
 	resourceAway   = 30 * time.Second
 )
 
@@ -65,10 +66,10 @@ func (a *App) startResources() {
 			a.update(func() { a.resources.err = err.Error() })
 			return
 		}
-		// Every 5 s, as Activity Monitor reads by default: on a Mac at work
+		// Every 10 s: on a Mac at work
 		// the meters' whole percent and tenth of a GiB change with nearly
 		// every read, and each change rebuilds the window, so the period
-		// is what bounds those rebuilds, at 12 a minute, and 2 while the
+		// is what bounds those rebuilds, at 6 a minute, and 2 while the
 		// window does not have the focus (resourceWait).
 		timer := time.NewTimer(resourceWait(a.resourcePace.focused.Load()))
 		defer timer.Stop()
@@ -222,6 +223,6 @@ func (a *App) resourceCard(c *ui.Context, pal *palette) {
 		if a.resources.err != "" {
 			ui.Text(c, a.resources.err).FontSize(11).TextColor(pal.attention)
 		}
-		ui.Text(c, "Across all apps. RAM includes active, wired and compressed memory; reclaimable cache is excluded. Updates every 2 seconds.").FontSize(11).TextColor(pal.textMuted)
+		ui.Text(c, locales.ResourceUpdateInfo()).FontSize(11).TextColor(pal.textMuted)
 	})
 }

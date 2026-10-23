@@ -20,6 +20,10 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Added
 
+- Added automatic native AppKit key-dispatch-to-paint measurements to the
+  isolated performance harness, with independent focus checks and explicit
+  hardware and compositor limits.
+
 - Project groups can be reordered by dragging their header or using Move
   Project Up / Down in the context menu, Session menu, palette or CLI. The
   existing daemon persists their order without a protocol or state change.
@@ -429,6 +433,11 @@ builds only. What each feature is and where it stands is tracked in the
   are. No protocol change.
 
 ### Fixed
+
+- External branch checkouts reach the app within the two-second update target
+  while the daemon is quiet. Focused resource meters refresh every ten seconds
+  so an otherwise idle window stays below ten rebuilds per minute; the resource
+  card describes the actual refresh intervals.
 
 - Spotify track lists and Up next offer Retry after a failed read. An
   unavailable connection keeps the open album or playlist in place instead

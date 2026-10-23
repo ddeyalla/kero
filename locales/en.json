@@ -1,5 +1,6 @@
 {
   "@@locale": "en",
+  "resourceUpdateInfo": "Across all apps. RAM includes active, wired and compressed memory; reclaimable cache is excluded. Updates every 10 seconds while focused and every 30 seconds otherwise.",
   "actionSettings": "Settings…",
   "introLabel": "Shibu Code, starting",
   "actionInstallCli": "Install Command Line Tool…",

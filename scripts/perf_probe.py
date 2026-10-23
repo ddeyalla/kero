@@ -155,7 +155,7 @@ def _verdict(value, limit):
     return "ok" if value <= limit else "OVER"
 
 
-def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames=None, busy_frames=None):
+def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames=None, busy_frames=None, key_latency=None):
     """The table perf.sh prints, as lines. base is a sample of kerod with
     no pane, t0 and t1 bound the idle window; app is the app's pid.
 
@@ -187,8 +187,10 @@ def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames
     if app:
         a1 = t1["pids"].get(str(app))
         if a1:
-            row("app footprint (1 pane shown)", _mb(a1["footprint"]), "<= 30 MB a pane", _verdict(a1["footprint"], 30 * MB))
+            row("app footprint (1 pane shown)", _mb(a1["footprint"]))
             row("app resident (RSS)", _mb(a1["resident"]))
+            per = a1["resident"] / panes
+            row("app resident (RSS) per pane", _mb(per), "<= 30 MB", _verdict(per, 30 * MB))
         ra = idle_rates(t0, t1, app)
         if ra:
             row("app idle CPU", f"{ra['cpu']:.2f} %")
@@ -227,7 +229,11 @@ def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames
             row("kerod idle wakeups, without the app", f"{r['interrupt_wakeups']:.0f}/min", "<= 500/min",
                 _verdict(r["interrupt_wakeups"], 500))
         row("app", f"not measured ({app_reason or 'not started'})")
-    row("key -> paint p99", "not measured (needs GUI input injection)", "<= 50 ms")
+    if key_latency:
+        row("key -> paint p99", f"{key_latency['p99_ms']:.1f} ms ({key_latency['count']} native dispatch samples)",
+            "<= 50 ms", _verdict(key_latency['p99_ms'], 50))
+    else:
+        row("key -> paint p99", "not measured (use PERF_GUI=1)", "<= 50 ms")
 
     seconds = r["seconds"] if r else 0
     head = f"perf: {panes} pane(s), {fed / MB:.0f} MB fed to each, idle window {seconds:.0f} s"

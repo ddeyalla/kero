@@ -22,6 +22,9 @@
 # a temporary diagnostics build overlay; PERF_KEEP=1 preserves evidence.
 # PERF_LAYOUT=split uses N panes in one session instead of N sessions.
 # Memory runs include forced diagnostic GC and are not idle/CPU benchmarks.
+# Normal app runs also measure 100 native AppKit key dispatches through
+# the PTY echo to paint, with focus observed independently. PERF_GUI=0
+# selects the older uninjected workload; PERF_APP=0 measures kerod alone.
 #
 # PERF_PPROF=127.0.0.1:6060 has that kerod serve its profiles there
 # (KERO_PPROF, internal/daemon/pprof.go) while the run lasts.
@@ -41,7 +44,15 @@ case $panes in
 '' | *[!0-9]*) echo "usage: sh scripts/perf.sh N   (N panes, 1 or more)" >&2; exit 2 ;;
 esac
 [ "$panes" -ge 1 ] || { echo "perf.sh: N must be 1 or more" >&2; exit 2; }
+if [ "${PERF_MEMORY:-0}" = 0 ] && [ "${PERF_APP:-1}" != 0 ]; then
+	: "${PERF_GUI:=1}"
+else
+	: "${PERF_GUI:=0}"
+fi
+export PERF_GUI
 case ${PERF_MEMORY:-0} in 0|1) ;; *) echo "perf.sh: PERF_MEMORY must be 0 or 1" >&2; exit 2 ;; esac
+case ${PERF_GUI:-0} in 0|1) ;; *) echo "perf.sh: PERF_GUI must be 0 or 1" >&2; exit 2 ;; esac
+[ "${PERF_MEMORY:-0}${PERF_GUI:-0}" != 11 ] || { echo "perf.sh: choose PERF_MEMORY or PERF_GUI" >&2; exit 2; }
 case ${PERF_LAYOUT:-sessions} in
 sessions) ;;
 split) [ "${PERF_MEMORY:-0}" = 1 ] || { echo "perf.sh: PERF_LAYOUT=split requires PERF_MEMORY=1" >&2; exit 2; } ;;
@@ -94,7 +105,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 echo "perf.sh: building $(git rev-parse --short HEAD)$(git diff --quiet HEAD -- . ':!docs' || echo '+changes')" >&2
-if [ "${PERF_MEMORY:-0}" = 1 ]; then
+if [ "${PERF_MEMORY:-0}" = 1 ] || [ "${PERF_GUI:-0}" = 1 ]; then
 	overlay=$(python3 -I scripts/perf_memory.py prepare "$root" "$tmp/diagnostics")
 	CGO_ENABLED=0 go build -overlay "$overlay" -o "$bin" .
 else
@@ -201,6 +212,12 @@ fi
 if [ "${PERF_MEMORY:-0}" = 1 ]; then
 	[ -n "$app_pid" ] || { echo "perf.sh: memory workload requires app" >&2; exit 1; }
 	TMPDIR="$tmp/apptmp/" python3 -I scripts/perf_memory.py run "$tmp" "$app_pid" "$kerod_pid" "$panes" "$busy"
+	exit
+fi
+
+if [ "${PERF_GUI:-0}" = 1 ]; then
+	[ -n "$app_pid" ] || { echo "perf.sh: GUI workload requires app" >&2; exit 1; }
+	TMPDIR="$tmp/apptmp/" python3 -I scripts/perf_memory.py gui "$tmp" "$app_pid" "$kerod_pid" "$panes" "$busy"
 	exit
 fi
 

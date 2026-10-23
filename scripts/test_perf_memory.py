@@ -12,6 +12,13 @@ spec.loader.exec_module(memory)
 
 
 class MemoryWorkloadTest(unittest.TestCase):
+    def test_latency_nearest_rank_and_invalid_samples(self):
+        result = memory.latency_summary(list(range(1, 101)))
+        self.assertEqual(result, {"count": 100, "p50_ms": 50, "p99_ms": 99, "max_ms": 100})
+        for samples in ([], [-1], [float("nan")], [float("inf")]):
+            with self.assertRaises(ValueError):
+                memory.latency_summary(samples)
+
     def test_routing_must_stay_inside_run(self):
         with tempfile.TemporaryDirectory() as directory:
             environment = {key: str(Path(directory) / key) for key in
