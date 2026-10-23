@@ -3,6 +3,18 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Glass control boundaries
+
+`toolbarGroup` in `glass_ui.go`, the Browser address in `browser_pane.go`,
+and `controlFace` in `elevation.go` add a half-point inset hairline. Glass highlights can become pure white on a white
+pane, making the horizontal edges disappear while the rounded ends remain
+visible. The inset outline preserves the complete control boundary without
+changing layout, hit targets or glass interaction. It also applies to opaque
+Reduce Transparency surfaces. Floating panels and plain sidebar/pane-header
+buttons retain their existing styling. Settings and Attention search fields
+keep their existing outline, without a second ring. `glass_capsule_edge_test.go` renders
+actual plugin menus and toolbar material over white and checks all four edges.
+
 ## Delivery review corrections
 
 A failed Spotify refresh leaves saved track and queue rows visible with a
