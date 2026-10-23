@@ -39,8 +39,9 @@ Unreleased feature rows, retaining their existing hand-test status.
 description needed by Spotify. Its allowlist still rejects other plist keys,
 signing settings and bundle identity overrides. `scripts/test_shibu_release.py`
 checks the actual application configuration and invalid override cases.
-`.github/workflows/test.yml` runs `scripts/check.sh`, using the same full Go,
-MyGo vet and Python checks as local delivery. The growing UI suite uses Go's
+`.github/workflows/test.yml` runs the same full Go, MyGo vet and Python checks
+as `scripts/check.sh`, using the toolchain installed by `actions/setup-go`
+rather than the local wrapper's checkout-specific `.toolchain`. The growing UI suite uses Go's
 default ten-minute timeout instead of a separate two-minute CI timeout;
 runtime performance budgets remain independently tested.
 

@@ -17,4 +17,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - run: sh scripts/check.sh
+      - run: go test ./...
+      - run: go tool mygo vet .
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - run: git diff --check
