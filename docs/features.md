@@ -96,6 +96,12 @@ plugin panes), and an older build cannot open the migrated panes.
 | Reload the page (instead of renaming the session) | `Cmd+R` | 2.0.7-local.1 | Shipped |
 | Open the page in the default browser (fixed: it was handed over as a file's path) | The pane bar's **Open in Default Browser** | Unreleased | Untried |
 
+## Work profiles
+
+| Feature | How to use it | Since | Status |
+| --- | --- | --- | --- |
+| Profiles saved with the state: a name, an accent + background preset, the ids of the projects and sessions it brings forward, its env bundle's name, and which profile is active — thin references, resolved when applied, not copies; nothing user-facing yet, the switcher's children build on this | Automatic (saved state); no switching surface yet | Unreleased | Untried |
+
 ## Agents
 
 | Feature | How to use it | Since | Status |

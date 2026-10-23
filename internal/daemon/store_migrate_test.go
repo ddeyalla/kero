@@ -32,10 +32,15 @@ func readFixture(t *testing.T, version int) savedState {
 func TestMigrateV2TasksToLinearPlugin(t *testing.T) {
 	st := readFixture(t, 2)
 	before := readFixture(t, 2)
+	st.Profiles = []savedProfile{{ID: "coding", Name: "Coding", Sessions: []string{"s1", "gone"}, EnvRef: "development"}}
+	st.ActiveProfile = "coding"
 	if !migrateState(&st) || st.Version != 3 {
 		t.Fatalf("not migrated: version %d", st.Version)
 	}
 	panes := st.Sessions[0].Panes
+	if st.ActiveProfile != "coding" || len(st.Profiles) != 1 || st.Profiles[0].EnvRef != "development" || !reflect.DeepEqual(st.Profiles[0].Sessions, []string{"s1", "gone"}) {
+		t.Fatalf("pane migration changed profile references: %+v, active=%q", st.Profiles, st.ActiveProfile)
+	}
 	tp := panes[0]
 	if tp.View != proto.PanePlugins {
 		t.Fatalf("view %q", tp.View)

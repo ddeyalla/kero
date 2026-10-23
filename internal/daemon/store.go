@@ -87,6 +87,11 @@ type savedState struct {
 	// Tasks are the conversations that worked on each task, by the
 	// issue's id: what outlives the sessions, to resume.
 	Tasks map[string]*taskLog `json:"tasks,omitempty"`
+	// Profiles are the saved work profiles, and ActiveProfile the id of
+	// the one the user last had active, empty when none. A state file of
+	// before has neither, and loads as it always did.
+	Profiles      []savedProfile `json:"profiles,omitempty"`
+	ActiveProfile string         `json:"activeProfile,omitempty"`
 }
 
 type savedSession struct {
@@ -134,6 +139,26 @@ type savedPane struct {
 	// away, which a restored pane's unread mark shows. A state file of
 	// before has none.
 	Summary string `json:"summary,omitempty"`
+}
+
+// savedProfile is a work profile: a thin bundle of references, not a
+// copy. Its Projects and Sessions hold the ids of live projects and
+// sessions, which applying it resolves at switch time, and a reference
+// that no longer resolves is skipped, with a note, never a failure of
+// the restore. EnvRef is the name of the profile's env bundle, whose
+// values it does not carry, so nothing secret is saved here.
+type savedProfile struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Accent     string   `json:"accent,omitempty"`
+	Background string   `json:"background,omitempty"`
+	Projects   []string `json:"projects,omitempty"`
+	Sessions   []string `json:"sessions,omitempty"`
+	// EnvRef names the env bundle the profile runs with, which the env
+	// child of epic A lands.
+	EnvRef    string `json:"envRef,omitempty"`
+	CreatedAt int64  `json:"createdAt,omitempty"`
+	LastUsed  int64  `json:"lastUsed,omitempty"`
 }
 
 func (d *Daemon) statePath() string { return filepath.Join(d.dir, "state.json") }
@@ -197,7 +222,7 @@ func (d *Daemon) saveState() {
 	d.mu.Lock()
 	// The Linear workspace is kept in a file of its own, written only
 	// as it changes (linear_store.go).
-	st := savedState{Version: stateVersion, Projects: d.projects, Saved: time.Now().UnixMilli()}
+	st := savedState{Version: stateVersion, Projects: d.projects, Profiles: d.profiles, ActiveProfile: d.activeProfile, Saved: time.Now().UnixMilli()}
 	lin, linData := d.linearToSaveLocked()
 	for _, s := range d.sessions {
 		ss := savedSession{ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed, Created: s.created, Layout: s.layout, Focus: s.focus,
@@ -320,6 +345,10 @@ func (d *Daemon) restore() *restorePlan {
 		d.linearSaved = nil
 	}
 	d.tasks = st.Tasks
+	// Profiles load before session restoration; membership is resolved only
+	// when a later profile-switch operation applies the saved references.
+	d.profiles = st.Profiles
+	d.activeProfile = st.ActiveProfile
 	// The projects stay whether or not the sessions come back.
 	d.projects = st.Projects
 	set := settings.Load()
