@@ -410,7 +410,7 @@ func (a *App) dropPreview(c *ui.Context, pal *palette, target string, zone dropZ
 			pill := ui.Row(c).Height(30).Padding(0, 12).Gap(7).Radius(15).AlignItems(ui.Center).
 				Background(pal.accent).TextColor(ui.Hex("#ffffff"))
 			floating(pill, pal).Children(func() {
-				ui.Icon(c, glyph).Size(14, 14)
+				controlIcon(c, glyph, 14, ui.Hex("#ffffff"), pal.dark)
 				ui.Text(c, label).FontSize(12.5).FontWeight(600).SingleLine()
 			})
 			pill.AnimatePose(ui.Pose{Scale: 0.9 + 0.1*fadeIn}, springUI)
@@ -480,7 +480,7 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 			case multi && (p.Status != proto.Idle || p.Unread):
 				statusIconP(c, pal, p.Status, p.Unread, p.Progress, 0, 13)
 			case multi:
-				ui.Icon(c, programIcon(p)).Size(14, 14).TextColor(pal.textFaint)
+				controlIcon(c, programIcon(p), 14, pal.textFaint, pal.dark)
 			}
 			title, size := p.PaneName(), float32(13.5)
 			if !multi {

@@ -1186,6 +1186,20 @@ func (p *plugin) event(conn *sdk.Conn, e protocol.EventParams) {
 		p.selectTrack(e, false)
 	case "queue":
 		p.selectTrack(e, true)
+	case "state-tracks-failed":
+		p.mu.Lock()
+		queue := s.drill == ""
+		p.mu.Unlock()
+		if queue {
+			p.loadQueue(e.Pane)
+		} else {
+			p.loadTracks(e.Pane)
+		}
+	case "state-library-failed", "state-offline":
+		p.mu.Lock()
+		delete(s.loaded, s.tab)
+		p.mu.Unlock()
+		p.syncLibrary(e.Pane)
 	case "mute":
 		p.mute(e.Pane)
 	case "search":

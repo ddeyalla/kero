@@ -1,5 +1,11 @@
 # Icons
 
+On macOS, control handles render native SF Symbols through `controlIcon` in
+`icons.go` and the cached AppKit rasterizer in `symbols_darwin.go`. The older
+SVG files remain embedded handles for existing call sites; provider and
+program logos remain SVG artwork. Other platforms retain their existing
+window controls. The asset licenses below still apply to the retained files.
+
 - `f7-*.svg`: [Framework7 Icons](https://framework7.io/icons/) (MIT, © Vladimir Kharlampidi), drawn after Apple's SF Symbols.
 - `meteor-*.svg`: [Meteor Icons](https://github.com/zkreations/icons) (MIT, © zkreations).
 - `si-*.svg`: [Simple Icons](https://simpleicons.org) (CC0), programs' logos; the brands are their owners' trademarks.

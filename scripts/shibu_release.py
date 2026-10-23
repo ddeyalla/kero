@@ -47,8 +47,19 @@ def validate_config(config):
             updates.get("tagPrefix") != "shibu-v" or
             updates.get("changelog") != "docs/changelog.md" or
             not updates.get("publicKey") or updates.get("url") or
-            updates.get("privateKey") or config.get("macos")):
+            updates.get("privateKey")):
         raise ValueError("Unexpected update feed, signing key or macOS identity")
+    # Spotify's automation consent text belongs in the bundle. Allow that
+    # declaration without permitting a signing or bundle identity override.
+    macos = config.get("macos")
+    if macos:
+        if not isinstance(macos, dict) or set(macos) != {"infoPlist"}:
+            raise ValueError("Unexpected macOS identity override")
+        info = macos["infoPlist"]
+        if (not isinstance(info, dict) or set(info) != {"NSAppleEventsUsageDescription"}
+                or not isinstance(info["NSAppleEventsUsageDescription"], str)
+                or not info["NSAppleEventsUsageDescription"].strip()):
+            raise ValueError("Unexpected macOS permission declaration")
 
 
 def protocol_version(text):
@@ -80,10 +91,15 @@ def prepare(mode, tag=None):
     config = json.loads(Path("mygo.json").read_text())
     validate_config(config)
     baseline = json.loads(Path("shibu-upstream.json").read_text())
-    release = json.loads(run("gh", "api", "repos/egoist/kero/releases/latest").stdout)
-    if release.get("draft") or release.get("prerelease"):
-        raise ValueError("Latest upstream release is not stable")
-    tag = tag or release["tag_name"]
+    if mode == "release":
+        # A release publishes reviewed Shibu source. Upstream incorporation
+        # belongs to the separate check path, not this final delivery step.
+        tag = tag or baseline["tag"]
+    else:
+        release = json.loads(run("gh", "api", "repos/egoist/kero/releases/latest").stdout)
+        if release.get("draft") or release.get("prerelease"):
+            raise ValueError("Latest upstream release is not stable")
+        tag = tag or release["tag_name"]
     stable_version(tag)
     if stable_version(tag) < stable_version(baseline["tag"]):
         raise ValueError("Refusing an upstream downgrade")
@@ -136,6 +152,12 @@ def prepare(mode, tag=None):
     if pending and pending != "No pending changes.":
         notes += pending + "\n\n"
     changelog.write_text(text[:start] + "\n## Unreleased\n\nNo pending changes.\n\n" + notes + text[index + 1:])
+    features = Path("docs/features.md")
+    if features.exists():
+        text = re.sub(r"(?m)^Current release: .*?$",
+                      f"Current release: **{version}** (Kero {tag[1:]}), {date}.",
+                      features.read_text())
+        features.write_text(text.replace("| Unreleased |", f"| {version} |"))
     Path(".release-notes.md").write_text(notes.split("\n", 1)[1].strip() + "\n")
     # The notes file is an untracked build input, never part of the source commit.
     run("git", "add", "-u")

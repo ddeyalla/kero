@@ -46,6 +46,20 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 release.validate_config(changed)
 
+    def test_spotify_permission_description_preserves_identity_guard(self):
+        config = json.loads((Path(__file__).resolve().parents[1] / "mygo.json").read_text())
+        release.validate_config(config)
+        for macos in [
+            {"signingIdentity": "upstream"},
+            {"infoPlist": {"CFBundleIdentifier": "sh.kero"}},
+            {"infoPlist": {"NSAppleEventsUsageDescription": ""}},
+            {"infoPlist": {"NSAppleEventsUsageDescription": 1}},
+        ]:
+            changed = copy.deepcopy(config)
+            changed["macos"] = macos
+            with self.subTest(macos=macos), self.assertRaises(ValueError):
+                release.validate_config(changed)
+
     def test_protocol_and_persistence_changes_pause(self):
         release.assert_compatible("const Version = 2", "const Version = 2", b"state", b"state")
         with self.assertRaises(ValueError):
@@ -82,6 +96,7 @@ class MergeTests(unittest.TestCase):
         Path("mygo.json").write_text(json.dumps(config) + "\n")
         Path("resources/shibu-icon.png").write_bytes(b"personal-icon")
         Path("docs/changelog.md").write_text("# Changelog\n\n## Unreleased\n\nNone\n\n## 2.0.5-local.5\n\nOld\n")
+        Path("docs/features.md").write_text("Current release: **2.0.5-local.5** (Kero 2.0.5), 2026-10-20.\n\n| Example | Menu | Unreleased | Untried |\n")
         Path("shibu-upstream.json").write_text(json.dumps({"tag": "v2.0.5", "commit": self.base}))
         Path("feature.txt").write_text("personal feature\n")
         self.commit("Shibu")
@@ -143,6 +158,19 @@ class MergeTests(unittest.TestCase):
         before = self.git("rev-parse", "HEAD").stdout
         self.prepare(tag="v2.0.5")
         self.assertEqual(self.git("rev-parse", "HEAD").stdout, before)
+
+    def test_release_uses_reviewed_base_when_upstream_is_newer(self):
+        self.upstream()
+        self.prepare(mode="release")
+        config = json.loads(Path("mygo.json").read_text())
+        baseline = json.loads(Path("shibu-upstream.json").read_text())
+        self.assertEqual(config["version"], "2.0.5-local.6")
+        self.assertEqual(baseline["tag"], "v2.0.5")
+        self.assertEqual(baseline["commit"], self.base)
+        self.assertFalse(Path("upstream-feature.txt").exists())
+        features = Path("docs/features.md").read_text()
+        self.assertIn("Current release: **2.0.5-local.6** (Kero 2.0.5)", features)
+        self.assertIn("| Example | Menu | 2.0.5-local.6 | Untried |", features)
 
 
 if __name__ == "__main__":

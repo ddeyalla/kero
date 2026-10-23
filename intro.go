@@ -189,7 +189,7 @@ func (a *App) introView(c *ui.Context, pal *palette) {
 			if !introReduce(c) {
 				box.Scale(0.94+0.06*mark, 0.94+0.06*mark)
 			}
-			box.Children(func() { ui.Icon(c, terminalIcon).Size(28, 28) })
+			box.Children(func() { controlIcon(c, terminalIcon, 28, ui.Hex("#ffffff"), pal.dark) })
 		})
 	})
 }

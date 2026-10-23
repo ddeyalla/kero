@@ -189,10 +189,15 @@ func (p *plugin) loadTracks(pane string) {
 		}
 		lib := libraryError(err)
 		switch {
-		case err == nil || keepsResults(lib):
+		case err == nil:
 			s.tracks, s.tracksState = tracks, tracksReady
-			if err != nil {
-				s.lib = lib
+		case keepsResults(lib):
+			// A failed read is local to this list. Keep the open album or
+			// playlist and its cached tracks, rather than replace it with
+			// the library and mistake an empty failed read for no tracks.
+			s.tracks, s.tracksState = tracks, tracksReady
+			if len(tracks) == 0 {
+				s.tracksState = tracksFailed
 			}
 		case forbidden:
 			s.tracks, s.tracksState, s.needScope = nil, tracksForbidden, needScope

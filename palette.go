@@ -152,7 +152,7 @@ func (a *App) paletteView(c *ui.Context, pal *palette) {
 		glassPanel(c, panel.Width(600).MaxHeight(460).Radius(14), pal).Clip().
 			Label(locales.PaletteLabel())
 		ui.Row(c).Height(50).Shrink(0).Padding(0, 16).Gap(10).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, searchIcon).Size(16, 16).TextColor(pal.textMuted)
+			controlIcon(c, searchIcon, 16, pal.textMuted, pal.dark)
 			in := ui.TextInputBase(c.Key("q"), &a.pal.query).Grow(1).FontSize(15).Placeholder(locales.PalettePlaceholder()).AutoFocus()
 			if in.Changed() {
 				a.pal.index = 0
@@ -193,7 +193,7 @@ func (a *App) paletteView(c *ui.Context, pal *palette) {
 					if isSession {
 						statusIcon(c, pal, it.session.Status, it.session.Unread, 14)
 					} else {
-						ui.Icon(c, returnIcon).Size(14, 14).TextColor(pal.textFaint)
+						controlIcon(c, returnIcon, 14, pal.textFaint, pal.dark)
 					}
 					if isSession {
 						// The title's mark, as the sidebar's row has it.

@@ -1,8 +1,7 @@
 package main
 
 import (
-	"bytes"
-	"image"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +15,6 @@ import (
 func TestUsageViews(t *testing.T) {
 	a := testApp(t)
 	a.usage.keys = map[string]*string{}
-	a.usage.installed = []string{"claude", "codex", "opencode", "deepseek"}
 	a.usage.reports = usage.Providers()
 	cpu := float64(14)
 	a.resources.sample = resources.Sample{CPU: &cpu, MemoryUsed: 18 << 30, MemoryTotal: 24 << 30}
@@ -32,15 +30,8 @@ func TestUsageViews(t *testing.T) {
 		tt := ui.NewTester(a.view, 1100, 640)
 		tt.SetDark(dark)
 		tt.Frame()
-		// The sidebar is a ring for each harness, so the numbers live in
-		// the card and the modal.
-		for _, name := range []string{"Claude", "Codex", "OpenCode Go", "DeepSeek"} {
-			if !tt.HasText(name) {
-				t.Fatalf("missing harness %q: %q", name, tt.Texts())
-			}
-		}
-		if tt.HasText("27% used") {
-			t.Fatalf("the sidebar still spells out usage: %q", tt.Texts())
+		if !tt.HasText("27% used") || !tt.HasText("91% used") || !tt.HasText("Connect") {
+			t.Fatalf("missing account state: %q", tt.Texts())
 		}
 		name := "usage-light"
 		if dark {
@@ -51,7 +42,7 @@ func TestUsageViews(t *testing.T) {
 		details := ui.NewTester(a.view, 1100, 800)
 		details.SetDark(dark)
 		details.Frame()
-		if !details.HasText("Account usage") || !details.HasText("Weekly") || !details.HasText("Could not reach provider") || !details.HasText("27% used") {
+		if !details.HasText("Account usage") || !details.HasText("Weekly") || !details.HasText("Could not reach provider") {
 			t.Fatalf("missing details: %q", details.Texts())
 		}
 		shot(t, details, name+"-details")
@@ -70,143 +61,6 @@ func TestUsageViews(t *testing.T) {
 	a.closeUsage()
 }
 
-// The harness bar folds into rows while its names fit, and shows the rings
-// alone when three rows of them would leave no room for a name.
-func TestUsageBarRows(t *testing.T) {
-	room := []float32{72, 69, 93, 92}
-	cases := []struct {
-		avail float32
-		rows  int
-		named bool
-	}{
-		{424, 1, true},
-		{252, 2, true},
-		{184, 1, false},
-	}
-	for _, c := range cases {
-		rows, named := usageBarRows(room, c.avail)
-		seen := 0
-		for _, line := range rows {
-			seen += len(line)
-		}
-		if len(rows) != c.rows || named != c.named || seen != len(room) {
-			t.Errorf("at %g wide: %v rows, named %v, %d harnesses; want %d, %v, %d",
-				c.avail, len(rows), named, seen, c.rows, c.named, len(room))
-		}
-	}
-}
-
-// At the narrowest sidebar the rings stay whole while the names shorten or
-// give way: an item still finds its harness, inside the sidebar.
-func TestUsageRingsAtMinimumWidth(t *testing.T) {
-	a := testApp(t)
-	a.prefs.SidebarWidth = minSidebar
-	a.usage.installed = []string{"claude", "codex", "opencode", "deepseek"}
-	a.usage.reports = usage.Providers()
-	now := time.Now()
-	for i := range a.usage.reports {
-		a.usage.reports[i].Checked = now
-		a.usage.reports[i].Windows = []usage.Window{{Label: "Weekly", Used: 40, Resets: now.Add(2 * time.Hour)}}
-	}
-	tt := ui.NewTester(a.view, 560, 360)
-	tt.Frame()
-	for _, report := range a.usage.reports {
-		r, ok := tt.Find(report.Name + " usage")
-		if !ok {
-			t.Fatalf("no ring for %s at %d wide: %q", report.Name, minSidebar, tt.Texts())
-		}
-		if r.W < 22 || r.X < 0 || r.X+r.W > minSidebar {
-			t.Errorf("%s rings outside the %d sidebar: %+v", report.Name, minSidebar, r)
-		}
-	}
-	shot(t, tt, "usage-min-width")
-}
-
-// Hovering a ring shows its card with the plan, each window and its reset,
-// and moving off takes it away.
-func TestUsageHoverCard(t *testing.T) {
-	for _, dark := range []bool{false, true} {
-		a := testApp(t)
-		a.usage.installed = []string{"claude", "codex", "opencode", "deepseek"}
-		a.usage.reports = usage.Providers()
-		now := time.Now()
-		// As the API says it: the card capitalizes it.
-		a.usage.reports[0].Plan = "max"
-		a.usage.reports[0].Checked = now
-		a.usage.reports[0].Windows = []usage.Window{
-			{Label: "5 hours", Used: 27, Resets: now.Add(2 * time.Hour)},
-			{Label: "Weekly", Used: 64, Resets: now.Add(72 * time.Hour)},
-		}
-		a.usage.reports[1].Checked = now
-		a.usage.reports[1].Windows = []usage.Window{{Label: "Weekly", Used: 91, Resets: now.Add(-time.Minute)}}
-		a.usage.reports[3].Balance = "USD 4.60"
-		tt := ui.NewTester(a.view, 1100, 700)
-		tt.SetDark(dark)
-		tt.Frame()
-		item, ok := tt.Find("Claude usage")
-		if !ok {
-			t.Fatalf("no Claude ring: %q", tt.Texts())
-		}
-		nameAt, _ := tt.Find("Claude")
-		plain := inked(tt, nameAt)
-		tt.Move(item.X+item.W/2, item.Y+item.H/2)
-		tt.Advance(200 * time.Millisecond)
-		tt.Frame()
-		// The hovered harness's name is heavier, in the text's color.
-		if !dark && inked(tt, nameAt) <= plain {
-			t.Errorf("the hovered name did not stand out: %d inked pixels, %d before", inked(tt, nameAt), plain)
-		}
-		for _, want := range []string{"Max", "27%", "64%", "5 hours", "Week", "resets ", usageReset(now.Add(2 * time.Hour))} {
-			if !tt.HasText(want) {
-				t.Fatalf("hover card lacks %q: %q", want, tt.Texts())
-			}
-		}
-		name := "usage-hover-light"
-		if dark {
-			name = "usage-hover-dark"
-		}
-		shot(t, tt, name)
-		if tt.HasText("Weekly") || tt.HasText("max") {
-			t.Fatalf("the card spells the window or plan as the API does: %q", tt.Texts())
-		}
-		// The card stays while the pointer is on it.
-		if r, ok := tt.Find("Week"); ok {
-			tt.Move(r.X+r.W/2, r.Y+r.H/2)
-			tt.Advance(300 * time.Millisecond)
-			tt.Frame()
-			if !tt.HasText("Max") {
-				t.Fatalf("the card closed as the pointer came to it: %q", tt.Texts())
-			}
-		} else {
-			t.Fatal("no card to hover")
-		}
-		// A report that arrives while the card is open shows in it.
-		a.usage.reports[0].Windows[0].Used = 55
-		a.invalidateUsage()
-		tt.Frame()
-		if !tt.HasText("55%") {
-			t.Fatalf("the open card kept stale numbers: %q", tt.Texts())
-		}
-		// A window due says so, rather than a time.
-		if r, ok := tt.Find("Codex usage"); ok {
-			tt.Move(r.X+r.W/2, r.Y+r.H/2)
-			tt.Advance(200 * time.Millisecond)
-			tt.Frame()
-			if !tt.HasText("resets now") || tt.HasText("Max") {
-				t.Fatalf("the codex card: %q", tt.Texts())
-			}
-		} else {
-			t.Fatal("no Codex ring")
-		}
-		tt.Move(900, item.Y)
-		tt.Advance(500 * time.Millisecond)
-		tt.Frame()
-		if tt.HasText("Max") {
-			t.Fatalf("the card stayed after the pointer left: %q", tt.Texts())
-		}
-	}
-}
-
 func TestUsageStates(t *testing.T) {
 	r := usage.Report{Error: "Sign in again"}
 	if got := usageSummary(r, true); got != "Checking…" {
@@ -216,7 +70,7 @@ func TestUsageStates(t *testing.T) {
 		t.Fatal(got)
 	}
 	r.Checked = time.Now().Add(-time.Hour)
-	r.Windows = []usage.Window{{Used: 42}}
+	r.Windows = []usage.Window{{Label: "5 hours", Used: 42}, {Label: "Weekly", Used: 61}}
 	if got := usageSummary(r, false); got != "42% used" {
 		t.Fatalf("lost last observation: %q", got)
 	}
@@ -257,83 +111,8 @@ func TestUsageStates(t *testing.T) {
 	}
 }
 
-// Each ring says what it can: the arc, a balance's sign, a dashed track
-// for a harness not connected, and an amber dot when a refresh failed.
-func TestUsageRingMarks(t *testing.T) {
-	now := time.Now()
-	used := usage.Report{Checked: now, Windows: []usage.Window{{Label: "Weekly", Used: 40}}}
-	stale := used
-	stale.Error = "Could not reach provider"
-	cases := []struct {
-		name    string
-		r       usage.Report
-		loading bool
-		mark    usageMark
-		dot     bool
-	}{
-		{"usage", used, false, markUsage, false},
-		{"stale", stale, false, markUsage, true},
-		{"balance", usage.Report{Checked: now, Balance: "USD 4.60"}, false, markBalance, false},
-		{"not connected", usage.Report{Error: "Not connected"}, false, markUnconnected, false},
-		{"signed out", usage.Report{Error: "Sign in again"}, false, markUnconnected, false},
-		{"not connected, refreshing", usage.Report{Error: "Not connected"}, true, markUnconnected, false},
-		{"failed first", usage.Report{Error: "Could not reach provider"}, false, markUsage, true},
-		{"checking", usage.Report{}, true, markUsage, false},
-	}
-	for _, c := range cases {
-		if mark, dot := usageMarkOf(c.r, c.loading); mark != c.mark || dot != c.dot {
-			t.Errorf("%s: mark %d, dot %v; want %d, %v", c.name, mark, dot, c.mark, c.dot)
-		}
-	}
-	// The marks draw differently from one another, and from 0%.
-	pal := lightPalette
-	ink := func(r usage.Report) *image.RGBA {
-		tt := ui.NewTester(func(c *ui.Context) {
-			ui.Row(c).Padding(4).Children(func() { usageRing(c, &pal, r, false, false) })
-		}, 30, 30)
-		tt.Frame()
-		return tt.Image()
-	}
-	empty := usage.Report{Checked: now, Windows: []usage.Window{{Label: "Weekly", Used: 0}}}
-	shots := map[string]*image.RGBA{"0%": ink(empty)}
-	for _, c := range cases {
-		switch c.name {
-		case "stale", "balance", "not connected", "failed first":
-			shots[c.name] = ink(c.r)
-		}
-	}
-	for a, x := range shots {
-		for b, y := range shots {
-			if a < b && bytes.Equal(x.Pix, y.Pix) {
-				t.Errorf("the %s and %s rings look the same", a, b)
-			}
-		}
-	}
-}
-
-// A card over the last known usage says a refresh failed.
-func TestUsageHoverStale(t *testing.T) {
-	a := testApp(t)
-	a.usage.installed = []string{"claude"}
-	a.usage.reports = usage.Providers()
-	now := time.Now()
-	a.usage.reports[0].Checked = now.Add(-time.Hour)
-	a.usage.reports[0].Windows = []usage.Window{{Label: "5 hours", Used: 27, Resets: now.Add(time.Hour)}}
-	a.usage.reports[0].Error = "Could not reach provider"
-	tt := ui.NewTester(a.view, 1100, 700)
-	tt.Frame()
-	item, ok := tt.Find("Claude usage")
-	if !ok {
-		t.Fatalf("no Claude ring: %q", tt.Texts())
-	}
-	tt.Move(item.X+item.W/2, item.Y+item.H/2)
-	tt.Advance(200 * time.Millisecond)
-	tt.Frame()
-	if !tt.HasText(locales.UsageStale()) || !tt.HasText("27%") {
-		t.Fatalf("the stale card: %q", tt.Texts())
-	}
-	shot(t, tt, "usage-hover-stale")
-}
+// Missing data is a neutral track, never invented usage; stale data keeps
+// exactly the last observed arcs, with its error explained only in the card.
 
 func TestUsageKeyEditing(t *testing.T) {
 	a := testApp(t)
@@ -356,7 +135,7 @@ func TestUsageOpensInsideCurrentWindow(t *testing.T) {
 	a := testApp(t)
 	tt := ui.NewTester(a.view, 1100, 640)
 	tt.Frame()
-	if err := tt.Click("Claude usage"); err != nil {
+	if err := tt.Click("Account usage"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -379,5 +158,329 @@ func TestUsageOpensInsideCurrentWindow(t *testing.T) {
 	tt.Frame()
 	if a.usage.open || len(a.st.Sessions) != 1 {
 		t.Fatal("closing usage affected the session")
+	}
+}
+
+func TestUsageHoverCard(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		a := testApp(t)
+		a.usage.reports = usage.Providers()
+		now := time.Now()
+		// As the API says it: the card capitalizes it.
+		a.usage.reports[0].Plan = "max"
+		a.usage.reports[0].Checked = now
+		a.usage.reports[0].Windows = []usage.Window{
+			{Label: "5 hours", Used: 27, Resets: now.Add(2 * time.Hour)},
+			{Label: "Weekly", Used: 64, Resets: now.Add(72 * time.Hour)},
+		}
+		a.usage.reports[1].Checked = now
+		a.usage.reports[1].Windows = []usage.Window{{Label: "Weekly", Used: 91, Resets: now.Add(-time.Minute)}}
+		a.usage.reports[3].Balance = "USD 4.60"
+		tt := ui.NewTester(a.view, 1100, 700)
+		tt.SetDark(dark)
+		tt.Frame()
+		item, ok := tt.Find("Claude usage")
+		if !ok {
+			t.Fatalf("no Claude row: %q", tt.Texts())
+		}
+		tt.Move(item.X+item.W/2, item.Y+item.H/2)
+		tt.Advance(200 * time.Millisecond)
+		tt.Frame()
+		for _, want := range []string{"Max", "27%", "64%", "5 hours", "Week", "resets ", usageReset(now.Add(2 * time.Hour))} {
+			if !tt.HasText(want) {
+				t.Fatalf("hover card lacks %q: %q", want, tt.Texts())
+			}
+		}
+		name := "usage-hover-light"
+		if dark {
+			name = "usage-hover-dark"
+		}
+		shot(t, tt, name)
+		if tt.HasText("max") {
+			t.Fatalf("the card spells the window or plan as the API does: %q", tt.Texts())
+		}
+		// The card stays while the pointer is on it.
+		if r, ok := tt.Find("Week"); ok {
+			tt.Move(r.X+r.W/2, r.Y+r.H/2)
+			tt.Advance(300 * time.Millisecond)
+			tt.Frame()
+			if !tt.HasText("Max") {
+				t.Fatalf("the card closed as the pointer came to it: %q", tt.Texts())
+			}
+		} else {
+			t.Fatal("no card to hover")
+		}
+		// A report that arrives while the card is open shows in it.
+		a.usage.reports[0].Windows[0].Used = 55
+		a.invalidateUsage()
+		tt.Frame()
+		if !tt.HasText("55%") {
+			t.Fatalf("the open card kept stale numbers: %q", tt.Texts())
+		}
+		// A window due says so, rather than a time.
+		if r, ok := tt.Find("Codex usage"); ok {
+			tt.Move(r.X+r.W/2, r.Y+r.H/2)
+			tt.Advance(200 * time.Millisecond)
+			tt.Frame()
+			if !tt.HasText("resets now") || tt.HasText("Max") {
+				t.Fatalf("the codex card: %q", tt.Texts())
+			}
+		} else {
+			t.Fatal("no Codex row")
+		}
+		tt.Move(900, item.Y)
+		tt.Advance(500 * time.Millisecond)
+		tt.Frame()
+		if tt.HasText("Max") {
+			t.Fatalf("the card stayed after the pointer left: %q", tt.Texts())
+		}
+	}
+}
+
+func TestUsageHoverStale(t *testing.T) {
+	a := testApp(t)
+	a.usage.reports = usage.Providers()
+	now := time.Now()
+	a.usage.reports[0].Checked = now.Add(-time.Hour)
+	a.usage.reports[0].Windows = []usage.Window{{Label: "5 hours", Used: 27, Resets: now.Add(time.Hour)}}
+	a.usage.reports[0].Error = "Could not reach provider"
+	tt := ui.NewTester(a.view, 1100, 700)
+	tt.Frame()
+	item, ok := tt.Find("Claude usage")
+	if !ok {
+		t.Fatalf("no Claude row: %q", tt.Texts())
+	}
+	tt.Move(item.X+item.W/2, item.Y+item.H/2)
+	tt.Advance(200 * time.Millisecond)
+	tt.Frame()
+	if !tt.HasText(locales.UsageStale()) || !tt.HasText("27%") {
+		t.Fatalf("the stale card: %q", tt.Texts())
+	}
+	shot(t, tt, "usage-hover-stale")
+}
+
+// The hover card retains every allowance window, not just the list's primary one.
+func TestUsageThreeWindowHover(t *testing.T) {
+	a := testApp(t)
+	r := usage.Providers()[2]
+	r.Checked = time.Now()
+	for i, label := range []string{"5 hours", "Weekly", "Monthly"} {
+		r.Windows = append(r.Windows, usage.Window{Label: label, Used: float64(30 + i*20), Resets: time.Now().Add(time.Duration(i+1) * time.Hour)})
+	}
+	a.usage.reports = []usage.Report{r}
+	tt := ui.NewTester(a.view, 1100, 700)
+	tt.Frame()
+	item, ok := tt.Find(r.Name + " usage")
+	if !ok {
+		t.Fatal("no OpenCode item")
+	}
+	tt.Move(item.X+item.W/2, item.Y+item.H/2)
+	tt.Advance(200 * time.Millisecond)
+	tt.Frame()
+	for _, w := range r.Windows {
+		for _, want := range []string{usageWindow(w.Label), fmt.Sprintf("%.0f%%", w.Used), "· " + usageReset(w.Resets)} {
+			if _, ok := tt.Find(want); !ok {
+				t.Errorf("hover card missing %q: %q", want, tt.Texts())
+			}
+		}
+	}
+}
+
+// usageListFixture matches the previous list's values while retaining richer
+// window and balance data for the hover card. It never reads real credentials.
+func usageListFixture(t *testing.T) *App {
+	a := testApp(t)
+	a.usage.reports = usage.Providers()
+	now := time.Now()
+	for i := range a.usage.reports {
+		r := &a.usage.reports[i]
+		r.Checked = now
+		r.Windows = []usage.Window{{Label: "5 hours", Used: []float64{2, 90, 0, 0}[i], Resets: now.Add(time.Hour)}, {Label: "Weekly", Used: 64, Resets: now.AddDate(0, 0, 2)}}
+	}
+	a.usage.reports[0].Plan = "max"
+	a.usage.reports[3].Windows = nil
+	a.usage.reports[3].Balance = "CNY 80.00 · USD 10.77"
+	return a
+}
+
+func TestUsageListLayouts(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		appearance := "light"
+		if dark {
+			appearance = "dark"
+		}
+		for _, width := range []float32{minSidebar, defaultSidebar} {
+			t.Run(fmt.Sprintf("%s-%g", appearance, width), func(t *testing.T) {
+				a := usageListFixture(t)
+				a.prefs.SidebarWidth = width
+				tt := ui.NewTester(func(c *ui.Context) {
+					ui.Column(c).Fill().Background(a.paletteFor(c).sidebar).Children(func() { a.usageSidebar(c, a.paletteFor(c)) })
+				}, int(width), 150)
+				tt.SetDark(dark)
+				tt.Frame()
+				for _, text := range []string{"Usage", a.keys("usage.open"), "Claude", "Codex", "OpenCode Go", "DeepSeek", "2% used", "90% used", "0% used", "USD 10.77"} {
+					r, ok := tt.Find(text)
+					if !ok {
+						t.Fatalf("missing list text %q: %q", text, tt.Texts())
+					}
+					if r.X < 12 || r.X+r.W > width-12+0.5 {
+						t.Errorf("list text %q clipped: %+v", text, r)
+					}
+				}
+				if tt.HasText("64%") || tt.HasText("CNY") {
+					t.Fatalf("list should show only primary usage and USD: %q", tt.Texts())
+				}
+				previousY := float32(-1)
+				for _, report := range a.usage.reports {
+					row, ok := tt.Find(report.Name + " usage")
+					if !ok || row.H != 25 || row.Y <= previousY || row.X < 0 || row.X+row.W > width {
+						t.Errorf("invalid list row: %+v, found %v", row, ok)
+					}
+					previousY = row.Y
+					if _, ok := tt.Find(report.Name + " meter"); ok {
+						t.Fatal("list still contains a circular meter")
+					}
+				}
+				shot(t, tt, fmt.Sprintf("usage-list-%s-%g", appearance, width))
+				if err := tt.Click("Claude usage"); err != nil {
+					t.Fatal(err)
+				}
+				if !a.usage.open {
+					t.Fatal("list row did not open account details")
+				}
+			})
+		}
+	}
+}
+
+func TestUsageListColorsAndSummaries(t *testing.T) {
+	now := time.Now()
+	for _, pal := range []*palette{&lightPalette, &darkPalette} {
+		for _, c := range []struct {
+			used    float64
+			problem string
+			want    ui.Color
+		}{
+			{89.9, "", pal.textMuted}, {90, "", pal.attention}, {100, "", pal.attention}, {95, "Could not reach provider", pal.textFaint},
+		} {
+			r := usage.Report{Checked: now, Error: c.problem, Windows: []usage.Window{{Used: c.used}}}
+			if got := usageColor(r, pal); got != c.want {
+				t.Errorf("usage %g error %q: color %v, want %v", c.used, c.problem, got, c.want)
+			}
+		}
+	}
+	r := usage.Report{Checked: now, Balance: "CNY 80.00 · USD 10.77"}
+	if got := usageFooterSummary(r, false); got != "USD 10.77" {
+		t.Fatal(got)
+	}
+	if got := usageSummary(r, false); got != r.Balance {
+		t.Fatal("full summary lost balance currencies")
+	}
+	r = usage.Report{Error: "Sign in again"}
+	if got := usageFooterSummary(r, false); got != "Connect" {
+		t.Fatalf("missing data invented usage: %s", got)
+	}
+}
+
+// The compact row shows the primary allowance, but a later exhausted window
+// must still warn. Failed refreshes keep the last observation faint.
+func TestUsageListWarnsForEveryAllowance(t *testing.T) {
+	for _, pal := range []*palette{&lightPalette, &darkPalette} {
+		for _, tc := range []struct {
+			name    string
+			windows []usage.Window
+			problem string
+			want    ui.Color
+		}{
+			{"weekly warning", []usage.Window{{Used: 12}, {Used: 90}}, "", pal.attention},
+			{"monthly exhausted", []usage.Window{{Used: 12}, {Used: 35}, {Used: 100}}, "", pal.attention},
+			{"below threshold", []usage.Window{{Used: 12}, {Used: 89.9}}, "", pal.textMuted},
+			{"stale warning", []usage.Window{{Used: 12}, {Used: 100}}, "Refresh failed", pal.textFaint},
+			{"no allowance", nil, "", pal.textMuted},
+		} {
+			if got := usageColor(usage.Report{Windows: tc.windows, Error: tc.problem}, pal); got != tc.want {
+				t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+			}
+		}
+	}
+}
+
+func TestUsageListHoverLayouts(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		appearance := "light"
+		if dark {
+			appearance = "dark"
+		}
+		for _, width := range []float32{minSidebar, defaultSidebar} {
+			t.Run(fmt.Sprintf("%s-%g", appearance, width), func(t *testing.T) {
+				a := usageListFixture(t)
+				a.prefs.SidebarWidth = width
+				a.usage.reports[0].Windows[0].Used = 83
+				tt := ui.NewTester(func(c *ui.Context) {
+					ui.Column(c).Fill().Background(a.paletteFor(c).sidebar).Children(func() { ui.Spacer(c); a.usageSidebar(c, a.paletteFor(c)) })
+				}, int(max(width, 260)), 300)
+				tt.SetDark(dark)
+				tt.Frame()
+				hover := func(name string) {
+					t.Helper()
+					// Leave an open card before crossing the rows it overlays.
+					tt.Move(320, 299)
+					tt.Advance(500 * time.Millisecond)
+					tt.Frame()
+					row, ok := tt.Find(name + " usage")
+					if !ok {
+						t.Fatalf("missing %s row", name)
+					}
+					tt.Move(row.X+row.W/2, row.Y+row.H/2)
+					tt.Advance(200 * time.Millisecond)
+					tt.Frame()
+				}
+				hover("Claude")
+				for _, text := range []string{"Max", "83%", "64%", "Week", "· " + usageReset(a.usage.reports[0].Windows[0].Resets)} {
+					if !tt.HasText(text) {
+						t.Fatalf("missing hover text %q: %q", text, tt.Texts())
+					}
+				}
+				first, _ := tt.Find("83%")
+				second, _ := tt.Find("64%")
+				if first.X != second.X {
+					t.Errorf("percent columns differ: %+v, %+v", first, second)
+				}
+				shot(t, tt, fmt.Sprintf("usage-list-hover-%s-%g", appearance, width))
+				hover("DeepSeek")
+				if !tt.HasText(locales.UsageBalanceRemaining(a.usage.reports[3].Balance)) {
+					t.Fatal("hover lost full balance")
+				}
+				shot(t, tt, fmt.Sprintf("usage-list-balance-%s-%g", appearance, width))
+				a.usage.reports[2].Checked = time.Time{}
+				a.usage.reports[2].Windows = nil
+				a.usage.reports[2].Error = "Sign in again"
+				hover("OpenCode Go")
+				if !tt.HasText("Sign in again") || tt.HasText("64%") {
+					t.Fatalf("disconnected hover: %q", tt.Texts())
+				}
+				shot(t, tt, fmt.Sprintf("usage-list-disconnected-%s-%g", appearance, width))
+				a.usage.reports[0].Error = "Could not reach provider"
+				hover("Claude")
+				if !tt.HasText(locales.UsageStale()) || !tt.HasText("Could not reach provider") || !tt.HasText("83%") {
+					t.Fatalf("stale hover: %q", tt.Texts())
+				}
+				shot(t, tt, fmt.Sprintf("usage-list-stale-%s-%g", appearance, width))
+				// A full allowance needs three digits plus the percent sign,
+				// on one baseline even in the narrowest sidebar.
+				a.usage.reports[0].Error = ""
+				a.usage.reports[0].Windows[0].Used = 100
+				tt.Frame()
+				full, ok := tt.Find("100%")
+				if !ok || full.H > 20 {
+					t.Fatalf("100%% hover value wrapped or missing: %+v, found %v", full, ok)
+				}
+				week, _ := tt.Find("64%")
+				if full.X != week.X || full.W != week.W || abs(full.H-week.H) > 0.5 {
+					t.Errorf("100%% changed the percentage column: %+v, week %+v", full, week)
+				}
+				shot(t, tt, fmt.Sprintf("usage-list-full-%s-%g", appearance, width))
+			})
+		}
 	}
 }

@@ -57,7 +57,8 @@ Never force-push over changes made by the update workflow or another task.
 The daily workflow reads stable Kero releases and combines them with committed
 changes on `shibu`. It tests/builds/signs candidates and publishes only to your
 fork. Conflicts and failed checks pause publication; they need a reviewed fix.
-The sidebar **Update Shibu from Kero** button starts the same upstream check.
+**Settings > General > Updates > Check Upstream & Build** starts the same
+upstream check. **Check for App Updates** checks published builds separately.
 
 For a personal feature release when Kero has no new release, run
 [Shibu updates](https://github.com/ddeyalla/kero/actions/workflows/shibu-update.yml)

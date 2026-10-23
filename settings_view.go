@@ -304,7 +304,7 @@ func (a *App) settingsView(c *ui.Context) {
 				link.Background(pal.rowHover)
 			}
 			link.TextColor(fg).Tooltip(proto.ShortDir(settings.Path())).Children(func() {
-				ui.Icon(c, glyph("f7-chevron-left-slash-chevron-right")).Size(13, 13)
+				controlIcon(c, glyph("f7-chevron-left-slash-chevron-right"), 13, pal.textMuted, pal.dark)
 				if !narrow {
 					ui.Text(c, locales.SettingsOpenConfig()).FontSize(12.5).SingleLine()
 				}
@@ -364,8 +364,8 @@ func (a *App) settingsView(c *ui.Context) {
 							}
 						})
 					})
-					edge := ui.Box(c.Key("edge")).Absolute().Top(0).Left(0).Right(0).Height(headerH).PassThrough().
-						Material(glass.ScrollEdge{Hard: true, Background: pal.card})
+					edge := ui.Box(c.Key("edge")).Absolute().Top(0).Left(0).Right(0).Height(headerH + 10).PassThrough().
+						Material(glass.ScrollEdge{Background: pal.card})
 					edge.Opacity(edge.Animate("on", b2f(edgeOn), 160*time.Millisecond))
 					ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(headerH).AlignItems(ui.Center).Padding(0, 10, 0, 24).Children(func() {
 						ui.Text(c, page.title()).FontSize(15).FontWeight(650).TextColor(pal.text).SingleLine().Shrink(0)
@@ -430,7 +430,7 @@ func (a *App) settingsSearch(c *ui.Context, pal *palette, width float32) {
 		frame.Width(width).Shrink(1).MinWidth(0).Margin(0)
 	}
 	frame.Children(func() {
-		ui.Icon(c, searchIcon).Size(13, 13).TextColor(pal.textFaint).Shrink(0)
+		controlIcon(c, searchIcon, 13, pal.textFaint, pal.dark).Shrink(0)
 		in = ui.TextInputBase(c.Key("in"), &a.ss.query).Bind(&a.ss.searchRef).Grow(1).MinWidth(0).FontSize(13).
 			Placeholder(locales.CommonSearch()).Label(locales.SettingsSearchLabel())
 		// Escape clears the search, and with none closes Settings.
@@ -443,14 +443,14 @@ func (a *App) settingsSearch(c *ui.Context, pal *palette, width float32) {
 			if x.Hovered() {
 				x.Background(pal.textMuted)
 			}
-			x.Children(func() { ui.Icon(c, closeIcon).Size(8, 8) })
+			x.Children(func() { controlIcon(c, closeIcon, 8, pal.card, pal.dark) })
 			if x.Clicked() {
 				a.ss.query = ""
 				a.ss.searchRef.Focus(c)
 			}
 		}
 	})
-	field(c, frame, in.Focused(), pal)
+	glassToolbar(c, field(c, frame, in.Focused(), pal), pal)
 }
 
 // settingsNav is a page's item in the sidebar, its icon alone when narrow.
@@ -477,7 +477,7 @@ func (a *App) settingsNav(c *ui.Context, pal *palette, p settingsPage, narrow bo
 		a.setRecording("")
 	}
 	item.Children(func() {
-		ic := ui.Icon(c, p.icon).Size(15, 15).TextColor(pal.textMuted)
+		ic := controlIcon(c, p.icon, 15, pal.textMuted, pal.dark)
 		if sel {
 			ic.TextColor(pal.accent)
 		}
@@ -540,12 +540,12 @@ func settingRow(c *ui.Context, pal *palette, label, detail string, control func(
 // separators between the others, and labels of one weight.
 func segmented(c *ui.Context, key string, value *string, ids, labels []string, pal *palette) {
 	i := max(slices.Index(ids, *value), 0)
-	track, thumb := ui.RGBA(0, 0, 0, 0.06), ui.Hex("#ffffff")
+	thumb := ui.Hex("#ffffff")
 	if pal.dark {
-		track, thumb = ui.RGBA(255, 255, 255, 0.07), ui.RGBA(255, 255, 255, 0.2)
+		thumb = ui.RGBA(255, 255, 255, 0.2)
 	}
 	seg := ui.SegmentedBase(c.Key(key), &i, len(labels))
-	seg.Track.Height(24).Padding(2).Radius(7).Background(track).AlignItems(ui.Center).Children(func() {
+	glassToolbar(c, seg.Track.Height(24).Padding(2).AlignItems(ui.Center), pal).Children(func() {
 		for n, label := range labels {
 			if n > 0 {
 				// A separator, where neither segment beside it is chosen.
@@ -554,7 +554,7 @@ func segmented(c *ui.Context, key string, value *string, ids, labels []string, p
 					sep.Background(pal.text.Alpha(0.14))
 				}
 			}
-			s := seg.Segment(n).FillHeight().Padding(0, 12).Radius(5).Center()
+			s := seg.Segment(n).FillHeight().Padding(0, 12).Radius(10).Center()
 			if n == i {
 				s.Background(thumb)
 				if pal.dark {
@@ -624,6 +624,7 @@ func (a *App) updatesGroup(c *ui.Context, pal *palette) {
 				updater.CheckForUpdates()
 			}
 		})
+		a.sourceUpdatesRow(c, pal)
 		settingRow(c, pal, locales.SetAutoCheck(), locales.SetAutoCheckDetail(), func() {
 			toggle(c.Key("auto-check"), &u.automatic, pal).OnChange(func() { updater.SetAutomaticChecks(u.automatic) })
 		})
@@ -1284,7 +1285,7 @@ func (a *App) shortcutRow(c *ui.Context, pal *palette, act actions.Action) {
 			if b.Hovered() {
 				b.Background(pal.rowHover).TextColor(pal.text)
 			}
-			b.Children(func() { ui.Icon(c, returnIcon).Size(12, 12) })
+			b.Children(func() { controlIcon(c, returnIcon, 12, pal.textMuted, pal.dark) })
 			if b.Clicked() {
 				delete(a.set.Shortcuts, act.ID)
 				if len(a.set.Shortcuts) == 0 {

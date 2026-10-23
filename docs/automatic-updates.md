@@ -10,7 +10,7 @@ never the original Kero application.
 - Daily upstream check: 03:23 UTC (08:53 India time), subject to GitHub scheduling delays.
 - Release checks use a lightweight Linux runner; Mac build capacity is requested
   only when there is a candidate to verify and build.
-- Input: the latest published, stable `egoist/kero` release, recorded in
+- Upstream-check input: the latest published, stable `egoist/kero` release, recorded in
   [`shibu-upstream.json`](../shibu-upstream.json).
 - Clean candidates run release-guard tests, all application tests and MyGo vet.
   An ARM64 Mac build is published only when checks/build/signing pass.
@@ -22,21 +22,24 @@ never the original Kero application.
 
 Workflow: [Shibu updates](https://github.com/ddeyalla/kero/actions/workflows/shibu-update.yml).
 Run manually with **mode: check** to check upstream. To release personal
-changes without a newer Kero release, use **mode: release**. **publish: false**
+changes on the reviewed upstream base, use **mode: release**. Release mode
+keeps `shibu-upstream.json` pinned even when a newer Kero release exists. **publish: false**
 builds/tests a candidate artifact without changing the branch or update feed.
 Scheduled checks publish automatically after passing the same gates.
 
-## Manual update button and Codex repairs
+## Manual update controls and Codex repairs
 
-The circular-arrow button beside Settings in the sidebar starts an immediate
-Kero source check. The same action is in the command palette and available as
+In **Settings > General > Updates**, **Check for App Updates** checks published
+Shibu builds. **Check Upstream & Build** starts an immediate Kero source check
+and shows its progress and last result. The source action is also in the
+command palette and available as
 `kero do updates.sync`. Repeated clicks while a check runs are ignored.
 Work happens off the UI thread and the selected coding session stays selected.
 
-The button uses the existing GitHub CLI login for **ddeyalla**, dispatches only
+The source action uses the existing GitHub CLI login for **ddeyalla**, dispatches only
 the `shibu` branch's guarded workflow in `ddeyalla/kero`, and follows its result.
 It never switches the default CLI account or stores that token. Install `gh`
-and authenticate that account to use the button. Ordinary signed app downloads
+and authenticate that account to use the source action. Ordinary signed app downloads
 do not require `gh`.
 
 - Success: open the existing signed update checker, which offers the available

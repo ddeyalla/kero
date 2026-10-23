@@ -46,6 +46,7 @@ type prefs struct {
 	SidebarWidth  float32         `json:"sidebarWidth,omitempty"`
 	SidebarHidden bool            `json:"sidebarHidden,omitempty"`
 	Collapsed     map[string]bool `json:"collapsed,omitempty"`
+	SessionPins   map[string]bool `json:"sessionPins,omitempty"`
 	FontSize      float32         `json:"fontSize,omitempty"`
 	// Show is what the main card showed last. It was "linear" for the
 	// built-in Linear screen, which is gone: any saved value now falls back
@@ -83,7 +84,8 @@ type termEntry struct {
 // App is the app's state. It lives on the main thread: other goroutines
 // change it through Window.Update.
 type App struct {
-	win *mygo.Window
+	sidebarScroll ui.ScrollState // soft edges of sidebar navigation
+	win           *mygo.Window
 
 	cl        *client.Client
 	conn      connState
@@ -274,6 +276,7 @@ func (a *App) snapshotPrefs() prefs {
 // clonePrefs is p with maps of its own.
 func clonePrefs(p prefs) prefs {
 	p.Collapsed = maps.Clone(p.Collapsed)
+	p.SessionPins = maps.Clone(p.SessionPins)
 	if p.Files != nil {
 		files := make(map[string][]string, len(p.Files))
 		for id, dirs := range p.Files {
@@ -439,6 +442,7 @@ func (a *App) setState(st proto.State) {
 	if st.Linear == nil {
 		st.Linear = a.st.Linear
 	}
+	a.pruneSessionPins(st)
 	a.st, a.loaded = st, true
 	// Terminals of panes gone go too.
 	live := map[string]bool{}
@@ -662,6 +666,7 @@ func (a *App) groups() []group {
 				g.sessions = append(g.sessions, &a.st.Sessions[i])
 			}
 		}
+		g.sessions = a.pinnedSessionsFirst(g.sessions)
 		gs = append(gs, g)
 	}
 	other := group{project: proto.Project{ID: "", Name: locales.SidebarOtherProject()}}
@@ -671,6 +676,7 @@ func (a *App) groups() []group {
 		}
 	}
 	if len(other.sessions) > 0 {
+		other.sessions = a.pinnedSessionsFirst(other.sessions)
 		gs = append(gs, other)
 	}
 	return gs

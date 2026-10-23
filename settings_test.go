@@ -40,6 +40,8 @@ func TestSettingsPages(t *testing.T) {
 // action that had them.
 func TestRecordShortcut(t *testing.T) {
 	a := testApp(t)
+	// Find the action rather than relying on its position in a growing list.
+	a.ss.filter = "Split"
 	a.ss.draft = map[string]string{}
 	a.ss.page = "keyboard"
 	tt := ui.NewTester(a.settingsView, 820, 1100)

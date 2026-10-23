@@ -25,6 +25,7 @@ plugin panes), and an older build cannot open the migrated panes.
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
+| Release validation permits Spotify automation consent while guarding the app identity; CI runs all local delivery checks | `scripts/check.sh`, Shibu checks and Shibu updates workflows | Unreleased | Tested |
 | Linear plugin: list or board in the sections Current, Done, Todo and Backlog with nested folds; Current follows the focused session; filters for assignee, project, label, priority, search and canceled; full issue detail (Markdown, properties, status picker, runs with Resume, sub-issues, relations, activity) | The sidebar pin, the **Tasks** entry of the New Pane chooser (`Cmd+Alt+L`), `kero split --tasks` | Unreleased | Untried |
 | Sidebar pins: a plugin widget has a row in the sidebar; a click focuses its pane in the selected session or splits one in | Pane header menu, Settings › Plugins, command palette, `kero plugin pin\|unpin <plugin> [widget]` | Unreleased | Untried |
 | Linear plugin keyboard and menu: sticky search and filter header; J/K or arrows move, Enter opens, Escape goes back (only while the pane has the focus); right-click menu with Open, Open in Linear, Copy ID, Copy Link, Move To (shown at once) and Start task; label colours on cards; Canceled toggle; screen-reader labels for status and priority | Click in the Linear pane, then keys; right click an issue | Unreleased | Untried |
@@ -71,7 +72,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | Sign Out of Spotify (keeps the Client ID, stops the engine) | Settings › Plugins › Spotify; palette › Sign Out of Spotify | Unreleased | Untried |
 | Colour from music: a plugin with the `ambient` permission tints the accent, focus edge, cursor, selection and the cards, capped to 3:1 contrast | Settings › Appearance › Colour from music; `ambient-color = false` off | Unreleased | Untried |
 | Plugin panes that scroll as one page (`Tree.Scroll`), plugin icon buttons drawn as SF Symbols, and a smooth pane: unchanged trees skipped, seek bar and clock moved by the host | Automatic; Spotify uses all | Unreleased | Untried |
-| Usage widget: a Cost card (Today, Yesterday, 30 Days; donut and legend, from local Claude Code, Codex and OpenCode logs) and a section per provider with each window's bar, pace tick, "% left", reset and "Limit in …" flame, and Today and Last 30 Days in dollars and tokens; compact in small panes | New Pane chooser › Usage, palette, `kero split --plugin usage` | Unreleased | Untried |
+| Usage widget: a Cost card (Today, Yesterday, 30 Days; total and provider list, from local Claude Code, Codex and OpenCode logs) and a section per provider with each window's bar, pace tick, "% left", reset and "Limit in …" flame, and Today and Last 30 Days in dollars and tokens; compact in small panes | New Pane chooser › Usage, palette, `kero split --plugin usage` | Unreleased | Untried |
 
 ### Files pane
 
@@ -114,7 +115,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | Claude, Codex, OpenCode Go and DeepSeek usage, refreshed in the background | Sidebar, `kero usage --json` | 2.0.5-local.1 | Shipped |
 | Usage as a modal in the window | `Cmd+Shift+U`; `Cmd+R` refreshes, Esc closes | 2.0.5-local.2 | Shipped |
 | Optional private provider keys | Usage modal | 2.0.5-local.1 | Shipped |
-| Sidebar usage as a ring per installed harness (found on `PATH` or in the installers' folders), a currency sign for a balance, a dashed ring when not connected, an amber dot when a refresh failed; hovering highlights the harness and shows the plan, every window, its percentage and reset time, a balance or why it is not connected | Hover a ring; click it or press `Cmd+Shift+U` for the modal | Unreleased | Untried |
+| Sidebar usage list with one row per provider, primary percentage or USD balance, warning when any allowance reaches 90%, and all windows/reset times in hover details | Hover a provider; click its row or the Usage header, or press `Cmd+Shift+U` | Unreleased | Untried |
 | CPU and RAM meters for the whole Mac | Sidebar, `kero resources --json` | 2.0.5-local.2 | Shipped |
 | Hidden terminal output updates its screen without redrawing the window; revealing a pane shows its latest output | Automatic when switching sessions, zooming, or replacing a terminal with another pane view | Unreleased | Automated checks; not yet tried in the installed app |
 | Visited-terminal memory diagnostics: empty-app baseline, two sweeps, all-pane output and settled footprint, Go heaps and native accounting; separate-session and single-session split workloads | `PERF_MEMORY=1 PERF_KEEP=1 sh scripts/perf.sh N`; add `PERF_LAYOUT=split`; see [Performance](perf.md) | Unreleased | Automated probe checks; synthetic measurements recorded separately from the daily app |
@@ -130,7 +131,8 @@ plugin panes), and an older build cannot open the migrated panes.
 | --- | --- | --- | --- |
 | Settings as a modal over the main window, not a separate window | `Cmd+,` toggles it, or the sidebar's gear; Esc, a click beside it or `Cmd+W` closes it | Unreleased | Untried |
 | Accent presets: Blue, Plum, Rose, Sea, Moss, Graphite — an accent color, the wash that comes with it, the terminals' selection | Settings › Appearance › Accent (with its wash); `accent = <preset>` in the config (the accent alone) | Unreleased | Untried |
-| Grain over the background wash | Settings › Appearance › Grain; `grain = false` off | Unreleased | Untried |
+| Grain over the background wash: a repeating 300-point tile at 3.3% light and 4% dark | Settings › Appearance › Grain; `grain = false` off | Unreleased | Pixel strength and tiling regressions pass |
+| Spotify list errors retain the open album or playlist and offer Retry; offline libraries and Up next can retry in place | Retry in a failed Spotify list | Unreleased | Fake HTTP recovery and race tests |
 
 ## Terminal
 
@@ -155,6 +157,14 @@ plugin panes), and an older build cannot open the migrated panes.
 | A project's hover chevron and add button wait 80 ms after the pointer leaves | Automatic; hover a project header | Unreleased | Untried |
 | First run: a ~900 ms reveal of the real shell, covering the window from its first frame, skipped after 2 s or on a connection error, cancellable, Reduce Motion aware, silent, shown once | Automatic, on the first launch | Unreleased | Untried |
 | Floating panels on Liquid Glass: the command palette, the confirmation dialog, the New Pane chooser, Settings and a pane's drag chip; no dimming under them except a confirmation; concentric corners; opaque under Reduce Transparency | `Cmd+P`, `Cmd+,`, `Cmd+Alt+N` (New Pane chooser), closing a busy session, dragging a pane's title | Unreleased | Untried |
+| Glass Browser/Files toolbar groups, capsule fields and controls, native SF Symbols, held slider/switch lenses and soft scrolling edges; sidebar and pane-header icon buttons retain their previous plain style; opaque under Reduce Transparency | Sidebar, pane headers, Browser/Files/Attention toolbars, Settings and plugin controls | Unreleased | Automated checks and isolated dev app; hand acceptance pending |
+
+## Session organization
+
+| Feature | How to use it | Since | Status |
+| --- | --- | --- | --- |
+| Pin sessions inside each project; reorder pinned or unpinned sessions with a glass preview and neutral placement cue; palette and navigation share saved order | Session context menu, drag, palette, `kero do session.pin\|session.unpin\|session.moveUp\|session.moveDown` | Unreleased | Tested locally; not installed |
+| Reorder whole project groups without changing session membership | Drag project headers, project context menu, Session menu, palette, `kero do project.moveUp\|project.moveDown` | Unreleased | Tested locally; combined hand test pending |
 
 ## Updates and releases
 
@@ -162,7 +172,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | --- | --- | --- | --- |
 | Daily check for stable Kero releases, merged, tested and signed | Automatic (GitHub Actions on the fork) | 2.0.5-local.6 | Shipped |
 | Signed background updates that apply on the next launch | Settings › General › Updates | 2.0.5-local.6 | Shipped |
-| Check Kero now | Sidebar update button, palette, `kero do updates.sync` | 2.0.5-local.7 | Shipped |
+| Check Kero now, with progress and result; separate from published app updates | Settings › General › Updates › Check Upstream & Build, palette, `kero do updates.sync` | Unreleased (moved from sidebar; action since 2.0.5-local.7) | Tested locally; not installed |
 | Codex repair session in its own worktree when an update build fails | Automatic, review before release | 2.0.5-local.7 | Shipped |
 
 ## Identity and safety

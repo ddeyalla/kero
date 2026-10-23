@@ -87,3 +87,34 @@ func glassScrim(c *ui.Context, pal *palette) ui.Color {
 	}
 	return ui.Transparent
 }
+
+// glassToolbar groups related navigation controls on one quiet capsule.
+// Content stays opaque; only the controls use the regular glass material.
+// The system transparency preference restores an opaque control surface.
+func glassToolbar(c *ui.Context, e ui.Element, pal *palette) ui.Element {
+	e.Radius(16)
+	if !glassShows(c) {
+		return e.Background(pal.control)
+	}
+	return e.Background(ui.Transparent).Material(panelGlass(pal, false))
+}
+
+// toolbarGroup keeps the existing compact hit targets in a single capsule.
+func toolbarGroup(c *ui.Context, key string, pal *palette, children func()) {
+	e := ui.Row(c.Key(key)).Shrink(0).Gap(0).Padding(2).AlignItems(ui.Center)
+	glassToolbar(c, e, pal).Children(children)
+}
+
+// scrollUnderBar softens only content that continues beyond a navigation
+// edge. The effect overlays the scroller, never its controls or hit targets.
+func scrollUnderBar(c *ui.Context, key string, sc *ui.ScrollState, background ui.Color, build func(ui.Element)) {
+	ui.Column(c.Key(key + "-viewport")).Grow(1).MinHeight(0).MinWidth(0).Clip().Children(func() {
+		build(ui.Scroll(c.Key(key)).Grow(1).MinHeight(0).MinWidth(0).TrackScroll(sc))
+		if sc.Y > 0.5 {
+			ui.Box(c.Key("top-edge")).Absolute().Top(0).Left(0).Right(0).Height(14).PassThrough().Material(glass.ScrollEdge{Background: background})
+		}
+		if sc.MaxY-sc.Y > 0.5 {
+			ui.Box(c.Key("bottom-edge")).Absolute().Bottom(0).Left(0).Right(0).Height(14).PassThrough().Material(glass.ScrollEdge{Bottom: true, Background: background})
+		}
+	})
+}

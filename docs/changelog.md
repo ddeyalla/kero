@@ -20,6 +20,27 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Added
 
+- Project groups can be reordered by dragging their header or using Move
+  Project Up / Down in the context menu, Session menu, palette or CLI. The
+  existing daemon persists their order without a protocol or state change.
+- Sidebar drag feedback uses a lifted glass preview and a neutral insertion
+  rule, with an opaque fallback under Reduce Transparency. The cue does not
+  shift row text. Dragging preserves the active terminal and collapse state.
+- Sessions can be pinned within their project and reordered within their pin
+  section. Pins and order survive restarts; palette and navigation agree.
+- Source update checks now live in Settings > General > Updates as **Check
+  Upstream & Build**, with progress and the last result. **Check for App
+  Updates** checks published builds. The fourth footer icon is removed;
+  the source command remains in the palette and `kero do updates.sync`.
+
+- Compact glass Browser/Files toolbar groups and capsule controls keep the
+  current window layout. Scrolling sidebar, Files and Attention lists soften at their edges;
+  Settings uses a soft header edge. Held sliders and switches use real glass
+  lenses, with opaque fallbacks for Reduce Transparency. macOS control icons
+  use native SF Symbols; program logos remain artwork.
+- Sidebar and pane-header icon buttons retain their previous plain style,
+  without a Liquid Glass capsule or extra group padding.
+
 - Linear is a built-in plugin. Its pane shows the team's issues as a list or a
   board, in the sections Current, Done, Todo and Backlog, each with nested
   folds (section, project, parent issue, sub-issues). Current follows the
@@ -226,16 +247,12 @@ builds only. What each feature is and where it stands is tracked in the
   service once** (when agents are idle) for the reports to reach the panes;
   until then the hooks do nothing. No protocol change.
 - `agent-hooks` configuration key, `true` by default.
-- Account usage in the sidebar is a ring for each harness this Mac has
-  installed — Claude, Codex, OpenCode Go or DeepSeek — with the first
-  allowance as its arc and amber once any window reaches 90%, its name
-  beside it where the sidebar has room and rows of rings where it does not.
-  A balance shows its currency's sign, a harness not connected a dashed
-  ring, and a ring whose refresh failed an amber dot. Hovering one makes its
-  name stand out and shows the plan, every allowance window with the
-  percentage and its reset, a balance, why it is not connected, or "Last
-  known usage; refresh failed"; clicking it, or `Cmd+Shift+U`, opens the
-  full modal as before. The CPU and RAM meters stay below the bar.
+- Account usage in the sidebar uses a list with one row per supported
+  provider. Rows show the primary allowance percentage or USD balance; any
+  allowance reaching 90% warns in amber. Hover details retain every window,
+  reset time, plan, full balance, and disconnected or stale state. The Usage
+  header and provider rows open account details; `Cmd+Shift+U` also opens it.
+  Circular usage meters have been removed (BRU-182).
 - Session states read at a glance: a working session turns a loading ring
   (or fills it when its program reports progress), one that needs you shows
   an amber ring with a dot, one done and unseen a filled check, one done and
@@ -308,8 +325,8 @@ builds only. What each feature is and where it stands is tracked in the
   permission, and refreshes only while it is visible, at most every two
   minutes unless you press refresh.
 - The Usage pane is redesigned. A Cost card has a Today, Yesterday and 30 Days
-  segmented control, a donut with the total in its middle (the text shrinks to
-  fit), and a legend of a provider dot, its name and its amount. An amount
+  segmented control, a full total, and a list of each provider's name and
+  amount. An amount
   made with an estimated price shows "≈", and a line "Some amounts are
   estimates" has a tooltip that lists the models priced by estimate. Below it,
   each provider has a section with its mark, name and plan. Each window
@@ -404,6 +421,26 @@ builds only. What each feature is and where it stands is tracked in the
   terminal's cursor by painting the window again, without building it.
 
 ### Fixed
+
+- Spotify track lists and Up next offer Retry after a failed read. An
+  unavailable connection keeps the open album or playlist in place instead
+  of showing an empty successful list or returning to the library.
+- Backdrop grain repeats in a 300-point tile and stays within the requested
+  2–4% strength in both appearances, including dark mode.
+- Native control symbols reuse one template bitmap through hover and ambient
+  color changes, rather than retaining a separate bitmap for every tint.
+
+- Release validation accepts Spotify's macOS automation permission text while
+  continuing to reject signing and bundle identity overrides. CI now runs the
+  same complete test, vet and Python checks as local delivery validation.
+- Releasing current Shibu changes keeps the reviewed upstream base. New Kero
+  releases are incorporated by the separate upstream-check workflow path.
+
+- Native SF Symbol drawing keeps graphics state and temporary AppKit objects
+  on one OS thread, preventing a sporadic graphics-state restore trap.
+
+- The Usage plugin shows spending as a provider list with a full total.
+  The circular cost chart is removed in every pane size.
 
 - Output from hidden terminal panes no longer redraws the window. Switching
   sessions or unzooming a pane shows its latest output immediately (BRU-331).

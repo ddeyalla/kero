@@ -219,11 +219,12 @@ func (a *App) attentionPane(c *ui.Context, pal *palette, s *proto.Session, p *pr
 		return
 	}
 	agoTick(c) // each row says since when, with the sidebar hidden too
-	list := ui.Scroll(c.Key("attention-list")).Grow(1).MinHeight(0).MinWidth(0).Padding(0, 8, 6, 8).TrackScroll(&st.scroll)
-	list.Children(func() {
-		for _, r := range shown {
-			a.attentionRowView(c, pal, r)
-		}
+	scrollUnderBar(c, "attention-list", &st.scroll, pal.card, func(list ui.Element) {
+		list.Padding(0, 8, 6, 8).Children(func() {
+			for _, r := range shown {
+				a.attentionRowView(c, pal, r)
+			}
+		})
 	})
 }
 
@@ -243,25 +244,27 @@ func (a *App) attentionToolbar(c *ui.Context, pal *palette, st *attentionView, r
 		return n
 	}
 	ui.Row(c.Key("attention-toolbar")).Height(40).Shrink(0).Gap(6).Padding(0, 12, 0, 12).AlignItems(ui.Center).Children(func() {
-		for _, f := range attentionFilters {
-			ch := ui.Row(c.Key("chip-"+f)).Height(22).Padding(0, 8).Gap(5).Radius(11).AlignItems(ui.Center).
-				Shrink(0).Cursor(ui.CursorPointer)
-			bg, fg := ui.Transparent, pal.textMuted
-			switch {
-			case st.filter == f:
-				bg, fg = pal.accent.Alpha(0.14), pal.accent
-			case ch.Hovered():
-				bg = pal.rowHover
+		ui.ScrollHorizontal(c.Key("attention-filters")).Height(26).Grow(1).MinWidth(0).AlignItems(ui.Center).Children(func() {
+			for _, f := range attentionFilters {
+				ch := ui.Row(c.Key("chip-"+f)).Height(22).Padding(0, 8).Gap(5).Radius(11).AlignItems(ui.Center).
+					Shrink(0).Cursor(ui.CursorPointer)
+				bg, fg := ui.Transparent, pal.textMuted
+				switch {
+				case st.filter == f:
+					bg, fg = pal.accent.Alpha(0.14), pal.accent
+				case ch.Hovered():
+					bg = pal.rowHover
+				}
+				ch.Background(ch.AnimateColor("bg", bg, hover))
+				if ch.Clicked() {
+					st.filter = f
+				}
+				ch.Children(func() {
+					ui.Text(c, attentionFilterLabel(f)).FontSize(11.5).FontWeight(600).TextColor(fg).SingleLine().Shrink(0)
+					ui.Textf(c, "%d", count(f)).FontSize(11).TextColor(fg.Alpha(0.7)).FontFeatures("tnum").SingleLine().Shrink(0)
+				})
 			}
-			ch.Background(ch.AnimateColor("bg", bg, hover))
-			if ch.Clicked() {
-				st.filter = f
-			}
-			ch.Children(func() {
-				ui.Text(c, attentionFilterLabel(f)).FontSize(11.5).FontWeight(600).TextColor(fg).SingleLine().Shrink(0)
-				ui.Textf(c, "%d", count(f)).FontSize(11).TextColor(fg.Alpha(0.7)).FontFeatures("tnum").SingleLine().Shrink(0)
-			})
-		}
+		})
 		a.attentionSearch(c, pal, st)
 	})
 }
@@ -272,20 +275,20 @@ func (a *App) attentionSearch(c *ui.Context, pal *palette, st *attentionView) {
 	var in ui.Element
 	frame := ui.Row(c.Key("attention-search")).Cursor(ui.CursorText).Grow(1).MinWidth(90).MaxWidth(200)
 	frame.Children(func() {
-		ui.Icon(c, searchIcon).Size(12, 12).TextColor(pal.textFaint).Shrink(0)
+		controlIcon(c, searchIcon, 12, pal.textFaint, pal.dark).Shrink(0)
 		in = ui.TextInputBase(c.Key("in"), &st.query).Grow(1).MinWidth(0).FontSize(12.5).
 			Placeholder(locales.AttentionSearchPlaceholder()).Label(locales.AttentionSearch())
 		in.OnShortcut(0, ui.KeyEscape, func() { st.query = "" })
 		if st.query != "" {
 			x := ui.ButtonBase(c.Key("clear")).Size(15, 15).Radius(8).Center().Shrink(0).
 				Background(pal.textFaint.Alpha(0.55)).TextColor(pal.card).Label(locales.AttentionClearFilter())
-			x.Children(func() { ui.Icon(c, closeIcon).Size(7, 7) })
+			x.Children(func() { controlIcon(c, closeIcon, 7, pal.card, pal.dark) })
 			if x.Clicked() {
 				st.query = ""
 			}
 		}
 	})
-	field(c, frame, in.Focused(), pal).Height(26)
+	glassToolbar(c, field(c, frame, in.Focused(), pal).Height(26), pal)
 }
 
 // attentionRowView is one session: its state and its words at the left,

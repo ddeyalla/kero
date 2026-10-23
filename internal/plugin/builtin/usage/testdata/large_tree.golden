@@ -1,8 +1,8 @@
 column usage-root
   column usage-cost surface=card
     segmented usage-range item(today,"Today",true) item(yesterday,"Yesterday",false) item(30d,"30 Days",false)
-    row usage-cost-body
-      donut usage-donut "$4.6K" seg(claude=3200.50,orange) seg(codex=1400.25,green)
+    column usage-cost-body
+      text usage-cost-total "≈$4,600.75"
       column usage-legend
         row leg-claude
           text leg-dot-claude icon=dot color=orange

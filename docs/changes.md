@@ -3,6 +3,82 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Release validation and CI
+
+Release mode publishes the reviewed source on the pinned upstream base in
+`shibu-upstream.json`. A newer upstream release is considered only by check
+mode, keeping an unrelated upstream merge out of the final delivery step.
+Release preparation also stamps the feature tracker's release header and
+Unreleased feature rows, retaining their existing hand-test status.
+
+`scripts/shibu_release.py` permits the macOS `infoPlist` automation consent
+description needed by Spotify. Its allowlist still rejects other plist keys,
+signing settings and bundle identity overrides. `scripts/test_shibu_release.py`
+checks the actual application configuration and invalid override cases.
+`.github/workflows/test.yml` runs `scripts/check.sh`, using the same full Go,
+MyGo vet and Python checks as local delivery. The growing UI suite uses Go's
+default ten-minute timeout instead of a separate two-minute CI timeout;
+runtime performance budgets remain independently tested.
+
+## Session organization and update controls
+
+`session_sidebar.go` owns project-local session pins, the stable partition
+that puts pins first, context-menu actions, drop targets, and the conversion
+from a visible position to the existing daemon `move` RPC's project index.
+`app.go` applies that partition in `groups()`, so the sidebar, command palette,
+number shortcuts and next/previous navigation agree. The pin indicator is the
+native `pin.fill` SF Symbol. The Session menu, palette, configurable shortcuts,
+and `kero do` expose `session.pin`, `session.unpin`, `session.moveUp` and
+`session.moveDown`; commands accept `session=<id>` and otherwise use the
+selected session.
+
+Pins are stored separately from plugin pins in `app.json`'s `sessionPins` map.
+Asynchronous preference snapshots clone that map. Session order uses the
+existing daemon state and persistence, without a protocol or state-version
+change. Drops and menu moves stay within the same project and pin section;
+only a confirmed daemon state changes the displayed order. Failed writes use
+the existing error toast. New sessions are unpinned and retain the existing insertion after the selected
+session. Moving a session to
+another project keeps its pin and appends it to that section. Unpinning returns
+it to its underlying daemon-order position among unpinned sessions.
+
+Pins are removed when a session observed in this daemon disappears. Unknown
+pins are retained across connection and daemon changes: background restoration
+sends partial session lists, so absence on connection is not proof of deletion.
+A pin for a session deleted while this app was disconnected can therefore
+remain dormant in the preferences; it is never displayed without that session.
+
+The fourth footer icon is removed in `view.go`. `source_updates_settings.go`
+puts its existing off-thread action in Settings > General > Updates, beside
+published app update controls. While a source check runs, its button becomes a
+busy label; Settings keeps the current progress and last result. Settings
+search finds the action by upstream, source, GitHub, build and repair.
+`updates.sync`, its palette entry, duplicate-run guard and repair behavior stay
+with the existing source-update implementation.
+
+Regression coverage: `session_sidebar_test.go` exercises the rendered menus,
+drag requests over a private fixture socket, pin persistence, navigation,
+section boundaries and partial restoration. `internal/daemon/session_order_test.go`
+proves project-relative ordering survives daemon save/restore.
+`source_updates_test.go` checks the footer and Settings idle/busy/result states.
+
+`sidebar_drag.go` shares drag feedback between session rows and project
+headers. A carried item uses tinted interactive glass with an opaque fallback
+under Reduce Transparency. The placement rule is neutral paint drawn over the
+row, so it changes neither the border nor the text layout. A session is chosen
+on click, not press: dragging it leaves the active terminal alone. MyGo owns
+the drag threshold, Escape cancellation, edge scrolling and reduced-motion
+behavior. No new animation loop is introduced.
+
+`project_sidebar.go` reuses `project.move` and its saved project order. The
+whole project group is the drop target, so the marker appears outside its
+sessions. Only its header is a drag source. Project menus, the Session menu,
+palette, configurable shortcuts and `kero do project.moveUp|project.moveDown`
+provide equivalent moves. Synthetic Other, missing ids, self drops and
+unchanged placements are rejected. Group position transitions preserve the
+existing collapse animation. Regression tests cover these gestures and the
+existing daemon save/restore path.
+
 ## Linear plugin
 
 The scope, setup and limits are recorded in
@@ -508,39 +584,22 @@ the background every two minutes, preserve the last successful observation
 after errors, and respect rate-limit backoff. Explicit provider-key overrides
 are atomically stored with mode `0600` in the personal data directory.
 
-The sidebar's bottom bar is one ring per harness this Mac has installed:
-Claude, Codex and OpenCode Go when their command or sign-in file is found
-(OpenCode Go also by `OPENCODE_API_KEY` or OpenCode's own login), and
-DeepSeek when its key is saved, set in `DEEPSEEK_API_KEY` or in OpenCode's
-DeepSeek login; with none found it shows every provider, so a new user sees
-what can be connected. The first allowance is the arc, amber once any of
-the harness's windows reaches 90%. A harness with only a balance, as
-DeepSeek, shows its currency's sign in the track instead; one not
-connected, a dashed track; and an amber dot marks a ring whose last
-refresh failed, the arc then being the last known usage. The names sit
-beside the rings while they fit — in rows when the sidebar can't hold them
-in one, and the rings alone at the narrowest sidebar, where the hover card
-names them instead. The hovered harness's name turns the text's color and
-heavier, and its ring's track darker. Hovering a ring shows the plan
-(capitalized: the APIs send "max", "plus"), every allowance window ("5
-hours", "Week") with its percentage and reset — the time today, the
-weekday this week, the date from six days on — a balance, or why the
-harness is not connected, and "Last known usage; refresh failed" over a
-stale one; clicking it, or `Cmd+Shift+U`, opens the full in-window modal
-with refresh, provider configuration and keys. The CPU and RAM meters stay
-below the bar, unchanged (`resources.go`).
+The sidebar footer is a list of Claude, Codex, OpenCode Go and DeepSeek.
+Every supported provider keeps its row, including providers not installed or
+connected. The Usage header shows its shortcut; each row shows the provider
+name and its primary allowance percentage or USD balance. No circular meters
+remain. Hovering shows every allowance and reset time, the plan, the full
+balance, and disconnected or stale details. Clicking the header or a row, or
+`Cmd+Shift+U`, opens account details. CPU and RAM meters remain below the list.
 
-Detecting what is installed is `usage.Installed()`, which looks for each
-command on `PATH` and then in the folders the installers use
-(`installDirs`: `~/.local/bin`, `~/.claude/local`, `~/.opencode/bin`,
-`~/.bun/bin`, `/opt/homebrew/bin`, `/usr/local/bin`), as an app opened from
-the Dock or the Finder has only the system's `PATH`; and for the sign-in
-files without asking the keychain for a secret, where Claude Code keeps
-its sign-in. It runs off the main thread with each two-minute refresh, the
-first at launch; until it returns, every provider shows. The bar's rows come from
-`usageBarRows` in [`usage.go`](../usage.go); a ring is `usageRing`, the card
-`usageHover`, its reset text `usageReset`. Tests: `usage_test.go`,
-`internal/usage/usage_test.go` (`TestInstalledFromInstallerFolders`).
+`usageSidebar` and `usageRow` in [`usage.go`](../usage.go) own the list;
+`usageFooterSummary` selects its compact value, while `usageHover` preserves
+all windows. `usageColor` warns when **any** allowance reaches 90%, even if
+only the primary allowance is displayed. Failed refreshes retain their last
+observation with faint text and a stale marker. The details card keeps aligned
+percentage and reset columns at the minimum sidebar width. Tests in
+`usage_test.go` cover light/dark layouts, narrow widths, hover transfer, three
+windows, disconnected/stale states and secondary-window warning thresholds.
 
 The modal shows allowance windows, reset times, refresh and provider
 configuration, and its own error and connection states. `Cmd+Shift+U` opens
@@ -1201,14 +1260,20 @@ on the card and the sidebar, in both appearances, and the white text of a
 primary button at 4.5 to 1 on it.
 
 **The grain.** [`grain.go`](../grain.go) holds one fragment shader of
-package `ui/shader`: a hash of each two pixels of the window, half the
+package `ui/shader`: a hash of each two points in a repeating 300-point tile, half the
 specks white and half black, from no image and no time. `backdrop` draws
 it on the backdrop row after its background and before its children, so it
 lies over the wash and under the sidebar and the cards, at 3.3% in the
-light and 4.5% in the dark at a speck's strongest — an average of some
+light and 4% in the dark at a speck's strongest — an average of some
 1.8% — and about 30% lighter where `Vibrancy()` has the desktop showing
 through,
 which has a texture of its own. `grain = false` turns it off.
+
+The grain pixel regression in `grain_test.go` checks the tile and the
+2–4% maximum strength. `sidebar_motion_test.go` verifies that a project of
+100 sessions snaps to its collapsed or expanded state with Reduce Motion.
+Its software-tester benchmark measures collapse operations; it is not a
+measurement of the native GPU's frame rate.
 
 **Focus, not dimming.** A pane that is not focused is the pane it is: its
 card is `pal.card` and its text is untouched. [`panes.go`](../panes.go)
@@ -1579,10 +1644,10 @@ renders only when it ends. The picture cache is keyed by URL, and the host
 downscales a decoded picture to at most 512 pixels in `pluginFetch`. SF
 Symbols are drawn through AppKit as templates and tinted at draw time
 (`plugin_symbol.go`, `plugin_symbol_darwin.go`), so no fallback shows first.
-The app's own views draw SF Symbols for new marks through `symbols_darwin.go`
-(a second, separate renderer, keyed by size, tint and appearance); the rest of
-the app still uses the Framework7 SVGs in `icons/`, a known gap against the SF
-Symbols rule in `AGENTS.md`. The medium and large layouts may
+The app's own views draw control and status SF Symbols through
+`symbols_darwin.go`. Its white templates are keyed by name, size and
+appearance, with tint applied when painted, just as plugin symbols are.
+The medium and large layouts may
 return `ScrollingTree()` (`Tree.Scroll`, `internal/plugin/protocol/tree.go`).
 
 Ambient colour. A plugin with the `ambient` permission lends its pane tint.
@@ -1638,9 +1703,8 @@ uses `tint`.
 The Usage widget (`usage`, widget `usage`) reads `internal/usage` directly and
 has no network code and no permissions. It no longer shows the machine's CPU
 and RAM. A Cost card shows a Today, Yesterday and 30 Days `segmented` control,
-a `donut` whose middle text shrinks to fit the total, and a legend of a dot,
-the provider's name and its amount; "≈" and a line "Some amounts are
-estimates" mark estimated prices, and the line's tooltip lists those models.
+a full total and a vertical list of each provider's name and amount; "≈" and
+a line "Some amounts are estimates" mark estimated prices, and the line's tooltip lists those models.
 Each provider has a section with its mark, name and plan. Each window (Session,
 Weekly, Monthly) is a `progress` bar with a `marker` for the pace, "% left"
 and "Resets in …"; when the pace would reach the limit before the reset, a red
@@ -1666,7 +1730,7 @@ Reads are incremental, and a compact binary cache at
 `<KERO_HOME>/plugin-data/usage/cost-cache.bin` is saved at most every 30
 minutes and on close. The plugin reads only while a pane is visible: every 5
 minutes, at midnight and on refresh. Nothing reads or stores message text.
-The generic parts that the card needs (`segmented`, `donut`, `surface`,
+The generic parts that the card needs (`segmented`, `surface`,
 `marker`, `icon` and `mark` on text, the `strong` role, more colour roles and
 icons) live in `internal/plugin/protocol/tree.go`, `internal/plugin/sdk/parts.go`,
 [`plugin_view.go`](../plugin_view.go) and [`plugin_symbol.go`](../plugin_symbol.go).
@@ -1795,3 +1859,54 @@ not establish a memory reduction or full allocator ownership. The historical
 1.22 GB daily-app observation and the ordinary small-pane budget remain open.
 No production memory policy changed. See [Performance](perf.md) for the full
 matrix, profiling effects and remaining limits.
+
+## Controls and toolbars on Liquid Glass (BRU-212)
+
+The sidebar and pane layout stay as they are. This pass changes the navigation
+and control layer: Browser and Files toolbar groups use compact glass capsules,
+fields and segmented controls have concentric rounded ends, and a held slider
+or switch has a real glass lens. Primary action buttons keep their opaque
+accent fill so their text contrast does not depend on content underneath.
+
+Sidebar collapse/add controls, the footer's folder/search/Settings buttons and
+pane-header add/split/zoom/close controls keep their previous plain style:
+individual compact buttons with a subtle rounded hover fill, without a glass
+capsule or group padding. This follows the owner's native-app hand-test feedback.
+
+`glass_ui.go` owns `glassToolbar`, `toolbarGroup` and `scrollUnderBar`. Sidebar,
+Files and Attention lists, and plugin lists with a sticky header, use
+pass-through soft edges only where more content continues beyond the viewport.
+The plugin seam gives the Linear/Tasks toolbar the same treatment. Settings uses its existing overlaid header,
+with a soft edge. Browser navigation and its address field are grouped above
+the native web view; the MyGo compositor does not refract the web page.
+
+`controls.go` and `elevation.go` retain the base controls' keyboard, pointer and
+accessibility behavior while styling their materials. `glassShows` and MyGo's
+glass materials follow Reduce Transparency and Increase Contrast. Opaque
+fallbacks stay fully opaque even when a hover tint has partial alpha. Motion
+continues to follow the system's Reduce Motion preference.
+
+`icons.go` maps existing embedded control handles to native SF Symbols through
+`controlIcon` and `symbols_darwin.go`; provider logos remain artwork. Glyph
+handles are cached by embedded asset name under a mutex, so Settings rebuilds
+cannot grow the native-symbol registry every frame. Non-macOS window controls
+keep their existing platform rendering.
+
+Native symbol bitmaps cache the white shape, not each tint. Hover, theme
+and ambient-color transitions reuse that shape and apply color with the
+painter's image tint. The regression advances 32 control tints and verifies
+that they retain at most one new bitmap instead of one per color.
+
+Offscreen symbol drawing pins its goroutine to one OS thread while AppKit's
+per-thread graphics stack and autorelease pool are live. Graphics state is
+restored before releasing the bitmap, draining the pool and unlocking the
+thread. This fixes a sporadic native restore trap exposed by the full UI suite;
+the uncached worker regression repeats native calls under scheduler and GC
+pressure, rather than exercising only warmed bitmap-cache entries.
+
+`controls_glass_test.go`, `toolbar_glass_test.go` and `symbols_test.go` cover
+control interaction, opaque fallbacks, scroll-edge hit testing, symbol tint,
+native symbol availability and bounded concurrent glyph reuse. MyGo tester
+shots cover light/dark appearances and reduced transparency. A floating inset
+sidebar, window-radius redesign and glass morphing container are outside this
+pass, following the owner's current-layout decision.

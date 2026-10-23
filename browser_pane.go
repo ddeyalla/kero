@@ -413,31 +413,40 @@ func (a *App) pageFocus(c *ui.Context, st *browserState, s *proto.Session, p *pr
 func (a *App) browserBar(c *ui.Context, pal *palette, st *browserState, p *proto.Pane) {
 	ui.Row(c.Key("browser-bar")).Height(40).Shrink(0).AlignItems(ui.Center).Gap(2).Padding(0, 8).Children(func() {
 		nav := func(key string, svg *ui.SVG, label string, on bool, fn func()) {
-			b := ui.ButtonBase(c.Key(key)).Size(28, 26).Radius(6).Center().TextColor(pal.textMuted).Label(label).Tooltip(label).Disabled(!on)
+			b := ui.ButtonBase(c.Key(key)).Size(28, 26).Radius(13).Center().TextColor(pal.textMuted).Label(label).Tooltip(label).Disabled(!on)
 			if !on {
 				b.TextColor(pal.textFaint.Alpha(0.5))
 			} else if b.Hovered() {
 				b.Background(pal.rowHover).TextColor(pal.text)
 			}
-			b.Children(func() { ui.Icon(c, svg).Size(15, 15) })
+			tint := pal.textMuted
+			if !on {
+				tint = pal.textFaint.Alpha(0.5)
+			} else if b.Hovered() {
+				tint = pal.text
+			}
+			b.Children(func() { controlIcon(c, svg, 15, tint, pal.dark) })
 			if b.Clicked() && on {
 				fn()
 			}
 		}
 		live := st.wv != nil
-		nav("back", goBackIcon, locales.BrowserBack(), live && st.canBack, func() { st.wv.Page().GoBack() })
-		nav("fwd", goFwdIcon, locales.BrowserForward(), live && st.canFwd, func() { st.wv.Page().GoForward() })
-		// Reload, or Stop while the page loads, as Safari's: no spinner,
-		// whose frames would compete with the page for the main thread.
-		if st.loading && live {
-			nav("stop", closeIcon, locales.BrowserStop(), true, func() { st.loading = false; st.wv.Page().Stop() })
-		} else {
-			nav("reload", refreshIcon, locales.BrowserReload(), live, func() { st.err = ""; st.loading = true; st.wv.Page().Reload() })
-		}
+		toolbarGroup(c, "browser-navigation", pal, func() {
+			nav("back", goBackIcon, locales.BrowserBack(), live && st.canBack, func() { st.wv.Page().GoBack() })
+			nav("fwd", goFwdIcon, locales.BrowserForward(), live && st.canFwd, func() { st.wv.Page().GoForward() })
+			// Reload, or Stop while the page loads, as Safari's: no spinner,
+			// whose frames would compete with the page for the main thread.
+			if st.loading && live {
+				nav("stop", closeIcon, locales.BrowserStop(), true, func() { st.loading = false; st.wv.Page().Stop() })
+			} else {
+				nav("reload", refreshIcon, locales.BrowserReload(), live, func() { st.err = ""; st.loading = true; st.wv.Page().Reload() })
+			}
+		})
 		field := ui.Row(c.Key("address")).Grow(1).MinWidth(0).Height(28).Radius(8).Padding(0, 10).Gap(6).AlignItems(ui.Center).
-			Background(pal.control).Margin(0, 4)
+			Margin(0, 4)
+		glassToolbar(c, field, pal)
 		field.Children(func() {
-			ui.Icon(c, globeIcon).Size(13, 13).TextColor(pal.textFaint)
+			controlIcon(c, globeIcon, 13, pal.textFaint, pal.dark)
 			in := ui.TextInputBase(c.Key("url"), &st.address).Grow(1).MinWidth(0).FontSize(12.5).
 				Placeholder(locales.BrowserPlaceholder()).Bind(a.paneRef("url-" + p.ID))
 			if st.url == "" {
@@ -481,7 +490,6 @@ func (a *App) browserBar(c *ui.Context, pal *palette, st *browserState, p *proto
 			nav("external", externalIcon, locales.BrowserOpenDefault(), true, func() { openURL(u) })
 		}
 	})
-	ui.Box(c).Height(1).Shrink(0).Background(pal.divider)
 }
 
 // browserStart is the pane before it shows a page: the servers running
@@ -509,7 +517,7 @@ func (a *App) browserStart(c *ui.Context, pal *palette, st *browserState) {
 				a.browserGo(st)
 			}
 			row.Children(func() {
-				ui.Icon(c, globeIcon).Size(14, 14).TextColor(pal.textMuted)
+				controlIcon(c, globeIcon, 14, pal.textMuted, pal.dark)
 				ui.Text(c, addr).FontSize(13).FontWeight(600).TextColor(pal.text).SingleLine()
 				ui.Text(c, sv.command).FontSize(12.5).TextColor(pal.textFaint).SingleLine().Ellipsis("…").Grow(1).MinWidth(0)
 			})

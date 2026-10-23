@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -81,7 +82,7 @@ func face(e ui.Element, pal *palette, bg ui.Color) ui.Element {
 // button is kero's button: a raised surface, or the accent's for the
 // primary one, with a label and, optionally, its keys.
 func button(c *ui.Context, key, label, keys string, primary bool, pal *palette) bool {
-	b := ui.ButtonBase(c.Key(key)).Height(30).Padding(0, 14).Gap(8).Radius(8).AlignItems(ui.Center).Label(label)
+	b := ui.ButtonBase(c.Key(key)).Height(30).Padding(0, 14).Gap(8).Radius(15).AlignItems(ui.Center).Label(label)
 	bg, fg := pal.control, pal.text
 	if primary {
 		bg, fg = pal.accent, ui.Hex("#ffffff")
@@ -94,7 +95,11 @@ func button(c *ui.Context, key, label, keys string, primary bool, pal *palette) 
 	case b.Hovered():
 		bg = pal.controlHover
 	}
-	face(b, pal, b.AnimateColor("bg", bg, press)).TextColor(fg)
+	if primary {
+		face(b, pal, b.AnimateColor("bg", bg, press)).TextColor(fg)
+	} else {
+		controlFace(c, b, pal, b.AnimateColor("bg", bg, press)).TextColor(fg)
+	}
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).FontWeight(500).SingleLine()
 		if keys != "" {
@@ -133,8 +138,22 @@ func toggle(c *ui.Context, on *bool, pal *palette) ui.Element {
 	sw.Background(sw.AnimateColor("track", track, ui.Animation{Duration: 150 * time.Millisecond}))
 	x := sw.AnimateTo("knob", b2f(*on)*16, ui.Animation{Spring: ui.SpringOptions{Duration: 260 * time.Millisecond, Bounce: 0.15}})
 	sw.Children(func() {
-		ui.Box(c).Size(18, 18).Radius(9).Background(ui.Hex("#ffffff")).Translate(x, 0).
-			Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.22)).Shadow(0, 0, 0, 0.5, ui.RGBA(0, 0, 0, 0.06))
+		knob := ui.Box(c).Size(18, 18).Radius(9).Translate(x, 0).
+			Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.22))
+		if sw.Pressed() && glassShows(c) {
+			knob.Material(glass.Glass{Style: glass.Clear})
+		} else {
+			knob.Background(ui.Hex("#ffffff"))
+		}
 	})
 	return sw
+}
+
+// controlFace is the shared material for controls that sit above content.
+// The opaque fallback keeps their boundary visible with Reduce Transparency.
+func controlFace(c *ui.Context, e ui.Element, pal *palette, tint ui.Color) ui.Element {
+	if !glassShows(c) {
+		return face(e, pal, tint.Over(pal.control))
+	}
+	return e.Material(glass.Glass{Tint: tint, Interactive: true})
 }

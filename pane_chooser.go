@@ -239,7 +239,7 @@ func (a *App) chooserView(c *ui.Context, pal *palette) {
 			row.Children(func() {
 				ui.Box(c).Size(30, 30).Radius(8).Background(pal.kbd).Center().Shrink(0).Children(func() {
 					if k.plugin != "" {
-						ui.Icon(c, k.icon()).Size(16, 16).TextColor(pal.textMuted)
+						controlIcon(c, k.icon(), 16, pal.textMuted, pal.dark)
 					} else {
 						paneViewMark(c, k.view, 16, pal.textMuted, pal.dark)
 					}

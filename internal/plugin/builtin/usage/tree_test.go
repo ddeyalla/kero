@@ -82,7 +82,7 @@ func TestUsageLargeTreeIDs(t *testing.T) {
 	tree := widgetTree(testView(protocol.Size{Width: 640, Height: 480}, treeNow), treeNow)
 	mustValid(t, tree)
 	for _, id := range []string{
-		"usage-root", "usage-cost", "usage-range", "usage-cost-body", "usage-donut", "usage-legend",
+		"usage-root", "usage-cost", "usage-range", "usage-cost-body", "usage-cost-total", "usage-legend",
 		"leg-claude", "leg-dot-claude", "leg-name-claude", "leg-usd-claude",
 		"sec-claude", "head-claude", "name-claude", "plan-claude", "toggle-claude", "card-claude",
 		"win-claude-0", "bar-claude-0", "wlabel-claude-1", "wleft-claude-0", "wreset-claude-0",
@@ -93,7 +93,7 @@ func TestUsageLargeTreeIDs(t *testing.T) {
 			t.Errorf("no node %q", id)
 		}
 	}
-	for _, id := range []string{"usage-system", "usage-cpu", "usage-ram", "usage-system-title", "cost-today-claude"} {
+	for _, id := range []string{"usage-donut", "usage-system", "usage-cpu", "usage-ram", "usage-system-title", "cost-today-claude"} {
 		if hasNode(tree, id) {
 			t.Errorf("unexpected node %q", id)
 		}
@@ -101,8 +101,8 @@ func TestUsageLargeTreeIDs(t *testing.T) {
 	if !tree.Scroll {
 		t.Error("the large form does not scroll")
 	}
-	if got := treeNode(t, tree, "usage-donut"); got.Text != "$4.6K" || got.Detail != locales.UsagePluginCostDollars() {
-		t.Errorf("the donut says %q / %q", got.Text, got.Detail)
+	if got := treeNode(t, tree, "usage-cost-total"); got.Text != "≈$4,600.75" {
+		t.Errorf("the total says %q / %q", got.Text, got.Detail)
 	}
 	if got := treeNode(t, tree, "leg-usd-claude"); got.Text != "$3,200.50" {
 		t.Errorf("the Claude legend says %q", got.Text)
@@ -168,8 +168,8 @@ func TestUsageRangesAndDetails(t *testing.T) {
 	v := testView(protocol.Size{Width: 640, Height: 480}, treeNow)
 	v.rng = rangeYesterday
 	tree := widgetTree(v, treeNow)
-	if got := treeNode(t, tree, "usage-donut").Text; got != "$31.20" {
-		t.Errorf("yesterday's donut says %q", got)
+	if got := treeNode(t, tree, "usage-cost-total").Text; got != "$31.20" {
+		t.Errorf("yesterday's total says %q", got)
 	}
 	if hasNode(tree, "usage-estimated") {
 		t.Error("an exact range has an estimate caption")
@@ -197,8 +197,8 @@ func TestUsageNoCostLogs(t *testing.T) {
 	v.costs = map[cost.Range][]cost.Spend{}
 	tree := widgetTree(v, treeNow)
 	mustValid(t, tree)
-	if got := treeNode(t, tree, "usage-donut"); got.Text != locales.UsagePluginNoValue() || len(got.Segments) != 0 {
-		t.Errorf("an empty donut says %q with %d segments", got.Text, len(got.Segments))
+	if got := treeNode(t, tree, "usage-cost-total"); got.Text != locales.UsagePluginNoValue() || len(got.Segments) != 0 {
+		t.Errorf("an empty total says %q with %d segments", got.Text, len(got.Segments))
 	}
 	if got := treeNode(t, tree, "usage-nocost").Text; got != locales.UsagePluginNoCostLogs() {
 		t.Errorf("the caption says %q", got)
@@ -216,7 +216,7 @@ func TestUsageStackedBody(t *testing.T) {
 		t.Errorf("a narrow pane has a %s body", got)
 	}
 	tree = widgetTree(testView(protocol.Size{Width: 640, Height: 480}, treeNow), treeNow)
-	if got := treeNode(t, tree, "usage-cost-body").Type; got != protocol.NodeRow {
+	if got := treeNode(t, tree, "usage-cost-body").Type; got != protocol.NodeColumn {
 		t.Errorf("a wide pane has a %s body", got)
 	}
 }

@@ -17,6 +17,4 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - run: go test ./... -timeout 120s
-      - run: go tool mygo vet .
-      - run: python3 -m unittest discover -s scripts -p 'test_shibu_release.py'
+      - run: sh scripts/check.sh

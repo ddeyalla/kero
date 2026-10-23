@@ -53,12 +53,15 @@ jobs:
           import shibu_release as release
           release.validate_config(json.loads(Path('mygo.json').read_text()))
           baseline = json.loads(Path('shibu-upstream.json').read_text())
+          if os.environ['MODE'] == 'release':
+              release.output(changed='true')
+              raise SystemExit(0)
           upstream = json.loads(release.run('gh', 'api', 'repos/egoist/kero/releases/latest').stdout)
           if upstream.get('draft') or upstream.get('prerelease'):
               raise SystemExit('Upstream release is not stable')
           if release.stable_version(upstream['tag_name']) < release.stable_version(baseline['tag']):
               raise SystemExit('Upstream version went backwards; review required')
-          changed = os.environ['MODE'] == 'release' or upstream['tag_name'] != baseline['tag']
+          changed = upstream['tag_name'] != baseline['tag']
           release.output(changed=str(changed).lower())
           PY
   release:

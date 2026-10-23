@@ -52,7 +52,7 @@ func paneViewMark(c *ui.Context, view string, size float32, tint ui.Color, dark 
 			return
 		}
 	}
-	ui.Icon(c, paneViewIcon(view)).Size(size, size).TextColor(tint)
+	controlIcon(c, paneViewIcon(view), size, tint, dark)
 }
 
 // paneViewName is a view's name, as its header shows it.
