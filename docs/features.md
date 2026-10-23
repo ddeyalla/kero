@@ -13,7 +13,7 @@ Status:
 - **Tested**: automated checks passed; installed-app manual acceptance is
   not claimed. Rows that say **Measured** give their remaining limits explicitly.
 
-Current release: **2.0.7-local.1** (Kero 2.0.7), 2026-10-20.
+Current release: **2.0.7-local.2** (Kero 2.0.7), 2026-10-23.
 
 > Updating to 2.0.7-local.1 needs one restart of the terminal service
 > (daemon protocol 3), when agents are idle. Until then, Linear, task links
@@ -27,28 +27,28 @@ plugin panes), and an older build cannot open the migrated panes.
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| Spotify cached-list warning, pending retry suppression and retired-player callback isolation | Spotify pane | Unreleased | Fake HTTP/event/race regressions pass |
+| Spotify cached-list warning, pending retry suppression and retired-player callback isolation | Spotify pane | 2.0.7-local.2 | Fake HTTP/event/race regressions pass |
 
 ## Linear and tasks
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| Agent guide explains Attention state, pane creation, focus and session silence | `kero skill show`; `kero skill setup` installs the guide | Unreleased | Tested |
-| Performance verification with native input and independently observed focus | `sh scripts/perf.sh 1`, `4` or `8`; `PERF_MEMORY=1` profiles retained terminals | Unreleased | Harness validated; native focus/idle acceptance awaits an unlocked desktop; native memory ownership remains open |
-| Release validation permits Spotify automation consent while guarding the app identity; CI runs all local delivery checks | `scripts/check.sh`, Shibu checks and Shibu updates workflows | Unreleased | Tested |
-| Linear plugin: list or board in the sections Current, Done, Todo and Backlog with nested folds; Current follows the focused session; filters for assignee, project, label, priority, search and canceled; full issue detail (Markdown, properties, status picker, runs with Resume, sub-issues, relations, activity) | The sidebar pin, the **Tasks** entry of the New Pane chooser (`Cmd+Alt+L`), `kero split --tasks` | Unreleased | Untried |
-| Sidebar pins: a plugin widget has a row in the sidebar; a click focuses its pane in the selected session or splits one in | Pane header menu, Settings › Plugins, command palette, `kero plugin pin\|unpin <plugin> [widget]` | Unreleased | Untried |
-| Linear plugin keyboard and menu: sticky search and filter header; J/K or arrows move, Enter opens, Escape goes back (only while the pane has the focus); right-click menu with Open, Open in Linear, Copy ID, Copy Link, Move To (shown at once) and Start task; label colours on cards; Canceled toggle; screen-reader labels for status and priority | Click in the Linear pane, then keys; right click an issue | Unreleased | Untried |
-| Plugin permission `clipboard`: write-only, up to 64 KB, accepted only within about 1 s of a user event the host delivered; otherwise refused and logged | Manifest `permissions`; `Conn.Copy` in the SDK | Unreleased | Untried |
+| Agent guide explains Attention state, pane creation, focus and session silence | `kero skill show`; `kero skill setup` installs the guide | 2.0.7-local.2 | Tested |
+| Performance verification with native input and independently observed focus | `sh scripts/perf.sh 1`, `4` or `8`; `PERF_MEMORY=1` profiles retained terminals | 2.0.7-local.2 | Harness validated; native focus/idle acceptance awaits an unlocked desktop; native memory ownership remains open |
+| Release validation permits Spotify automation consent while guarding the app identity; CI runs all local delivery checks | `scripts/check.sh`, Shibu checks and Shibu updates workflows | 2.0.7-local.2 | Tested |
+| Linear plugin: list or board in the sections Current, Done, Todo and Backlog with nested folds; Current follows the focused session; filters for assignee, project, label, priority, search and canceled; full issue detail (Markdown, properties, status picker, runs with Resume, sub-issues, relations, activity) | The sidebar pin, the **Tasks** entry of the New Pane chooser (`Cmd+Alt+L`), `kero split --tasks` | 2.0.7-local.2 | Untried |
+| Sidebar pins: a plugin widget has a row in the sidebar; a click focuses its pane in the selected session or splits one in | Pane header menu, Settings › Plugins, command palette, `kero plugin pin\|unpin <plugin> [widget]` | 2.0.7-local.2 | Untried |
+| Linear plugin keyboard and menu: sticky search and filter header; J/K or arrows move, Enter opens, Escape goes back (only while the pane has the focus); right-click menu with Open, Open in Linear, Copy ID, Copy Link, Move To (shown at once) and Start task; label colours on cards; Canceled toggle; screen-reader labels for status and priority | Click in the Linear pane, then keys; right click an issue | 2.0.7-local.2 | Untried |
+| Plugin permission `clipboard`: write-only, up to 64 KB, accepted only within about 1 s of a user event the host delivered; otherwise refused and logged | Manifest `permissions`; `Conn.Copy` in the SDK | 2.0.7-local.2 | Untried |
 | The old built-in Linear screen (sidebar row, `Cmd+Shift+L`) and Tasks pane | Replaced by the Linear plugin | 2.0.7-local.1 | Removed in Unreleased |
 | Linear API key in the personal data directory (`0600`), or `LINEAR_API_KEY` | Settings › Agents, `kero linear auth` | 2.0.7-local.1 | Shipped |
 | Daemon keeps the workspace fresh (30 s changes, 5 min full read, last good read kept offline) | Automatic | 2.0.7-local.1 | Shipped |
-| Daemon idle work cut: foreground program read as it changes, directory 1.5 s only for the focused pane, branch scan 30 s plus focus and a HEAD check every 1.6 s, `state.json` at most every 2 s, Linear in its own `linear.json`, written per Linear read, not per status change | Automatic | Unreleased | Untried |
+| Daemon idle work cut: foreground program read as it changes, directory 1.5 s only for the focused pane, branch scan 30 s plus focus and a HEAD check every 1.6 s, `state.json` at most every 2 s, Linear in its own `linear.json`, written per Linear read, not per status change | Automatic | 2.0.7-local.2 | Untried |
 | Session linked to its task, kept across restarts; issue shows the session and its agent resume id | `kero link <session> <BRU-25>`, issue detail | 2.0.7-local.1 | Shipped |
 | Start a task: link the session, move the issue to In Progress, print its branch | `kero task start <BRU-25>` | 2.0.7-local.1 | Shipped |
 | Project mapped to its Linear project (the one named like the repository offered first) | The project's menu in the sidebar | 2.0.7-local.1 | Shipped |
 | Linear from the CLI | `kero linear status\|board\|issue\|set-state\|comment` | 2.0.7-local.1 | Shipped |
-| The Linear plugin's empty states act: Refresh Linear when it was not reached or has no issues, Clear Filters when a filter hides them | The empty state's button | Unreleased | Untried |
+| The Linear plugin's empty states act: Refresh Linear when it was not reached or has no issues, Clear Filters when a filter hides them | The empty state's button | 2.0.7-local.2 | Untried |
 
 ## Panes
 
@@ -58,31 +58,31 @@ plugin panes), and an older build cannot open the migrated panes.
 | Open the new pane below instead of beside | Hold Shift in the chooser | 2.0.7-local.1 | Shipped |
 | Open a kind of pane directly | `Cmd+Alt+T` / `L` / `E` / `B` (and `A`) | 2.0.7-local.1 | Shipped |
 | Turn a pane into another kind | Pane menu › **Show in This Pane** | 2.0.7-local.1 | Shipped |
-| Attention pane: every session that needs you, one list, most urgent first, with chips (All, Needs you, Working, Unread, Done), counts and a plain-text search; filter, search and scroll survive restart; a row opens the pane that needs you, and an Open issue button on a session with an issue opens it in a Linear plugin pane | `Cmd+Alt+A`, the chooser's `A`, or `kero split --attention` | Unreleased | Untried |
-| New icons are SF Symbols, drawn by macOS and cached as bitmaps | Automatic; the Attention pane's mark and its rows' states | Unreleased | Untried |
+| Attention pane: every session that needs you, one list, most urgent first, with chips (All, Needs you, Working, Unread, Done), counts and a plain-text search; filter, search and scroll survive restart; a row opens the pane that needs you, and an Open issue button on a session with an issue opens it in a Linear plugin pane | `Cmd+Alt+A`, the chooser's `A`, or `kero split --attention` | 2.0.7-local.2 | Untried |
+| New icons are SF Symbols, drawn by macOS and cached as bitmaps | Automatic; the Attention pane's mark and its rows' states | 2.0.7-local.2 | Untried |
 | Agents open views beside themselves | `kero split --browser 5173`, `--files --open docs/plan.md`, `--tasks`, `--attention` | 2.0.7-local.1 | Shipped |
 | A view's page or file is kept across restarts | Automatic | 2.0.7-local.1 | Shipped |
 | Least pane size (280×150); a split without room is refused | Automatic | 2.0.7-local.1 | Shipped |
 | Make panes even | Double-click a divider, `Cmd+Ctrl+=` | 2.0.7-local.1 | Shipped |
 | Panes glide in and out; terminal sizes wait for the glide to end | Automatic | 2.0.7-local.1 | Shipped |
-| The focused pane has a soft accent border among several panes (none alone or zoomed); unfocused panes keep the same card and text | Automatic; click or cycle panes | Unreleased | Untried |
-| Panes open small and fade in; closing panes fade out the same way over 160 ms | Automatic | Unreleased | Untried |
-| Plugin panes: a plugin's widget in a pane, with plugin, widget and state kept in the pane target across a restart | New Pane chooser, palette, `Cmd+Alt+P`, `kero split --plugin <id> [--widget <name>]` | Unreleased | Untried |
-| The plugin platform: manifest, JSON-RPC process host, one process per plugin, permission checks, crash with **Restart** | Automatic when a plugin pane opens | Unreleased | Untried |
-| Plugin parts: rows, columns, text, images, buttons, sliders, progress, lists, a search field, an empty state, spacers and dividers, in the app's palette and motion | A plugin's widget pane | Unreleased | Untried |
-| Plugin settings and secrets: Settings › Plugins lists plugins, versions, permissions and fields; secrets in a 0600 file | Settings › Plugins | Unreleased | Untried |
-| Plugin commands: each manifest command in the palette and as a `kero do` action; runs on a pane of its plugin, opening one if needed | Command palette, `kero do plugin.<id>.<command>`, `kero actions` | Unreleased | Untried |
-| Marquee text only when it overflows; static ellipsis with Reduce Motion | `marquee` on a text part | Unreleased | Untried |
-| Image tint: a soft gradient of the picture's own color behind the pane, crossfaded and contrast clamped | `tint` on an image part | Unreleased | Untried |
-| A plugin's stderr log, rolled at 1 MB, and a failed plugin's error with a **Restart** button | Automatic | Unreleased | Untried |
-| An old terminal service without the plugin view shows one line asking to restart it | Automatic | Unreleased | Untried |
-| Spotify widget: plays in the app with no Spotify app open (Premium), through Spotify's Web Playback SDK; engine starts on the first play and closes after 10 idle minutes; sign in again for the new scopes | New Pane chooser › Spotify, palette, `kero split --plugin spotify`; Client ID in Settings › Plugins | Unreleased | Untried |
-| Spotify compact player: two rows from 440 points wide (art, title, controls; seek, time, mute, volume), three rows narrower; shown once music plays | Spotify pane | Unreleased | Untried |
-| Spotify browse: a playlist or album tile opens its numbered track list, a row plays in context, the drill-in survives a restart; **Up next** tab | Spotify pane, large layout | Unreleased | Untried |
-| Sign Out of Spotify (keeps the Client ID, stops the engine) | Settings › Plugins › Spotify; palette › Sign Out of Spotify | Unreleased | Untried |
-| Colour from music: a plugin with the `ambient` permission tints the accent, focus edge, cursor, selection and the cards, capped to 3:1 contrast | Settings › Appearance › Colour from music; `ambient-color = false` off | Unreleased | Untried |
-| Plugin panes that scroll as one page (`Tree.Scroll`), plugin icon buttons drawn as SF Symbols, and a smooth pane: unchanged trees skipped, seek bar and clock moved by the host | Automatic; Spotify uses all | Unreleased | Untried |
-| Usage widget: a Cost card (Today, Yesterday, 30 Days; total and provider list, from local Claude Code, Codex and OpenCode logs) and a section per provider with each window's bar, pace tick, "% left", reset and "Limit in …" flame, and Today and Last 30 Days in dollars and tokens; compact in small panes | New Pane chooser › Usage, palette, `kero split --plugin usage` | Unreleased | Untried |
+| The focused pane has a soft accent border among several panes (none alone or zoomed); unfocused panes keep the same card and text | Automatic; click or cycle panes | 2.0.7-local.2 | Untried |
+| Panes open small and fade in; closing panes fade out the same way over 160 ms | Automatic | 2.0.7-local.2 | Untried |
+| Plugin panes: a plugin's widget in a pane, with plugin, widget and state kept in the pane target across a restart | New Pane chooser, palette, `Cmd+Alt+P`, `kero split --plugin <id> [--widget <name>]` | 2.0.7-local.2 | Untried |
+| The plugin platform: manifest, JSON-RPC process host, one process per plugin, permission checks, crash with **Restart** | Automatic when a plugin pane opens | 2.0.7-local.2 | Untried |
+| Plugin parts: rows, columns, text, images, buttons, sliders, progress, lists, a search field, an empty state, spacers and dividers, in the app's palette and motion | A plugin's widget pane | 2.0.7-local.2 | Untried |
+| Plugin settings and secrets: Settings › Plugins lists plugins, versions, permissions and fields; secrets in a 0600 file | Settings › Plugins | 2.0.7-local.2 | Untried |
+| Plugin commands: each manifest command in the palette and as a `kero do` action; runs on a pane of its plugin, opening one if needed | Command palette, `kero do plugin.<id>.<command>`, `kero actions` | 2.0.7-local.2 | Untried |
+| Marquee text only when it overflows; static ellipsis with Reduce Motion | `marquee` on a text part | 2.0.7-local.2 | Untried |
+| Image tint: a soft gradient of the picture's own color behind the pane, crossfaded and contrast clamped | `tint` on an image part | 2.0.7-local.2 | Untried |
+| A plugin's stderr log, rolled at 1 MB, and a failed plugin's error with a **Restart** button | Automatic | 2.0.7-local.2 | Untried |
+| An old terminal service without the plugin view shows one line asking to restart it | Automatic | 2.0.7-local.2 | Untried |
+| Spotify widget: plays in the app with no Spotify app open (Premium), through Spotify's Web Playback SDK; engine starts on the first play and closes after 10 idle minutes; sign in again for the new scopes | New Pane chooser › Spotify, palette, `kero split --plugin spotify`; Client ID in Settings › Plugins | 2.0.7-local.2 | Untried |
+| Spotify compact player: two rows from 440 points wide (art, title, controls; seek, time, mute, volume), three rows narrower; shown once music plays | Spotify pane | 2.0.7-local.2 | Untried |
+| Spotify browse: a playlist or album tile opens its numbered track list, a row plays in context, the drill-in survives a restart; **Up next** tab | Spotify pane, large layout | 2.0.7-local.2 | Untried |
+| Sign Out of Spotify (keeps the Client ID, stops the engine) | Settings › Plugins › Spotify; palette › Sign Out of Spotify | 2.0.7-local.2 | Untried |
+| Colour from music: a plugin with the `ambient` permission tints the accent, focus edge, cursor, selection and the cards, capped to 3:1 contrast | Settings › Appearance › Colour from music; `ambient-color = false` off | 2.0.7-local.2 | Untried |
+| Plugin panes that scroll as one page (`Tree.Scroll`), plugin icon buttons drawn as SF Symbols, and a smooth pane: unchanged trees skipped, seek bar and clock moved by the host | Automatic; Spotify uses all | 2.0.7-local.2 | Untried |
+| Usage widget: a Cost card (Today, Yesterday, 30 Days; total and provider list, from local Claude Code, Codex and OpenCode logs) and a section per provider with each window's bar, pace tick, "% left", reset and "Limit in …" flame, and Today and Last 30 Days in dollars and tokens; compact in small panes | New Pane chooser › Usage, palette, `kero split --plugin usage` | 2.0.7-local.2 | Untried |
 
 ### Files pane
 
@@ -91,7 +91,7 @@ plugin panes), and an older build cannot open the migrated panes.
 | Folder tree with git changes, refreshed every few seconds | Files pane | 2.0.7-local.1 | Shipped |
 | Markdown, code and images shown beside the tree | Click a file | 2.0.7-local.1 | Shipped |
 | Markdown links to headings (`#section`) and other files open in the pane | Click the link | 2.0.7-local.1 | Shipped |
-| Markdown web links open in the default browser (fixed: they were handed over as a file's path) | Click the link | Unreleased | Untried |
+| Markdown web links open in the default browser (fixed: they were handed over as a file's path) | Click the link | 2.0.7-local.2 | Untried |
 | Fuzzy Find across the project, indexed off the main thread | `Cmd+F` in the pane, arrows or `Ctrl+N`/`Ctrl+P`, Enter | 2.0.7-local.1 | Shipped |
 | Drag a row into a terminal to type its path | Drag and drop | 2.0.7-local.1 | Shipped |
 | Unfolded folders kept across restarts | Automatic | 2.0.7-local.1 | Shipped |
@@ -104,26 +104,26 @@ plugin panes), and an older build cannot open the migrated panes.
 | Select the address | `Cmd+L` | 2.0.7-local.1 | Shipped |
 | Zoom the page (Safari's steps); the zoom chip resets it | `Cmd+=`, `Cmd+-`, `Cmd+0` | 2.0.7-local.1 | Shipped |
 | Reload the page (instead of renaming the session) | `Cmd+R` | 2.0.7-local.1 | Shipped |
-| Open the page in the default browser (fixed: it was handed over as a file's path) | The pane bar's **Open in Default Browser** | Unreleased | Untried |
+| Open the page in the default browser (fixed: it was handed over as a file's path) | The pane bar's **Open in Default Browser** | 2.0.7-local.2 | Untried |
 
 ## Work profiles
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| Profiles saved with the state: a name, an accent + background preset, the ids of the projects and sessions it brings forward, its env bundle's name, and which profile is active — thin references, resolved when applied, not copies; nothing user-facing yet, the switcher's children build on this | Automatic (saved state); no switching surface yet | Unreleased | Untried |
+| Profiles saved with the state: a name, an accent + background preset, the ids of the projects and sessions it brings forward, its env bundle's name, and which profile is active — thin references, resolved when applied, not copies; nothing user-facing yet, the switcher's children build on this | Automatic (saved state); no switching surface yet | 2.0.7-local.2 | Untried |
 
 ## Agents
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| Claude Code and Codex report working, waiting, done and error from their hooks; Esc and granted permissions still read from the screen | `kero skill setup`; `agent-hooks` in the configuration | Unreleased | Untried |
-| Session status icons: a turning ring while working (a filling one when the program reports progress), an amber ring with a dot when it needs you, a filled check when done and unseen, a faint check once read, a red disc when a program fails, a crossed ring when the shell exits with an error, a half moon when read and idle for 24 hours; kept across a terminal service restart | Sidebar rows and the footer's count chips | Unreleased | Untried |
-| Session title marks (SF Symbols, derived, never typed): needs you, bug (linked task labeled Bug), working, done and seen; the title truncates, not the mark | Automatic; sidebar rows and the command palette | Unreleased | Untried |
-| Sidebar project groups: room above each header, header close to its sessions, fixed order and places for the count, "needs you", chevron and add button; emoji in project titles kept and drawn whole | Sidebar; rename a project from its header's context menu | Unreleased | Untried |
-| Each session carries one attention state — running, waiting-user, unread, done or idle — with one line of what it says, the pane it comes from and its age; a transcript scan fills in where an agent reports nothing (Codex's approvals) | Automatic: it rides on the state kerod sends | Unreleased | Untried |
-| Go to the next session waiting on you, longest wait first, with the pane that needs you in front (a zoom follows it); the issue detail's session opens there too | Session › **Next Waiting Session**, the command palette, `kero do attention.next-blocked` | Unreleased | Untried |
-| Notifications from that attention: a session that needs you or ends unseen tells once, a turn that begins again clears it, and a short return within 30 seconds of leaving the same state is counted silently inside `notify-throttle-minutes`; only native-accepted delivery starts the throttle; every session kerod holds tells, in any profile or window | Automatic; `notify-on-waiting`, `notify-on-done`, `notify-on-error` and `notify-throttle-minutes` in the configuration, Settings › Notifications | Unreleased | Untried |
-| Silence one session's notifications, remembered across restarts and removed after a confirmed app close | Session › Silence Notifications, the session's context menu, `kero do session.silence`; `silence-session` in the configuration | Unreleased | Untried |
+| Claude Code and Codex report working, waiting, done and error from their hooks; Esc and granted permissions still read from the screen | `kero skill setup`; `agent-hooks` in the configuration | 2.0.7-local.2 | Untried |
+| Session status icons: a turning ring while working (a filling one when the program reports progress), an amber ring with a dot when it needs you, a filled check when done and unseen, a faint check once read, a red disc when a program fails, a crossed ring when the shell exits with an error, a half moon when read and idle for 24 hours; kept across a terminal service restart | Sidebar rows and the footer's count chips | 2.0.7-local.2 | Untried |
+| Session title marks (SF Symbols, derived, never typed): needs you, bug (linked task labeled Bug), working, done and seen; the title truncates, not the mark | Automatic; sidebar rows and the command palette | 2.0.7-local.2 | Untried |
+| Sidebar project groups: room above each header, header close to its sessions, fixed order and places for the count, "needs you", chevron and add button; emoji in project titles kept and drawn whole | Sidebar; rename a project from its header's context menu | 2.0.7-local.2 | Untried |
+| Each session carries one attention state — running, waiting-user, unread, done or idle — with one line of what it says, the pane it comes from and its age; a transcript scan fills in where an agent reports nothing (Codex's approvals) | Automatic: it rides on the state kerod sends | 2.0.7-local.2 | Untried |
+| Go to the next session waiting on you, longest wait first, with the pane that needs you in front (a zoom follows it); the issue detail's session opens there too | Session › **Next Waiting Session**, the command palette, `kero do attention.next-blocked` | 2.0.7-local.2 | Untried |
+| Notifications from that attention: a session that needs you or ends unseen tells once, a turn that begins again clears it, and a short return within 30 seconds of leaving the same state is counted silently inside `notify-throttle-minutes`; only native-accepted delivery starts the throttle; every session kerod holds tells, in any profile or window | Automatic; `notify-on-waiting`, `notify-on-done`, `notify-on-error` and `notify-throttle-minutes` in the configuration, Settings › Notifications | 2.0.7-local.2 | Untried |
+| Silence one session's notifications, remembered across restarts and removed after a confirmed app close | Session › Silence Notifications, the session's context menu, `kero do session.silence`; `silence-session` in the configuration | 2.0.7-local.2 | Untried |
 
 ## Usage and the machine
 
@@ -132,24 +132,24 @@ plugin panes), and an older build cannot open the migrated panes.
 | Claude, Codex, OpenCode Go and DeepSeek usage, refreshed in the background | Sidebar, `kero usage --json` | 2.0.5-local.1 | Shipped |
 | Usage as a modal in the window | `Cmd+Shift+U`; `Cmd+R` refreshes, Esc closes | 2.0.5-local.2 | Shipped |
 | Optional private provider keys | Usage modal | 2.0.5-local.1 | Shipped |
-| Sidebar usage list with one row per provider, primary percentage or USD balance, warning when any allowance reaches 90%, and all windows/reset times in hover details | Hover a provider; click its row or the Usage header, or press `Cmd+Shift+U` | Unreleased | Untried |
+| Sidebar usage list with one row per provider, primary percentage or USD balance, warning when any allowance reaches 90%, and all windows/reset times in hover details | Hover a provider; click its row or the Usage header, or press `Cmd+Shift+U` | 2.0.7-local.2 | Untried |
 | CPU and RAM meters for the whole Mac | Sidebar, `kero resources --json` | 2.0.5-local.2 | Shipped |
-| Hidden terminal output updates its screen without redrawing the window; revealing a pane shows its latest output | Automatic when switching sessions, zooming, or replacing a terminal with another pane view | Unreleased | Automated checks; not yet tried in the installed app |
-| Visited-terminal memory diagnostics: empty-app baseline, two sweeps, all-pane output and settled footprint, Go heaps and native accounting; separate-session and single-session split workloads | `PERF_MEMORY=1 PERF_KEEP=1 sh scripts/perf.sh N`; add `PERF_LAYOUT=split`; see [Performance](perf.md) | Unreleased | Automated probe checks; synthetic measurements recorded separately from the daily app |
-| Performance budgets and a one-command measurement: footprint, idle CPU, wakeups and frames, and frame times while streaming, for N panes, in an isolated kerod and app; kerod profiles on a loopback address; allocation tests for screen reads and a key's echo | `sh scripts/perf.sh N`, `KERO_PPROF=127.0.0.1:6060`; see [Performance](perf.md) | Unreleased | Measured at 1, 4 and 8 panes; key to paint remains open |
-| Idle window paints less: CPU and RAM meters redraw only when what they show changes; times ago tick once a minute, only while shown | Automatic | Unreleased | Untried |
-| Fewer idle wakeups: kerod checks quiet panes every 10 s instead of every 400 ms and writes histories only after a change; the CPU and RAM meters read every 30 s while the window does not have the focus | Automatic; numbers in [Performance](perf.md) | Unreleased | Measured with 4 and 8 panes, visible and unfocused |
-| A focused terminal's cursor blinks by painting the last frame again, then rests shown after 10 seconds without a key or focus change; input starts the blink again | Automatic when cursor blinking is enabled | Unreleased | Automated checks; whole-app results in [Performance](perf.md) |
-| The loading.dev ring wherever the app itself is busy: connecting, attaching a pane, reading Files or Linear; it and a working session's ring turn at 15 frames a second | Automatic | Unreleased | Untried |
+| Hidden terminal output updates its screen without redrawing the window; revealing a pane shows its latest output | Automatic when switching sessions, zooming, or replacing a terminal with another pane view | 2.0.7-local.2 | Automated checks; not yet tried in the installed app |
+| Visited-terminal memory diagnostics: empty-app baseline, two sweeps, all-pane output and settled footprint, Go heaps and native accounting; separate-session and single-session split workloads | `PERF_MEMORY=1 PERF_KEEP=1 sh scripts/perf.sh N`; add `PERF_LAYOUT=split`; see [Performance](perf.md) | 2.0.7-local.2 | Automated probe checks; synthetic measurements recorded separately from the daily app |
+| Performance budgets and a one-command measurement: footprint, idle CPU, wakeups and frames, and frame times while streaming, for N panes, in an isolated kerod and app; kerod profiles on a loopback address; allocation tests for screen reads and a key's echo | `sh scripts/perf.sh N`, `KERO_PPROF=127.0.0.1:6060`; see [Performance](perf.md) | 2.0.7-local.2 | Measured at 1, 4 and 8 panes; key to paint remains open |
+| Idle window paints less: CPU and RAM meters redraw only when what they show changes; times ago tick once a minute, only while shown | Automatic | 2.0.7-local.2 | Untried |
+| Fewer idle wakeups: kerod checks quiet panes every 10 s instead of every 400 ms and writes histories only after a change; the CPU and RAM meters read every 30 s while the window does not have the focus | Automatic; numbers in [Performance](perf.md) | 2.0.7-local.2 | Measured with 4 and 8 panes, visible and unfocused |
+| A focused terminal's cursor blinks by painting the last frame again, then rests shown after 10 seconds without a key or focus change; input starts the blink again | Automatic when cursor blinking is enabled | 2.0.7-local.2 | Automated checks; whole-app results in [Performance](perf.md) |
+| The loading.dev ring wherever the app itself is busy: connecting, attaching a pane, reading Files or Linear; it and a working session's ring turn at 15 frames a second | Automatic | 2.0.7-local.2 | Untried |
 
 ## Settings
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| Settings as a modal over the main window, not a separate window | `Cmd+,` toggles it, or the sidebar's gear; Esc, a click beside it or `Cmd+W` closes it | Unreleased | Untried |
-| Accent presets: Blue, Plum, Rose, Sea, Moss, Graphite — an accent color, the wash that comes with it, the terminals' selection | Settings › Appearance › Accent (with its wash); `accent = <preset>` in the config (the accent alone) | Unreleased | Untried |
-| Grain over the background wash: a repeating 300-point tile at 3.3% light and 4% dark | Settings › Appearance › Grain; `grain = false` off | Unreleased | Pixel strength and tiling regressions pass |
-| Spotify list errors retain the open album or playlist and offer Retry; offline libraries and Up next can retry in place | Retry in a failed Spotify list | Unreleased | Fake HTTP recovery and race tests |
+| Settings as a modal over the main window, not a separate window | `Cmd+,` toggles it, or the sidebar's gear; Esc, a click beside it or `Cmd+W` closes it | 2.0.7-local.2 | Untried |
+| Accent presets: Blue, Plum, Rose, Sea, Moss, Graphite — an accent color, the wash that comes with it, the terminals' selection | Settings › Appearance › Accent (with its wash); `accent = <preset>` in the config (the accent alone) | 2.0.7-local.2 | Untried |
+| Grain over the background wash: a repeating 300-point tile at 3.3% light and 4% dark | Settings › Appearance › Grain; `grain = false` off | 2.0.7-local.2 | Pixel strength and tiling regressions pass |
+| Spotify list errors retain the open album or playlist and offer Retry; offline libraries and Up next can retry in place | Retry in a failed Spotify list | 2.0.7-local.2 | Fake HTTP recovery and race tests |
 
 ## Terminal
 
@@ -159,29 +159,29 @@ plugin panes), and an older build cannot open the migrated panes.
 | Files and images dropped on a terminal insert their paths | Drag and drop | 2.0.5-local.1 | Untried |
 | Faster redraws after a synchronized frame (55.9 ms → 16.9 ms transport median) | Automatic | 2.0.5-local.2 | Shipped |
 | Native ARM64 build, no constant status animation | Automatic | 2.0.5-local.1 | Shipped |
-| Status detection reads the last rows, not the whole scrollback (0.75 ms → 10 µs a look at 4 MB) | Automatic | Unreleased | Untried |
-| Startup: immediate connection, sessions restored in the background, four at a time | Automatic, after a restart of the terminal service | Unreleased | Untried |
-| Scrollback budget: the app's terminals keep the Scrollback setting (not 10 MB), 8 stay attached (every pane of the shown session kept), the 10 s history save writes the last 256 KB | Settings › Shell › Scrollback; automatic | Unreleased | Untried |
+| Status detection reads the last rows, not the whole scrollback (0.75 ms → 10 µs a look at 4 MB) | Automatic | 2.0.7-local.2 | Untried |
+| Startup: immediate connection, sessions restored in the background, four at a time | Automatic, after a restart of the terminal service | 2.0.7-local.2 | Untried |
+| Scrollback budget: the app's terminals keep the Scrollback setting (not 10 MB), 8 stay attached (every pane of the shown session kept), the 10 s history save writes the last 256 KB | Settings › Shell › Scrollback; automatic | 2.0.7-local.2 | Untried |
 
 ## Window
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| Compact title bar (40 pt): the traffic lights where macOS puts them, the sidebar's buttons centered on them | Automatic | Unreleased | Untried |
-| With the sidebar hidden, the first header's title centered on the traffic lights; the sidebar's first row 30 pt below them, aligned with the close light | Automatic; `Cmd+B` hides the sidebar | Unreleased | Untried |
-| macOS's own traffic lights in sight in full screen, where they are in the window, with their hover glyphs: close, minimize (greyed, as macOS has it) and exit full screen; the bar that slides down with the menu bar is empty and lets clicks through | `Ctrl+Cmd+F`, or the green light | Unreleased | Untried |
-| The app moves as one (motion tokens, a few literals left); a project collapsing folds its rows away animated, the chosen row never leaving | Automatic; collapse by clicking a project header | Unreleased | Untried |
-| A project's hover chevron and add button wait 80 ms after the pointer leaves | Automatic; hover a project header | Unreleased | Untried |
-| First run: a ~900 ms reveal of the real shell, covering the window from its first frame, skipped after 2 s or on a connection error, cancellable, Reduce Motion aware, silent, shown once | Automatic, on the first launch | Unreleased | Untried |
-| Floating panels on Liquid Glass: the command palette, the confirmation dialog, the New Pane chooser, Settings and a pane's drag chip; no dimming under them except a confirmation; concentric corners; opaque under Reduce Transparency | `Cmd+P`, `Cmd+,`, `Cmd+Alt+N` (New Pane chooser), closing a busy session, dragging a pane's title | Unreleased | Untried |
-| Glass Browser/Files toolbar groups, capsule fields and controls, native SF Symbols, held slider/switch lenses and soft scrolling edges; sidebar and pane-header icon buttons retain their previous plain style; opaque under Reduce Transparency | Sidebar, pane headers, Browser/Files/Attention toolbars, Settings and plugin controls | Unreleased | Automated checks and isolated dev app; hand acceptance pending |
+| Compact title bar (40 pt): the traffic lights where macOS puts them, the sidebar's buttons centered on them | Automatic | 2.0.7-local.2 | Untried |
+| With the sidebar hidden, the first header's title centered on the traffic lights; the sidebar's first row 30 pt below them, aligned with the close light | Automatic; `Cmd+B` hides the sidebar | 2.0.7-local.2 | Untried |
+| macOS's own traffic lights in sight in full screen, where they are in the window, with their hover glyphs: close, minimize (greyed, as macOS has it) and exit full screen; the bar that slides down with the menu bar is empty and lets clicks through | `Ctrl+Cmd+F`, or the green light | 2.0.7-local.2 | Untried |
+| The app moves as one (motion tokens, a few literals left); a project collapsing folds its rows away animated, the chosen row never leaving | Automatic; collapse by clicking a project header | 2.0.7-local.2 | Untried |
+| A project's hover chevron and add button wait 80 ms after the pointer leaves | Automatic; hover a project header | 2.0.7-local.2 | Untried |
+| First run: a ~900 ms reveal of the real shell, covering the window from its first frame, skipped after 2 s or on a connection error, cancellable, Reduce Motion aware, silent, shown once | Automatic, on the first launch | 2.0.7-local.2 | Untried |
+| Floating panels on Liquid Glass: the command palette, the confirmation dialog, the New Pane chooser, Settings and a pane's drag chip; no dimming under them except a confirmation; concentric corners; opaque under Reduce Transparency | `Cmd+P`, `Cmd+,`, `Cmd+Alt+N` (New Pane chooser), closing a busy session, dragging a pane's title | 2.0.7-local.2 | Untried |
+| Glass Browser/Files toolbar groups, capsule fields and controls, native SF Symbols, held slider/switch lenses and soft scrolling edges; sidebar and pane-header icon buttons retain their previous plain style; opaque under Reduce Transparency | Sidebar, pane headers, Browser/Files/Attention toolbars, Settings and plugin controls | 2.0.7-local.2 | Automated checks and isolated dev app; hand acceptance pending |
 
 ## Session organization
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
-| Pin sessions inside each project; reorder pinned or unpinned sessions with a glass preview and neutral placement cue; palette and navigation share saved order | Session context menu, drag, palette, `kero do session.pin\|session.unpin\|session.moveUp\|session.moveDown` | Unreleased | Tested locally; not installed |
-| Reorder whole project groups without changing session membership | Drag project headers, project context menu, Session menu, palette, `kero do project.moveUp\|project.moveDown` | Unreleased | Tested locally; combined hand test pending |
+| Pin sessions inside each project; reorder pinned or unpinned sessions with a glass preview and neutral placement cue; palette and navigation share saved order | Session context menu, drag, palette, `kero do session.pin\|session.unpin\|session.moveUp\|session.moveDown` | 2.0.7-local.2 | Tested locally; not installed |
+| Reorder whole project groups without changing session membership | Drag project headers, project context menu, Session menu, palette, `kero do project.moveUp\|project.moveDown` | 2.0.7-local.2 | Tested locally; combined hand test pending |
 
 ## Updates and releases
 

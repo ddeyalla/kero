@@ -10,6 +10,14 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
+No pending changes.
+
+## [2.0.7-local.2] - 2026-10-23
+
+- Includes Kero 2.0.7 (`7b60cc3f5090`) and Shibu customizations.
+- Preserves the Shibu app identity, icon, usage features and separate data folders.
+- Signed background updates apply on the next launch; no automatic restart.
+
 > **Restart the terminal service once.** This release changes the daemon
 > protocol (an issue's assignee, priority and parent, and the workspace's
 > viewer) and saved state: state version 3
