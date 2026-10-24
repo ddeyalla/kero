@@ -540,6 +540,12 @@ func settingRow(c *ui.Context, pal *palette, label, detail string, control func(
 // shows it: a soft track, the choice a lighter fill raised a hair, thin
 // separators between the others, and labels of one weight.
 func segmented(c *ui.Context, key string, value *string, ids, labels []string, pal *palette) {
+	segmentedOnChange(c, key, value, ids, labels, pal, nil)
+}
+
+// segmentedOnChange is segmented, and calls changed after the choice lands,
+// for a value that is saved as it changes rather than with the settings.
+func segmentedOnChange(c *ui.Context, key string, value *string, ids, labels []string, pal *palette, changed func()) {
 	i := max(slices.Index(ids, *value), 0)
 	thumb := ui.Hex("#ffffff")
 	if pal.dark {
@@ -570,11 +576,27 @@ func segmented(c *ui.Context, key string, value *string, ids, labels []string, p
 		}
 	})
 	// The choice lands after this runs: take it then.
-	seg.Track.OnChange(func() { *value = ids[i] })
+	seg.Track.OnChange(func() {
+		*value = ids[i]
+		if changed != nil {
+			changed()
+		}
+	})
 }
 
 func (a *App) generalPage(c *ui.Context, pal *palette) {
 	s := &a.set
+	settingsGroup(c, pal, locales.SetNavigation(), locales.SetNavigationDetail(), func() {
+		settingRow(c, pal, locales.SetNavigationPlacement(), locales.SetNavigationPlacementDetail(), func() {
+			// The placement is a preference of its own, saved by its setter,
+			// not a setting that applies with the page.
+			value := string(a.navPlacement())
+			segmentedOnChange(c, "nav-placement", &value,
+				[]string{string(navLeft), string(navRight), string(navTop), string(navBottom)},
+				[]string{locales.NavPlacementLeft(), locales.NavPlacementRight(), locales.NavPlacementTop(), locales.NavPlacementBottom()},
+				pal, func() { a.setNavPlacement(navPlacement(value)) })
+		})
+	})
 	settingsGroup(c, pal, locales.SetSessions(), locales.SetSessionsDetail(a.tip(strings.TrimSuffix(actionTitle("app.quitAll"), "…"), "app.quitAll")), func() {
 		settingRow(c, pal, locales.SetNewSessionsStartIn(), "", func() {
 			segmented(c, "newdir", &s.NewSessionDir, []string{"current", "project", "home"}, []string{locales.SetDirCurrent(), locales.SetDirProject(), locales.SetDirHome()}, pal)

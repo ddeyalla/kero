@@ -370,6 +370,11 @@ func (a *App) sweepViews() {
 	if swept {
 		a.savePrefs()
 	}
+	// The usage popover is a plugin surface too, with no daemon pane behind
+	// it: it lives while its card is open, and closes with it.
+	if a.navUsage.open {
+		alive[navUsagePane] = true
+	}
 	// A plugin's panes are closed, and one hidden now is told so.
 	a.sweepPluginPanes(alive)
 }

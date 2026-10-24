@@ -120,6 +120,7 @@ kero daemon status|stop|restart  # manage kerod
 kero actions                     # list them
 kero do pane.split.right
 kero do sidebar.toggle
+kero do nav.placement.right                     # left, right, top or bottom
 kero do session.attention session=<id or name>  # focus what this session needs
 kero do attention.next-blocked   # the next session waiting on you
 kero do session.silence session=<id or name> state=on   # on, off; no state toggles

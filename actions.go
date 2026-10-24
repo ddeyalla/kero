@@ -89,6 +89,7 @@ func (a *App) run(id string, args map[string]string) {
 		a.openUsage()
 	case "usage.refresh":
 		a.refreshUsage()
+		a.refreshNavUsage()
 	case "plugin.pin", "plugin.unpin":
 		a.pinCommand(args, id == "plugin.pin")
 	case "linear.refresh":
@@ -182,6 +183,8 @@ func (a *App) run(id string, args map[string]string) {
 		a.focusDirection(id[len("pane."):])
 	case "sidebar.toggle":
 		a.toggleSidebar()
+	case "nav.placement.left", "nav.placement.right", "nav.placement.top", "nav.placement.bottom":
+		a.setNavPlacement(navPlacement(strings.TrimPrefix(id, "nav.placement.")))
 	case "text.bigger":
 		a.zoom(1, false)
 	case "text.smaller":
@@ -254,6 +257,10 @@ var actionTitles = map[string]func() string{
 	"pane.up":                locales.ActionPaneAbove,
 	"pane.down":              locales.ActionPaneBelow,
 	"sidebar.toggle":         locales.ActionToggleSidebar,
+	"nav.placement.left":     locales.NavPlacementLeftAction,
+	"nav.placement.right":    locales.NavPlacementRightAction,
+	"nav.placement.top":      locales.NavPlacementTopAction,
+	"nav.placement.bottom":   locales.NavPlacementBottomAction,
 	"text.bigger":            locales.ActionBigger,
 	"text.smaller":           locales.ActionSmaller,
 	"text.reset":             locales.ActionActualSize,
@@ -344,8 +351,23 @@ func (a *App) paneMenuItems() []*mygo.MenuItem {
 }
 
 func (a *App) viewMenuItems() []*mygo.MenuItem {
-	return append(a.items("View", []string{"sidebar.toggle", "linear.refresh", "usage.open", "usage.refresh"}, []string{"text.bigger", "text.smaller", "text.reset"}),
-		mygo.Separator(), &mygo.MenuItem{Role: mygo.RoleToggleFullScreen}, &mygo.MenuItem{Role: mygo.RoleToggleDevTools})
+	items := append(a.items("View", []string{"sidebar.toggle"}), mygo.Separator())
+	items = append(items, a.navPlacementItems()...)
+	items = append(items, mygo.Separator())
+	items = append(items, a.items("View", []string{"linear.refresh", "usage.open", "usage.refresh"}, []string{"text.bigger", "text.smaller", "text.reset"})...)
+	return append(items, mygo.Separator(), &mygo.MenuItem{Role: mygo.RoleToggleFullScreen}, &mygo.MenuItem{Role: mygo.RoleToggleDevTools})
+}
+
+// navPlacementItems are the four placements as one radio group, the one in
+// use checked.
+func (a *App) navPlacementItems() []*mygo.MenuItem {
+	items := make([]*mygo.MenuItem, 0, len(navPlacements))
+	for _, p := range navPlacements {
+		it := a.item(navPlacementAction(p))
+		it.Checked = a.navPlacement() == p
+		items = append(items, it)
+	}
+	return items
 }
 
 // keys is an action's shortcut as the menus show it, "" when it has none.

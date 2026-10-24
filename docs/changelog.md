@@ -10,7 +10,65 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
-No pending changes.
+### Added
+
+- Four saved navigation placements: the left sidebar (the default), a right
+  sidebar, session tabs across the top, and session tabs across the bottom.
+  Top and bottom tabs replace the sidebar. Settings › General, the View menu,
+  the command palette and `kero do nav.placement.<placement>` use one setter;
+  no placement gets a default shortcut, and all four can be bound in
+  Settings › Keyboard. <kbd>⌘</kbd> <kbd>B</kbd> hides or reveals the surface
+  that is in use without changing its placement.
+- Project-grouped session tabs. Projects keep their saved order and pins, and
+  Other stays last. Clicking a project header folds or unfolds its sessions
+  inline; a collapsed project shows its session count and how many sessions
+  need the user, keeps the selected session's panes in view, and marks its
+  header. Tabs show the session's status and a shortened title, keep the whole
+  title in their tooltip and accessibility name, and close, rename, reorder and
+  open their menu as the sidebar rows do. Tabs shrink evenly from a 220-point
+  preferred width to a 120-point floor, then the row scrolls and an overflow
+  menu lists the sessions by project. Choosing a session there, in the palette
+  or in a shortcut opens its project and scrolls its tab into view.
+- The usage icon now opens the Usage plugin's own allowance and cost list in a
+  popover, together with this Mac's CPU and RAM. Hover opens it and a short
+  grace lets the pointer cross into it; a click pins it; the trigger, a click
+  outside, or Escape closes it. Enter or Space opens it with the keyboard, and
+  Escape gives the keyboard back to the icon. The Usage modal on
+  <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>U</kbd> and the Usage pane remain. The
+  transient popover has its own plugin instance, runs beside a real Usage
+  pane, and stops only its own pane when it closes.
+- The sidebar's old usage list and its hover card were removed; their details
+  are in the popover now.
+
+### Fixed
+
+- A sidebar on the right resizes toward the pointer: dragging its edge toward
+  the window edge makes it wider, as a left sidebar does.
+- Selecting a session from a plugin notification now opens its folded project
+  and reveals its tab, then focuses the plugin pane, instead of selecting a
+  session that stays hidden. External selection also expands the synthetic
+  Other group for a session whose project ID is unknown or empty, using the
+  same grouping rule as the navigation; internal selection and startup
+  reconciliation still leave an explicit fold alone.
+- An attention jump now scrolls its session's tab into view even when that
+  session is already selected and its project is expanded, as it can be
+  scrolled past the right edge of the tab row. The pane focus and zoom join
+  as before.
+- A hover-opened Usage popover stays open while the keyboard is inside it,
+  even after the pointer leaves. Passive hover still takes no focus; click
+  pinning, outside clicks, Escape and the transient plugin cleanup are
+  unchanged.
+- The Usage popover now reserves the anchor gap and window margin before it
+  sizes itself in top and bottom tab placements. The real Open in Pane footer
+  keeps its 30-point control and bottom padding at short window heights, and
+  the plugin list takes the remaining space and scrolls.
+- The sidebar footer keeps Usage, Settings, attention and the
+  connection/restart control within the sidebar at its minimum width. When it
+  must overflow, attention is placed before the optional project, search,
+  working and done controls, so a stale service or a large waiting count can
+  not hide it. Project open, search and any status actions that do not fit
+  move, labelled, into a Sidebar Actions menu; compact status chips keep every
+  status reachable.
 
 ## [2.0.7-local.3] - 2026-10-23
 

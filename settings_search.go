@@ -21,6 +21,7 @@ type searchEntry struct {
 // language the app shows, as their rows are.
 func settingsIndex() []searchEntry {
 	return []searchEntry{
+		{"general", locales.SetNavigationPlacement(), "navigation placement sidebar left right tabs top bottom chrome"},
 		{"general", locales.SetNewSessionsStartIn(), "new-session-directory folder current project home tab"},
 		{"general", locales.SetSessionName(), "session-name title sidebar focused lead folder pane"},
 		{"general", locales.SetAskBeforeClosing(), "confirm-close quit kill"},

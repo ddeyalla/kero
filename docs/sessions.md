@@ -66,6 +66,34 @@ kero do session.moveDown session=<session-id>
 Omit `session=<session-id>` to act on the selected session. Reordering requires
 a connected terminal service; pinning is saved in the app's preferences.
 
+### Where sessions appear
+
+Sessions and their projects live in one of four saved places: the left sidebar
+(the default), a right sidebar, tabs across the top, or tabs across the bottom.
+Horizontal tabs replace the sidebar. Choose a placement in **Settings ›
+General › Placement**, the **View** menu or the command palette, or run
+`kero do nav.placement.left|right|top|bottom`. None has a default shortcut;
+you can bind one in Settings › Keyboard. The placement survives a restart.
+
+In the tabs, projects run from the left in their saved order, with pinned
+sessions first and **Other** last. Click a project header to fold its sessions
+away; it shows the session count and how many need you, keeps the selected
+session's panes on screen, and marks itself while folded. Tabs shrink to a
+readable width and then the row scrolls; the button at the right lists every
+session by project. A session chosen there, in the palette, by a shortcut, in
+an attention jump or from a plugin notification opens its project and scrolls
+its tab into view. An attention jump reveals the tab even when that session
+is already selected. A session whose project is unknown or empty is shown in
+**Other**, and choosing it opens **Other** too. Folding a project changes no
+selection and stays folded until an explicit selection asks to reveal it.
+
+<kbd>⌘</kbd> <kbd>B</kbd> hides or shows whichever navigation surface is in
+use without changing the placement. The compact utility icons in either
+layout keep projects, search, new sessions, usage, attention and settings in
+reach. At the narrowest sidebar, **Sidebar Actions** holds project open,
+search and any status actions that do not fit; Usage, Settings, attention and
+the connection/restart control stay in the footer.
+
 ### Where a new session starts
 
 The `new-session-directory` setting picks the folder:

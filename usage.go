@@ -24,10 +24,6 @@ type usageState struct {
 	keys    map[string]*string
 	notice  string
 	saving  bool
-	// hover is the harness whose card shows, and cardOver tells the pointer
-	// is on that card, which keeps it open as the pointer leaves the row.
-	hover    string
-	cardOver bool
 }
 
 func (a *App) startUsage() {
@@ -102,98 +98,6 @@ func usageSummary(r usage.Report, loading bool) string {
 	return "Unavailable"
 }
 
-// usageColor preserves the list's warning threshold and muted error state.
-func usageColor(r usage.Report, pal *palette) ui.Color {
-	if r.Error != "" {
-		return pal.textFaint
-	}
-	for _, w := range r.Windows {
-		if w.Used >= 90 {
-			return pal.attention
-		}
-	}
-	return pal.textMuted
-}
-
-// usageFooterSummary prefers USD in the compact list; the card retains the
-// provider's full balance. No allowance is substituted for a missing report.
-func usageFooterSummary(r usage.Report, loading bool) string {
-	if !r.Checked.IsZero() && r.Balance != "" {
-		for _, part := range strings.Split(r.Balance, "·") {
-			if part = strings.TrimSpace(part); strings.HasPrefix(part, "USD ") {
-				return part
-			}
-		}
-	}
-	return usageSummary(r, loading)
-}
-
-// usageSidebar is the original usage list, with the full allowance card
-// available from each provider row as well as the account details dialog.
-func (a *App) usageSidebar(c *ui.Context, pal *palette) {
-	var anchor ui.Element
-	var shown usage.Report
-	var card bool
-	ui.Column(c.Key("account-usage")).Width(a.prefs.SidebarWidth).Shrink(0).Padding(6, 12, 8, 12).Gap(1).Children(func() {
-		header := ui.ButtonBase(c.Key("usage-details")).Height(24).Radius(5).Padding(0, 8).Label(locales.UsageAccountTitle()).Tooltip(a.tip(locales.UsageDetailsHint(), "usage.open"))
-		if header.Hovered() {
-			header.Background(pal.rowHover)
-		}
-		header.Children(func() {
-			ui.Row(c).Fill().AlignItems(ui.Center).Children(func() {
-				ui.Text(c, locales.UsageTitle()).FontSize(11).Bold().TextColor(pal.textMuted)
-				ui.Spacer(c)
-				ui.Text(c, a.keys("usage.open")).FontSize(10).TextColor(pal.textFaint)
-			})
-		})
-		if header.Clicked() {
-			a.openUsage()
-		}
-		for _, r := range a.usageReports() {
-			row := a.usageRow(c, pal, r)
-			if a.usage.hover == r.ID {
-				anchor, shown, card = row, r, true
-			}
-		}
-	})
-	if card {
-		a.usageHover(c, pal, shown, anchor)
-	}
-}
-
-func (a *App) usageRow(c *ui.Context, pal *palette, r usage.Report) ui.Element {
-	key := "usage-" + r.ID
-	row := ui.ButtonBase(c.Key(key)).Height(25).Padding(0, 8).Radius(5).
-		Label(r.Name + " usage").Description(usageSummary(r, a.usage.loading))
-	if row.Hovered() {
-		row.Background(pal.rowHover)
-	}
-	row.Children(func() {
-		ui.Row(c).Fill().AlignItems(ui.Center).Gap(6).Children(func() {
-			ui.Text(c, r.Name).FontSize(11.5).TextColor(pal.textMuted).SingleLine().Shrink(0)
-			ui.Spacer(c)
-			ui.Text(c, usageFooterSummary(r, a.usage.loading)).FontSize(11).TextColor(usageColor(r, pal)).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
-			if r.Error != "" && !r.Checked.IsZero() {
-				ui.Row(c).Size(10, 10).Shrink(0).Label(locales.UsageStale()).Tooltip(locales.UsageStale()).Children(func() {
-					symbolMark(c, "exclamationmark.circle.fill", 10, pal.attention, pal.dark)
-				})
-			}
-		})
-	})
-	if row.Clicked() {
-		a.openUsage()
-	}
-	over := row.Hovered() || a.usage.hover == r.ID && a.usage.cardOver
-	stays := a.hoverIntent(c, key, over)
-	switch {
-	case row.Hovered():
-		a.usage.hover = r.ID
-	case a.usage.hover == r.ID && !stays:
-		a.usage.hover, a.usage.cardOver = "", false
-	}
-	return row
-}
-
 // usagePlan is a plan's name as the card and the modal show it: the
 // providers' own are lowercase ("max", "plus", "pro"), which reads as a
 // word, so they are capitalized, a word at a time.
@@ -209,93 +113,6 @@ func usagePlan(plan string) string {
 	return strings.Join(words, " ")
 }
 
-// usageWindow is a window's name as the card says it, shortly: a week.
-func usageWindow(label string) string {
-	if label == "Weekly" {
-		return "Week"
-	}
-	return label
-}
-
-// usageHover shows a provider's full card above its row: the plan, each
-// window with its reset, a balance, or why it is not connected.
-func (a *App) usageHover(c *ui.Context, pal *palette, r usage.Report, anchor ui.Element) {
-	ui.Overlay(c, func() {
-		card := ui.Column(c.Key("usage-hover")).Width(232).Padding(14, 14).Gap(6).Radius(12).Background(pal.popover)
-		if pal.dark {
-			floating(card, pal)
-		} else {
-			floating(card.Border(1, pal.cardBorder), pal)
-		}
-		card.AttachTo(anchor, ui.AnchorTopLeft, ui.AnchorBottomLeft).Margin(0, 0, 6, 0)
-		a.usage.cardOver = card.Hovered()
-		card.Children(func() {
-			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
-				ui.Text(c, r.Name).FontSize(14).FontWeight(600).TextColor(pal.text).SingleLine().Shrink(0)
-				ui.Spacer(c)
-				if r.Plan != "" {
-					ui.Text(c, usagePlan(r.Plan)).FontSize(12).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
-				}
-			})
-			var resetWidth float32
-			for _, w := range r.Windows {
-				if !w.Resets.IsZero() {
-					width, _ := c.MeasureText(0, ui.Span{Text: "· " + usageReset(w.Resets), Size: 12})
-					resetWidth = max(resetWidth, width)
-				}
-			}
-			for i, w := range r.Windows {
-				ui.Row(c.Key(fmt.Sprint(i))).AlignItems(ui.Center).Gap(4).Children(func() {
-					ui.Text(c, usageWindow(w.Label)).FontSize(12.5).TextColor(pal.textMuted).SingleLine().Shrink(0)
-					ui.Spacer(c)
-					ui.Text(c, fmt.Sprintf("%.0f%%", w.Used)).Width(38).FontSize(13).FontWeight(600).TextColor(pal.text).SingleLine().Shrink(0)
-					if resetWidth > 0 {
-						reset := ""
-						if !w.Resets.IsZero() {
-							reset = "· " + usageReset(w.Resets)
-						}
-						ui.Text(c, reset).Width(resetWidth).FontSize(12).TextColor(pal.textMuted).SingleLine().Shrink(0)
-					}
-				})
-			}
-			if r.Balance != "" {
-				ui.Text(c, locales.UsageBalanceRemaining(r.Balance)).FontSize(12).TextColor(pal.text)
-			}
-			switch {
-			case r.Error != "" && !r.Checked.IsZero():
-				// What shows is the last read that worked.
-				ui.Text(c, locales.UsageStale()).FontSize(11).TextColor(pal.textMuted).SingleLine().Ellipsis("…")
-				ui.Text(c, r.Error).FontSize(11).TextColor(pal.textFaint).SingleLine().Ellipsis("…")
-			case r.Error != "":
-				ui.Text(c, r.Error).FontSize(11).TextColor(pal.textMuted).SingleLine().Ellipsis("…")
-			case r.Checked.IsZero():
-				ui.Text(c, usageSummary(r, a.usage.loading)).FontSize(11).TextColor(pal.textMuted)
-			}
-		})
-	})
-}
-
-// usageReset is a window's reset as the card says it: the time today, the
-// weekday for a later day this week, the date from six days on, when the
-// weekday would read as today's, or now when it is due.
-func usageReset(at time.Time) string {
-	return usageResetAt(at, time.Now())
-}
-
-func usageResetAt(at, now time.Time) string {
-	if !at.After(now) {
-		return "resets now"
-	}
-	local, now := at.Local(), now.Local()
-	if local.Format("2006-01-02") == now.Format("2006-01-02") {
-		return "resets " + local.Format("3:04 PM")
-	}
-	if at.Sub(now) < 6*24*time.Hour && local.Weekday() != now.Weekday() {
-		return "resets " + local.Format("Mon")
-	}
-	return "resets " + local.Format("Jan 2")
-}
-
 func (a *App) openUsage() {
 	if a.usage.open || a.confirm != nil {
 		return
@@ -303,7 +120,6 @@ func (a *App) openUsage() {
 	a.pal.open = false
 	a.usage.open = true
 	a.usage.keys = map[string]*string{}
-	a.usage.hover, a.usage.cardOver = "", false
 }
 
 func (a *App) closeUsage() {
