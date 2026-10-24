@@ -18,6 +18,13 @@ func raised(e ui.Element, pal *palette) ui.Element {
 	if pal.dark {
 		return darkShadow(litEdge(e, pal))
 	}
+	if pal.highContrast {
+		// The light appearance draws no lit edge, only shadows, which
+		// Increase Contrast cannot see; give the surface a real boundary.
+		// Inset, so it is painted inside the card and takes no room from
+		// its content, as a Border would.
+		e = e.InsetShadow(0, 0, 0, 1, pal.raisedEdge)
+	}
 	return e.Shadow(0, 1, 2, 0, pal.cardShadow).Shadow(0, 1, 6, 0, pal.cardShadow2)
 }
 
@@ -60,8 +67,8 @@ func floating(e ui.Element, pal *palette) ui.Element {
 // blocks: a 1px border in the text's color, 18% at the top fading
 // evenly to 6% at the bottom, as if lit from above.
 func litEdge(e ui.Element, pal *palette) ui.Element {
-	return e.Border(1, pal.text.Alpha(0.12)).BorderLinearGradient(ui.LinearGradient{
-		Angle: 180, From: pal.text.Alpha(0.18), To: pal.text.Alpha(0.06),
+	return e.Border(1, pal.hairline).BorderLinearGradient(ui.LinearGradient{
+		Angle: 180, From: pal.hairlineStrong, To: pal.hairlineSoft,
 	})
 }
 
@@ -165,7 +172,7 @@ func toggle(c *ui.Context, on *bool, pal *palette) ui.Element {
 func controlFace(c *ui.Context, e ui.Element, pal *palette, tint ui.Color) ui.Element {
 	// The material's white highlight disappears on white panes. An inset
 	// hairline keeps the whole control visible without changing its layout.
-	e.InsetShadow(0, 0, 0, 0.5, pal.text.Alpha(0.12))
+	e.InsetShadow(0, 0, 0, 0.5, pal.hairline)
 	if !glassShows(c) {
 		return face(e, pal, tint.Over(pal.control))
 	}

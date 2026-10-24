@@ -28,6 +28,11 @@ type palette struct {
 	cardShadow  ui.Color
 	cardShadow2 ui.Color
 	floatShadow ui.Color
+	// highContrast marks the desktop's Increase Contrast variant, and
+	// raisedEdge is the light surface's boundary under it: the light
+	// palette has no lit edge, only a shadow, so High Contrast needs one.
+	highContrast bool
+	raisedEdge   ui.Color
 	// focusEdge is the hairline around the pane the user is in: the only
 	// thing that changes when the focus leaves a pane.
 	focusEdge ui.Color
@@ -44,8 +49,15 @@ type palette struct {
 	controlHover  ui.Color
 	controlShadow bool
 	controlLight  ui.Color
-	divider       ui.Color
-	chip          ui.Color
+	// controlBorder is the rim of a field or other outlined control;
+	// hairline, hairlineSoft and hairlineStrong are the inner light edges
+	// of controls and dark surfaces. High Contrast raises them.
+	controlBorder  ui.Color
+	hairline       ui.Color
+	hairlineSoft   ui.Color
+	hairlineStrong ui.Color
+	divider        ui.Color
+	chip           ui.Color
 
 	attention ui.Color // needs you
 	attnSoft  ui.Color
@@ -74,18 +86,22 @@ var lightPalette = palette{
 	rowSelBorder: ui.RGBA(0, 0, 0, 0.05),
 	rowShadow:    ui.RGBA(20, 20, 50, 0.08),
 
-	card:          ui.Hex("#ffffff"),
-	cardBorder:    ui.RGBA(0, 0, 0, 0.07),
-	cardShadow:    ui.RGBA(0, 0, 0, 0.07),
-	cardShadow2:   ui.RGBA(0, 0, 0, 0.035),
-	floatShadow:   ui.RGBA(20, 20, 40, 0.14),
-	focusEdge:     ui.Hex("#3b6cf6").Alpha(0.50), // the accent's, as accentPal makes a preset's
-	buttonBg:      ui.Hex("#ffffff"),
-	control:       ui.Hex("#ffffff"),
-	controlHover:  ui.Hex("#f7f7f9"),
-	controlShadow: true,
-	divider:       ui.RGBA(0, 0, 0, 0.06),
-	chip:          ui.RGBA(0, 0, 0, 0.045),
+	card:           ui.Hex("#ffffff"),
+	cardBorder:     ui.RGBA(0, 0, 0, 0.07),
+	cardShadow:     ui.RGBA(0, 0, 0, 0.07),
+	cardShadow2:    ui.RGBA(0, 0, 0, 0.035),
+	floatShadow:    ui.RGBA(20, 20, 40, 0.14),
+	focusEdge:      ui.Hex("#3b6cf6").Alpha(0.50), // the accent's, as accentPal makes a preset's
+	buttonBg:       ui.Hex("#ffffff"),
+	control:        ui.Hex("#ffffff"),
+	controlHover:   ui.Hex("#f7f7f9"),
+	controlShadow:  true,
+	controlBorder:  ui.RGBA(0, 0, 0, 0.13),
+	hairline:       ui.Hex("#1d1d1f").Alpha(0.12),
+	hairlineSoft:   ui.Hex("#1d1d1f").Alpha(0.06),
+	hairlineStrong: ui.Hex("#1d1d1f").Alpha(0.18),
+	divider:        ui.RGBA(0, 0, 0, 0.06),
+	chip:           ui.RGBA(0, 0, 0, 0.045),
 
 	attention: ui.Hex("#c27b0f"),
 	attnSoft:  ui.RGBA(232, 154, 40, 0.13),
@@ -111,20 +127,24 @@ var darkPalette = palette{
 	rowSelBorder: ui.RGBA(255, 255, 255, 0.06),
 	rowShadow:    ui.RGBA(0, 0, 0, 0.25),
 
-	card:         ui.Hex("#232328"),
-	cardBorder:   ui.RGBA(255, 255, 255, 0.08),
-	cardShadow:   ui.RGBA(0, 0, 0, 0.35),
-	cardShadow2:  ui.RGBA(0, 0, 0, 0.2),
-	floatShadow:  ui.RGBA(0, 0, 0, 0.45),
-	focusEdge:    ui.Hex("#4a71d4").Alpha(0.62), // the accent's, as accentPal makes a preset's
-	edge:         ui.RGBA(255, 255, 255, 0.075),
-	edgeHigh:     ui.RGBA(255, 255, 255, 0.11),
-	buttonBg:     ui.Hex("#404047"),
-	control:      ui.Hex("#404047"),
-	controlHover: ui.Hex("#4a4a52"),
-	controlLight: ui.RGBA(255, 255, 255, 0.09),
-	divider:      ui.RGBA(255, 255, 255, 0.07),
-	chip:         ui.RGBA(255, 255, 255, 0.07),
+	card:           ui.Hex("#232328"),
+	cardBorder:     ui.RGBA(255, 255, 255, 0.08),
+	cardShadow:     ui.RGBA(0, 0, 0, 0.35),
+	cardShadow2:    ui.RGBA(0, 0, 0, 0.2),
+	floatShadow:    ui.RGBA(0, 0, 0, 0.45),
+	focusEdge:      ui.Hex("#4a71d4").Alpha(0.62), // the accent's, as accentPal makes a preset's
+	edge:           ui.RGBA(255, 255, 255, 0.075),
+	edgeHigh:       ui.RGBA(255, 255, 255, 0.11),
+	buttonBg:       ui.Hex("#404047"),
+	control:        ui.Hex("#404047"),
+	controlHover:   ui.Hex("#4a4a52"),
+	controlLight:   ui.RGBA(255, 255, 255, 0.09),
+	controlBorder:  ui.RGBA(255, 255, 255, 0.13),
+	hairline:       ui.Hex("#ececf0").Alpha(0.12),
+	hairlineSoft:   ui.Hex("#ececf0").Alpha(0.06),
+	hairlineStrong: ui.Hex("#ececf0").Alpha(0.18),
+	divider:        ui.RGBA(255, 255, 255, 0.07),
+	chip:           ui.RGBA(255, 255, 255, 0.07),
 
 	attention: ui.Hex("#f0a33a"),
 	attnSoft:  ui.RGBA(240, 163, 58, 0.15),
@@ -196,9 +216,48 @@ func (a *App) accentPal(dark bool) *palette {
 	return p
 }
 
-// paletteFor returns the palette of the frame, as the accent has it.
+// hcCache holds each palette's High Contrast variant, keyed by the
+// ordinary accent palette it derives from — before the app's ambient
+// blend — built once per accent and appearance, not per frame, and never
+// mutating the base palette.
+var hcCache sync.Map // *palette → *palette
+
+// highContrastPal returns the palette the desktop's Increase Contrast
+// asks for: muted and faint text closer to the body text, and firmer
+// boundaries for cards, dividers, fields and the hairlines of controls and
+// dark surfaces. The accent, the card fills and the appearance stay as
+// they are, so the selected or ambient color is untouched.
+func highContrastPal(p *palette) *palette {
+	if v, ok := hcCache.Load(p); ok {
+		return v.(*palette)
+	}
+	out := *p
+	out.highContrast = true
+	out.raisedEdge = p.text.Alpha(0.55)
+	out.textMuted = p.textMuted.Mix(p.text, 0.35)
+	out.textFaint = p.textFaint.Mix(p.text, 0.55)
+	// Card and field boundaries at 3 to 1 or more on their surface; the
+	// softer dividers and hairlines are stronger by the same text color.
+	out.cardBorder = p.text.Alpha(0.50)
+	out.controlBorder = p.text.Alpha(0.55)
+	out.divider = p.text.Alpha(0.35)
+	out.hairline = p.text.Alpha(0.55)
+	out.hairlineSoft = p.text.Alpha(0.20)
+	out.hairlineStrong = p.text.Alpha(0.45)
+	// The focused pane's edge is a boundary too, in the chosen accent.
+	out.focusEdge = p.accent.Alpha(1)
+	v, _ := hcCache.LoadOrStore(p, &out)
+	return v.(*palette)
+}
+
+// paletteFor returns the palette of the frame, as the accent and the
+// desktop's contrast setting have it.
 func (a *App) paletteFor(c *ui.Context) *palette {
-	return a.ambientPal(c, a.accentPal(c.Theme().Dark))
+	p := a.accentPal(c.Theme().Dark)
+	if c.Preferences().HighContrast {
+		p = highContrastPal(p)
+	}
+	return a.ambientPal(c, p)
 }
 
 // Terminal themes on the card's color, with palettes tuned to read on it:
