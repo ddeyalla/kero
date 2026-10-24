@@ -2072,11 +2072,16 @@ The engine's double-click window keeps one accepted command. When an
 identical play arrives inside it with a different request, `sendRequest`
 returns `engine.CoalescedError` with the accepted request, and
 `coalescePlay` makes that request the owner instead of leaving a newer click
-owning a command that was never sent. If the accepted command fails while
-the duplicate click is still waiting for that answer, `playDeferred` keeps
-the error and the binding applies it after rechecking its source, so the sole
-accepted command's failure is not lost and a retired engine's error is not
-replayed. A page failure clears the engine's
+owning a command that was never sent. If an accepted command fails while a
+duplicate click is still waiting for that answer, `playPending` keeps the
+failure for the click. The click has its own request identity, separate from
+`playReq`, which coalescing can move to the older accepted request; a newer
+press replaces the pending click, its finish or its binding clears it, and
+only that owner can clear it. `coalescePlay` looks up the accepted request in
+the click's failures and applies it after rechecking its source, so the sole
+accepted command's failure is not lost, a retired engine's error is not
+replayed, and an older completion or cache cannot suppress a later one. A
+page failure clears the engine's
 `lastPlay` window, so an immediate retry of the same row is sent; the page
 does the same, and its own check compares the request, so a later accepted
 play is not mistaken for the earlier click. The lazy engine wraps each inner

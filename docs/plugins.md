@@ -65,7 +65,8 @@ page error, and a retry after a current failure is sent rather than dropped.
 The page compares the accepted request, so a later accepted play is not
 treated as the earlier double click. An offline library also offers Retry,
 without changing the selected tab. These paths live in
-`internal/plugin/builtin/spotify/drill.go`, `view.go` and `spotify.go`.
+`internal/plugin/builtin/spotify/drill.go`, `view.go`, `spotify.go`,
+`engine/engine.go`, `engine/page.html`, `engine_sync.go` and `engine_lazy.go`.
 
 A command runs on a pane of its plugin: the focused pane of the session
 shown, another pane of that session, then a pane of another session. A pane

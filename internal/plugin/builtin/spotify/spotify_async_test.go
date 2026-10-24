@@ -514,6 +514,153 @@ func TestACoalescedFailureBeforeOwnerBindingIsKept(t *testing.T) {
 	}
 }
 
+// A deferred failure belongs to the click that was waiting when it arrived.
+// Once that click finishes, the next click must not inherit its cache.
+func TestADeferredFailureDoesNotOutliveItsPendingClick(t *testing.T) {
+	useTimers(t)
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	e := &fakeEngine{ready: true}
+	p.engine, p.player = e, e
+	s.snap.URI = "spotify:track:old"
+
+	for i := 0; i < 8; i++ {
+		oldURI := "spotify:album:old" + strconv.Itoa(i)
+		p.playEntry("p1", entry{title: "Old", uri: oldURI})
+		eventually(t, "the old play to finish", func() bool {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			return p.playing == ""
+		})
+		p.mu.Lock()
+		old := p.playReq
+		p.mu.Unlock()
+
+		pendingURI := "spotify:album:pending" + strconv.Itoa(i)
+		req, seq, _, cancel, ok := p.beginPlay("p1", entry{title: "Pending", uri: pendingURI}, pendingURI, "")
+		if !ok {
+			t.Fatal("the pending play was rejected")
+		}
+		p.playbackErrorFor(e, p.engineGen, taggedPlayError(old, "play", "an older accepted play failed"))
+		p.mu.Lock()
+		p.finishPlay(req, pendingURI, seq)(s, nil)
+		p.mu.Unlock()
+		cancel()
+	}
+
+	h := &heldCoalescingEngine{
+		fakeEngine: &fakeEngine{ready: true},
+		held:       make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	p.engine, p.player = h, h
+	row := entry{title: "Album A", uri: "spotify:album:a"}
+	accepted := asyncPlay(t, p, row)
+	p.playEntry("p1", row)
+	select {
+	case <-h.held:
+	case <-time.After(time.Second):
+		t.Fatal("the duplicate click did not reach the engine")
+	}
+	p.playbackErrorFor(h, p.engineGen, taggedPlayError(accepted, "play", "the accepted play failed"))
+	close(h.release)
+	eventually(t, "the accepted failure", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return s.notice != ""
+	})
+}
+
+// Eight older failures may arrive while one latest click waits to bind. The
+// latest accepted command's failure must still be reported.
+func TestOnePendingClickKeepsItsFailureAfterOlderErrors(t *testing.T) {
+	useTimers(t)
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	e := &fakeEngine{ready: true}
+	p.engine, p.player = e, e
+	s.snap.URI = "spotify:track:old"
+
+	var older []uint64
+	for i := 0; i < 8; i++ {
+		older = append(older, asyncPlay(t, p, entry{
+			title: "Old",
+			uri:   "spotify:album:old" + strconv.Itoa(i),
+		}))
+	}
+
+	h := &heldCoalescingEngine{
+		fakeEngine: &fakeEngine{ready: true},
+		held:       make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	p.engine, p.player = h, h
+	row := entry{title: "Album A", uri: "spotify:album:a"}
+	accepted := asyncPlay(t, p, row)
+	p.playEntry("p1", row)
+	select {
+	case <-h.held:
+	case <-time.After(time.Second):
+		t.Fatal("the duplicate click did not reach the engine")
+	}
+	for _, req := range older {
+		p.playbackErrorFor(h, p.engineGen, taggedPlayError(req, "play", "an older accepted play failed"))
+	}
+	p.playbackErrorFor(h, p.engineGen, taggedPlayError(accepted, "play", "the accepted play failed"))
+	close(h.release)
+	eventually(t, "the accepted failure", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return s.notice != ""
+	})
+}
+
+// An older click finishing must not clear the pending click that replaced it.
+// This is A -> B -> A: the older B completion is stale, while the latest A
+// still keeps the accepted A failure for its binding.
+func TestAStaleFinishDoesNotClearANewerPendingClick(t *testing.T) {
+	useTimers(t)
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	e := &fakeEngine{ready: true}
+	p.engine, p.player = e, e
+	s.snap.URI = "spotify:track:old"
+
+	aURI := "spotify:album:a"
+	p.playEntry("p1", entry{title: "Album A", uri: aURI})
+	eventually(t, "the first A to finish", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.playing == ""
+	})
+	p.mu.Lock()
+	accepted := p.playReq
+	p.mu.Unlock()
+
+	bURI := "spotify:album:b"
+	bReq, bSeq, _, cancelB, ok := p.beginPlay("p1", entry{title: "Album B", uri: bURI}, bURI, "")
+	if !ok {
+		t.Fatal("the B click was rejected")
+	}
+	p.playbackErrorFor(e, p.engineGen, taggedPlayError(accepted, "play", "the accepted A failed"))
+	cancelB()
+
+	aReq, _, _, cancelA, ok := p.beginPlay("p1", entry{title: "Album A", uri: aURI}, aURI, "")
+	if !ok {
+		t.Fatal("the second A click was rejected")
+	}
+	defer cancelA()
+	p.playbackErrorFor(e, p.engineGen, taggedPlayError(accepted, "play", "the accepted A failed"))
+
+	p.mu.Lock()
+	p.finishPlay(bReq, bURI, bSeq)(s, nil)
+	p.mu.Unlock()
+	p.coalescePlay(aReq, aURI, strconv.FormatUint(accepted, 10))
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s.notice == "" {
+		t.Fatal("the stale B finish cleared the latest A failure")
+	}
+}
+
 // A deferred failure carries its source. If that source is retired before
 // the duplicate binds, the failure must not be replayed onto the replacement
 // player, its notice or its mode.

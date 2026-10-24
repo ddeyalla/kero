@@ -35,8 +35,11 @@ builds only. What each feature is and where it stands is tracked in the
   request owns its page error, even when the failure arrives before the
   duplicate click learns which play it joined; after a current failure,
   pressing the same row again is sent instead of dropped as a double click.
-  An error from a player that was replaced before its callback reached the
-  pane no longer changes the new player, its notice or its mode.
+  A failure kept for a waiting duplicate click now lives only for that click:
+  finishing or replacing it drops the older candidates, so a later accepted
+  failure still reports and an older completion cannot clear a newer pending
+  one. An error from a player that was replaced before its callback reached
+  the pane no longer changes the new player, its notice or its mode.
 
 ## [2.0.7-local.5] - 2026-10-24
 

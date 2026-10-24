@@ -40,10 +40,6 @@ const (
 	actionTimeout = 5 * time.Second
 	readTimeout   = 2 * time.Second
 
-	// maxDeferredPlayErrors bounds the accepted-request failures kept for
-	// duplicate clicks that have not bound their owner yet.
-	maxDeferredPlayErrors = 8
-
 	// searchTimeout bounds one search, and libraryTimeout one library
 	// load. A library load is short, because the pane has the last
 	// result to show while it waits.
@@ -261,12 +257,13 @@ type plugin struct {
 	// not affected: its context is read before admission only.
 	playCancel    context.CancelFunc
 	playCancelReq uint64
-	// playDeferred holds a page play error that named the accepted request
-	// of a duplicate click before the engine told the plugin which request
-	// it joined. The click binds to that request and applies the error then,
-	// unless its player source has gone; otherwise the accepted command's
-	// only failure would look stale.
-	playDeferred map[uint64]deferredPlayError
+	// playPending is the click whose engine answer has not bound yet, with
+	// the accepted-request failures that arrived while it waited. The
+	// pending click owns those errors: a newer press replaces them, and
+	// the click's finish or binding clears them. Coalescing can move
+	// playReq to an older accepted request, so playReq is not the identity
+	// of this lifetime.
+	playPending *pendingPlay
 	// guessSeq numbers the guesses, so that the timer of an older guess
 	// does not undo a newer one.
 	guessSeq int
@@ -835,13 +832,12 @@ func (p *plugin) playbackErrorFor(player transport.Player, gen int, err error) {
 			// A duplicate click can be waiting for the engine to say which
 			// accepted request it joined. If that command fails before the
 			// binding, keep the error for the binding instead of losing it.
-			if p.playing != "" {
-				if p.playDeferred == nil {
-					p.playDeferred = make(map[uint64]deferredPlayError)
+			// The error lives only as long as this pending click.
+			if pending := p.playPending; pending != nil && pending.req == p.playReq {
+				if pending.errors == nil {
+					pending.errors = make(map[uint64]deferredPlayError)
 				}
-				if len(p.playDeferred) < maxDeferredPlayErrors {
-					p.playDeferred[req] = deferredPlayError{err: err, source: errorSource(err)}
-				}
+				pending.errors[req] = deferredPlayError{err: err, source: errorSource(err)}
 			}
 			p.mu.Unlock()
 			log.Printf("spotify: ignored a play failure from an older request")
@@ -1581,6 +1577,14 @@ type deferredPlayError struct {
 	source *source
 }
 
+// pendingPlay is one click that has not bound to the request the engine
+// accepted. errors holds failures from other requests that arrived during
+// that wait; coalescePlay looks up the accepted request in it.
+type pendingPlay struct {
+	req    uint64
+	errors map[uint64]deferredPlayError
+}
+
 // coalescePlay makes the accepted play the owner of a click that the engine
 // coalesced with it, and releases the click's row marker: the accepted play
 // already owns the row. A newer press keeps what it owns.
@@ -1598,10 +1602,13 @@ func (p *plugin) coalescePlay(req uint64, uri, accepted string) {
 	if p.playing == uri {
 		p.playing = ""
 	}
-	deferred, ok := p.playDeferred[n]
+	deferred, ok := deferredPlayError{}, false
+	if pending := p.playPending; pending != nil && pending.req == req {
+		p.playPending = nil
+		deferred, ok = pending.errors[n]
+	}
 	var panes []string
 	if ok {
-		delete(p.playDeferred, n)
 		// The callback may have been deferred before its source retired.
 		// Recheck at this mutation boundary; a retired source changes
 		// nothing.
@@ -1620,6 +1627,7 @@ func (p *plugin) coalescePlay(req uint64, uri, accepted string) {
 // request's guess. It is called with p.mu held. The request in playReq owns
 // the failure; the caller has already checked that.
 func (p *plugin) applyPlayErrorLocked(err error) {
+	p.playPending = nil
 	seq := p.playGuessSeq
 	p.playReq, p.playGuessSeq = 0, 0
 	p.revertGuessSeqLocked(seq)
@@ -1650,6 +1658,7 @@ func (p *plugin) beginPlay(pane string, row entry, uri, trackURI string) (uint64
 	req := p.playSeq
 	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
 	p.playReq = req
+	p.playPending = &pendingPlay{req: req}
 	p.playCancel, p.playCancelReq = cancel, req
 	seq := p.guessLocked(row, trackURI)
 	p.playGuessSeq = seq
@@ -1673,6 +1682,9 @@ func (p *plugin) finishPlay(req uint64, uri string, seq int) func(*session, erro
 	return func(_ *session, err error) bool {
 		if p.playCancelReq == req {
 			p.playCancel, p.playCancelReq = nil, 0
+		}
+		if pending := p.playPending; pending != nil && pending.req == req {
+			p.playPending = nil
 		}
 		if p.playReq != req {
 			// A page error already settled this request and released it.
