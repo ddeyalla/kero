@@ -64,8 +64,8 @@ On Windows and Linux, <kbd>Ctrl</kbd> with a letter belongs to the shell (<kbd>C
 | Toggle Navigation            | <kbd>⌘</kbd> <kbd>B</kbd> | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>B</kbd> | `sidebar.toggle`      |
 | Navigation in Left Sidebar   | –                         | –                                             | `nav.placement.left`  |
 | Navigation in Right Sidebar  | –                         | –                                             | `nav.placement.right` |
-| Navigation in Tabs at Top    | –                         | –                                             | `nav.placement.top`   |
-| Navigation in Tabs at Bottom | –                         | –                                             | `nav.placement.bottom` |
+| Navigation in Tabs Across the Top    | –                         | –                                             | `nav.placement.top`   |
+| Navigation in Tabs Across the Bottom | –                         | –                                             | `nav.placement.bottom` |
 | Bigger                       | <kbd>⌘</kbd> <kbd>=</kbd> | <kbd>Ctrl</kbd> <kbd>=</kbd>                  | `text.bigger`         |
 | Smaller                      | <kbd>⌘</kbd> <kbd>-</kbd> | <kbd>Ctrl</kbd> <kbd>-</kbd>                  | `text.smaller`        |
 | Actual Size                  | <kbd>⌘</kbd> <kbd>0</kbd> | <kbd>Ctrl</kbd> <kbd>0</kbd>                  | `text.reset`          |

@@ -240,18 +240,20 @@ func (a *App) navUsageCard(c *ui.Context, pal *palette, panel, trig ui.Element) 
 		body.Children(func() { a.navUsageWidget(c, pal, body, w-24, h-navUsageChrome) })
 		ui.Column(c.Key("nav-usage-foot")).Shrink(0).Padding(8, 12, 10, 12).Gap(8).Children(func() {
 			a.navUsageResources(c, pal)
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				if button(c, "nav-usage-pane", locales.NavUsageOpenPane(), "", true, pal) {
-					a.defer_(func() {
-						a.dismissNavUsage(false)
-						if s := a.session(a.selected); s != nil {
-							if widget := a.firstWidget("usage"); widget != "" {
+			if a.navUsageCanOpenPane() {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					if button(c, "nav-usage-pane", locales.NavUsageOpenPane(), "", true, pal) {
+						a.defer_(func() {
+							s := a.session(a.selected)
+							widget := a.firstWidget("usage")
+							a.dismissNavUsage(false)
+							if s != nil && widget != "" {
 								a.openPluginPane(s, "", "usage", widget, false)
 							}
-						}
-					})
-				}
-			})
+						})
+					}
+				})
+			}
 		})
 	})
 	// Escape belongs to the popover while the keyboard is in it: it closes
@@ -262,6 +264,13 @@ func (a *App) navUsageCard(c *ui.Context, pal *palette, panel, trig ui.Element) 
 	})
 	a.navUsage.cardOver = panel.Hovered()
 	a.navUsage.hadFocus = panel.FocusWithin()
+}
+
+// navUsageCanOpenPane tells whether Open in Pane has a session and a Usage
+// widget to open. Without both, the footer omits the control rather than
+// dismissing the popover for a click that can do nothing.
+func (a *App) navUsageCanOpenPane() bool {
+	return a.session(a.selected) != nil && a.firstWidget("usage") != ""
 }
 
 // navUsageWidget draws the Usage plugin's tree for the popover. Until the

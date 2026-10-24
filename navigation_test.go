@@ -1093,11 +1093,24 @@ func TestUsagePopoverHoverPinAndDismiss(t *testing.T) {
 	}
 }
 
-// The popover keeps its own surface and contrast in the dark appearance.
-// It is pinned first, so the theme's frames do not depend on a hover.
-// A hover-open card that the keyboard has entered stays open while the focus
-// remains inside, even after the pointer leaves. A passive hover never gains
-// that focus.
+// Open in Pane is only offered when there is a selected session and a
+// Usage widget for it to open.
+func TestNavUsageOpenPaneOnlyWhenUsable(t *testing.T) {
+	a, posts := fakeUsageApp(t)
+	a.selected = ""
+	a.st.Sessions = nil
+	tt := ui.NewTester(a.view, 760, 600)
+	tt.Frame()
+	a.toggleNavUsage(true)
+	pump(t, tt, posts, "the usage card without a session", func() bool {
+		st := a.plugins.panes[navUsagePane]
+		return a.navUsage.open && st != nil && st.tree != nil
+	})
+	if _, ok := tt.Find(locales.NavUsageOpenPane()); ok {
+		t.Fatalf("Open in Pane is shown without a session: %q", tt.Texts())
+	}
+}
+
 // A short window must not clip the Usage popover's footer. The card takes
 // the room its top or bottom anchor leaves, so the 30-point Open in Pane
 // control and the footer's bottom padding stay whole, while the plugin list
@@ -1151,6 +1164,9 @@ func TestNavUsageFooterFitsShortWindows(t *testing.T) {
 	}
 }
 
+// A hover-open card that the keyboard has entered stays open while the focus
+// remains inside, even after the pointer leaves. A passive hover never gains
+// that focus.
 func TestHoverPopoverKeepsKeyboardFocus(t *testing.T) {
 	a, posts := fakeUsageApp(t)
 	tt := ui.NewTester(a.view, 1100, 700)
@@ -1189,6 +1205,8 @@ func TestHoverPopoverKeepsKeyboardFocus(t *testing.T) {
 	}
 }
 
+// The popover keeps its own surface and contrast in the dark appearance.
+// It is pinned first, so the theme's frames do not depend on a hover.
 func TestUsagePopoverDark(t *testing.T) {
 	a, posts := fakeUsageApp(t)
 	tt := ui.NewTester(a.view, 1100, 700)
