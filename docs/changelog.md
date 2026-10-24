@@ -13,9 +13,9 @@ builds only. What each feature is and where it stands is tracked in the
 ### Fixed
 
 - The shared keyboard focus ring, including sliders and generic controls,
-  now follows the selected accent instead of staying system blue. The
-  desktop's focus opacity is kept, so Increase Contrast still draws its
-  full-opacity ring. Custom field outlines already used the accent.
+  now follows the selected accent instead of staying system blue. The ring
+  keeps its normal opacity, and Increase Contrast still draws a full-opacity
+  ring. Custom field outlines already used the accent.
 
 ## [2.0.7-local.5] - 2026-10-24
 
