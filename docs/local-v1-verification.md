@@ -216,3 +216,29 @@ those processes.
 
 The guard shipped in 2.0.7-local.1 and takes effect once the terminal service
 is restarted on that release.
+
+## Navigation release and installed smoke — 2026-10-24
+
+Shibu Code 2.0.7-local.4 shipped four navigation placements, project-grouped
+session tabs and the Usage popover. The signed release is
+`shibu-v2.0.7-local.4`; the reviewed navigation feature merge is
+`792e8b3e41cdfbc6fe6352d5adadcfd46e2537a8`. The guarded release workflow
+completed successfully.
+
+The installed bundle at `~/Applications/Shibu Code.app` reports version
+2.0.7-local.4 and bundle identifier `dev.ddeyalla.kero`; strict deep signature
+verification passes. The native updater found the release from the installed
+local.3 bundle, downloaded and installed it, and offered **Relaunch Now**. The
+normal updater relaunch was used; no terminal-service restart or session-ending
+action was taken. A verified rollback bundle was saved before the update.
+
+After relaunch, an automated installed-app smoke check compared pre/post
+`kero ls` state: all 11 sessions kept their pane IDs, layout, focus and zoom.
+The previous terminal-service process remained alive. The native accessibility
+View menu listed Left Sidebar, Right Sidebar, Tabs Across the Top and Tabs
+Across the Bottom, and the Usage utility and navigation footer were present.
+
+This is an installed-app smoke check, not a human hand test. Native pointer and
+click feel, native drag, traffic-light visual clearance and detailed visual
+folding remain unverified. The broader navigation epic is not claimed complete
+from this check.
