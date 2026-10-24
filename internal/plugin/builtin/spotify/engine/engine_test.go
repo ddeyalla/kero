@@ -499,3 +499,84 @@ func TestPlayFromSendsTheOffsetAndItsDoubleClickIsDropped(t *testing.T) {
 		}
 	}
 }
+
+// A command whose context is already over is not admitted: the page never
+// sees it.
+func TestCancelledCommandsAreNotAdmitted(t *testing.T) {
+	h := start(t)
+	h.post(t, `{"type":"ready"}`)
+	h.snap(t)
+	cmds := h.commands(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for name, fn := range map[string]func() error{
+		"play":      func() error { return h.e.Play(ctx, "spotify:track:t1") },
+		"play-from": func() error { return h.e.PlayFrom(ctx, "spotify:album:a1", "spotify:track:t1") },
+		"toggle":    func() error { return h.e.PlayPause(ctx) },
+	} {
+		if err := fn(); !errors.Is(err, context.Canceled) {
+			t.Errorf("%s = %v, want context.Canceled", name, err)
+		}
+	}
+	select {
+	case got := <-cmds:
+		t.Fatalf("the page received %q from cancelled commands", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// admissionProbe tells when its context was first consulted, so a test can
+// cancel while a command waits for the engine's state lock.
+type admissionProbe struct {
+	context.Context
+	once    sync.Once
+	checked chan struct{}
+}
+
+func (c *admissionProbe) Err() error {
+	err := c.Context.Err()
+	c.once.Do(func() { close(c.checked) })
+	return err
+}
+
+// A command cancelled while it waits for the engine's state lock must not
+// be queued when the lock is released.
+func TestCancelledWhileWaitingForAdmissionQueuesNothing(t *testing.T) {
+	inner, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx := &admissionProbe{Context: inner, checked: make(chan struct{})}
+	e := New(Config{Now: time.Now})
+	e.mu.Lock()
+	e.ready = true
+	done := make(chan error, 1)
+	go func() { done <- e.Play(ctx, "spotify:track:review") }()
+	<-ctx.checked
+	cancel()
+	e.mu.Unlock()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Errorf("play admitted after cancellation while waiting for the lock: %v", err)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.queue) != 0 {
+		t.Errorf("cancelled call queued %d commands", len(e.queue))
+	}
+}
+
+// A command admitted before the caller cancels still runs: the plugin's
+// action defers cancel as soon as Play returns.
+func TestAcceptedCommandSurvivesCallerCancellation(t *testing.T) {
+	h := start(t)
+	h.post(t, `{"type":"ready"}`)
+	h.snap(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := h.e.Play(ctx, "spotify:track:kept"); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	cancel()
+	h.e.mu.Lock()
+	defer h.e.mu.Unlock()
+	if len(h.e.queue) != 1 {
+		t.Fatalf("queue = %d, want the accepted play kept", len(h.e.queue))
+	}
+}

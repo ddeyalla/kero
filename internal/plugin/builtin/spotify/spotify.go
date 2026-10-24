@@ -22,6 +22,7 @@ import (
 	"kero/internal/plugin/protocol"
 	"kero/internal/plugin/registry"
 	"kero/internal/plugin/sdk"
+	"kero/locales"
 )
 
 const (
@@ -236,8 +237,14 @@ type plugin struct {
 	monitorOnce sync.Once
 	// playing is the URI of the album or playlist that a press asked to
 	// play, from the press until the player answers it, so that a second
-	// press on the same row does not play it twice.
+	// press on the same row does not play it twice. It tracks duplicate
+	// clicks only; playReq owns a completion.
 	playing string
+	// playSeq numbers accepted play requests, and playReq is the request
+	// that owns the player now. The numbers are separate from the guesses:
+	// a request still owns its completion when it made no optimistic guess.
+	playSeq uint64
+	playReq uint64
 	// guessSeq numbers the guesses, so that the timer of an older guess
 	// does not undo a newer one.
 	guessSeq int
@@ -1444,15 +1451,34 @@ func (p *plugin) selectResult(e protocol.EventParams) {
 // playing at once, before the player answers; the player's own state
 // replaces that guess, and a failed press brings the pane back.
 func (p *plugin) playEntry(pane string, picked entry) {
-	uri := picked.uri
-	p.mu.Lock()
-	// A second press on the row waits for the first one.
-	if p.panes[pane] == nil || uri == "" || p.playing == uri {
-		p.mu.Unlock()
+	req, seq, ok := p.beginPlay(pane, picked, picked.uri, "")
+	if !ok {
 		return
 	}
+	p.actionWith(pane, localePlayFailed(), func(ctx context.Context) error {
+		err := p.activePlayer().Play(ctx, picked.uri)
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = errPlayTimeout
+		}
+		return err
+	}, p.finishPlay(req, picked.uri, seq))
+}
+
+// beginPlay accepts a press as a numbered play request and shows its row,
+// and is called with no lock. A second press on the row that is already
+// playing waits for the first one. The request number, not the URI, owns
+// the completion: a repeated row is a new request after the first ends.
+func (p *plugin) beginPlay(pane string, row entry, uri, trackURI string) (uint64, int, bool) {
+	p.mu.Lock()
+	if p.panes[pane] == nil || uri == "" || p.playing == uri {
+		p.mu.Unlock()
+		return 0, 0, false
+	}
 	p.playing = uri
-	seq := p.guessLocked(picked, "")
+	p.playSeq++
+	req := p.playSeq
+	p.playReq = req
+	seq := p.guessLocked(row, trackURI)
 	panes := p.paneIDsLocked()
 	p.mu.Unlock()
 	for _, pane := range panes {
@@ -1461,19 +1487,28 @@ func (p *plugin) playEntry(pane string, picked entry) {
 	if seq != 0 {
 		p.armGuess(seq)
 	}
+	return req, seq, true
+}
 
-	p.action(pane, localePlayFailed(), func(ctx context.Context) error {
-		err := p.activePlayer().Play(ctx, uri)
-		p.mu.Lock()
+// finishPlay gives the completion of request req its own state change, under
+// p.mu, and tells whether the request still owns the pane. Only the request
+// that owns it clears its row marker or reverts its guess; an older request
+// changes nothing, even when it played the same URI again. A request with no
+// guess still owns its completion through its number.
+func (p *plugin) finishPlay(req uint64, uri string, seq int) func(*session, error) bool {
+	return func(_ *session, err error) bool {
+		if p.playReq != req {
+			return false
+		}
+		p.playReq = 0
 		if p.playing == uri {
 			p.playing = ""
 		}
 		if err != nil {
-			p.revertGuessLocked()
+			p.revertGuessSeqLocked(seq)
 		}
-		p.mu.Unlock()
-		return err
-	})
+		return true
+	}
 }
 
 // guessLocked makes every pane that can play show a row as now playing,
@@ -1518,8 +1553,18 @@ func (p *plugin) guessLocked(row entry, trackURI string) int {
 // the player did not take, and is called with p.mu held. A pane whose real
 // state came meanwhile has no guess and keeps that state.
 func (p *plugin) revertGuessLocked() {
+	p.revertGuessesLocked(func(int) bool { return true })
+}
+
+// revertGuessSeqLocked brings back only the guess numbered seq: a failure
+// from an older press must not take back a row pressed since.
+func (p *plugin) revertGuessSeqLocked(seq int) {
+	p.revertGuessesLocked(func(got int) bool { return got == seq })
+}
+
+func (p *plugin) revertGuessesLocked(match func(int) bool) {
 	for _, s := range p.panes {
-		if s.guess == nil {
+		if s.guess == nil || !match(s.guess.seq) {
 			continue
 		}
 		volume := s.snap.Volume
@@ -1713,9 +1758,25 @@ func (p *plugin) signIn(pane string) {
 	}()
 }
 
+// errPlayTimeout marks a play whose command deadline passed while the
+// player started, so the pane can name that cause rather than a generic
+// playback failure.
+var errPlayTimeout = errors.New("spotify: play started too slowly")
+
 // action runs one player command off the handler goroutine, reports a
 // failure in the pane, and reads the player again after a success.
 func (p *plugin) action(pane, fail string, fn func(context.Context) error) {
+	p.actionWith(pane, fail, fn, nil)
+}
+
+// actionWith is action for a command that may be superseded before it ends.
+// finish owns the command's state change: it is called under p.mu with the
+// pane's session, if it is still open, and says whether the result still owns
+// the pane. Ownership is checked afresh in that same lock, so a request that
+// ended between the command and this point cannot apply an older result. A
+// stale result changes nothing — no notice, mode, clear or read — so it
+// cannot hide the newer command.
+func (p *plugin) actionWith(pane, fail string, fn func(context.Context) error, finish func(*session, error) bool) {
 	pushes := p.pushes()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
@@ -1723,24 +1784,38 @@ func (p *plugin) action(pane, fail string, fn func(context.Context) error) {
 		err := fn(ctx)
 		if err != nil {
 			p.mu.Lock()
-			if s := p.panes[pane]; s != nil {
-				s.notice = fail
+			s := p.panes[pane]
+			owned := finish == nil || finish(s, err)
+			changed := false
+			if s != nil && owned {
+				notice := fail
+				if errors.Is(err, errPlayTimeout) {
+					notice = locales.SpotifyPlayTimeout()
+				}
+				s.notice = notice
 				s.playback = playbackState(err, s.snap)
+				changed = true
 			}
 			p.mu.Unlock()
-			p.render(pane)
+			if changed {
+				p.render(pane)
+			}
 			return
 		}
 		p.mu.Lock()
+		s := p.panes[pane]
+		owned := finish == nil || finish(s, nil)
 		cleared := false
-		if s := p.panes[pane]; s != nil {
+		if s != nil && owned {
 			cleared = clearNotice(s)
 		}
 		p.mu.Unlock()
 		if cleared {
 			p.render(pane)
 		}
-		p.readAfterCommand(pushes)
+		if owned {
+			p.readAfterCommand(pushes)
+		}
 	}()
 }
 

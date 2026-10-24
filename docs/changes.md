@@ -2044,7 +2044,19 @@ confirms it, and the library refreshes when it is older than 60 seconds.
 The engine runs the commands of the host one at a time, because parallel calls
 break the SDK's playback (`enqueue` and `drain` in `engine/page.html`). A
 waiting `seek` or `volume` gives way to a newer one only when it is the last
-command in line. A `play` of the same URI and offset within one second of the
+command in line. A lazy play passes its caller's context through `wake`: it
+waits for a cold web view only until that context ends, and it checks the
+context once more before admitting the command. A play that reaches the
+deadline shows `Spotify is taking too long to start. Try again.`, not the
+generic play failure. The engine's `send` refuses a
+command whose context is already over, while a command accepted before a later
+cancellation still runs, as the click it answers. `playEntry` and `playTrack` give each accepted play request a number in
+`playReq`, separate from its guess number, and only that request may clear
+its row marker, revert its guess, set a notice, clear a newer notice or read
+after completion. The URI remains duplicate-click tracking only, so A, B,
+then A again still lets the newest A own the result. A completion that a
+newer press has superseded changes nothing; a current failure still reports
+and reverts normally. A `play` of the same URI and offset within one second of the
 last is dropped as a double click. Play and toggle retry on a 403 or 404. The
 page wakes the audio after a play, a stall watchdog fixes a track whose
 position stands still, and the player reconnects with backoff of 2, 5 and 15

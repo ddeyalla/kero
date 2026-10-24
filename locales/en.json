@@ -773,6 +773,7 @@
   "spotifyPremiumRequiredNotice": "Spotify Premium is needed to play here.",
   "spotifySignInAgainNotice": "Sign in to Spotify again to play here.",
   "spotifyPlaybackFailedDetail": "Spotify couldn't play that: {message}",
+  "spotifyPlayTimeout": "Spotify is taking too long to start. Try again.",
   "spotifyNoClientID": "Add your Spotify Client ID",
   "spotifyNoClientIDDetail": "Create an app in the Spotify developer dashboard with {uri} as its redirect URI, paste its Client ID in Settings › Plugins, then sign in here.",
   "spotifySetUp": "Set Up Spotify",

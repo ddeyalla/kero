@@ -20,6 +20,12 @@ builds only. What each feature is and where it stands is tracked in the
   and field edges, dividers and control hairlines, including the opaque
   Reduce Transparency fallback. The normal appearance, the selected or
   ambient accent and the shared focus ring do not change.
+- A Spotify play waiting for a cold or reconnecting player now stops at its
+  five-second command deadline, and the player never receives that play after
+  the caller has gone. A play that runs out the deadline says the player took
+  too long to start. A late completion from an older press changes nothing,
+  even when the same row was pressed again since: it takes back no row,
+  clears no newer error and does not replace the newer player with an error.
 
 ## [2.0.7-local.5] - 2026-10-24
 

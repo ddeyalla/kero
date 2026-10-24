@@ -527,8 +527,15 @@ func (e *Engine) requeue(q queued) {
 // last in line is replaced by the newer one, because only the last counts, and a
 // play of the same URI as the one just sent is a double click and dropped.
 // The page runs what it takes one at a time, and does the same.
-func (e *Engine) send(cmd map[string]any) error {
+func (e *Engine) send(ctx context.Context, cmd map[string]any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	e.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		e.mu.Unlock()
+		return err
+	}
 	closed, ready := e.closed, e.ready
 	e.mu.Unlock()
 	switch {
@@ -544,6 +551,10 @@ func (e *Engine) send(cmd map[string]any) error {
 	}
 	name, _ := cmd["cmd"].(string)
 	e.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		e.mu.Unlock()
+		return err
+	}
 	if name == "play" {
 		uri, _ := cmd["uri"].(string)
 		if offset, _ := cmd["offset"].(string); offset != "" {
@@ -589,63 +600,67 @@ func (e *Engine) send(cmd map[string]any) error {
 
 // PlayPause flips between playing and paused. When this player does not
 // play yet, it becomes the one that plays, and resumes.
-func (e *Engine) PlayPause(context.Context) error { return e.send(map[string]any{"cmd": "toggle"}) }
+func (e *Engine) PlayPause(ctx context.Context) error {
+	return e.send(ctx, map[string]any{"cmd": "toggle"})
+}
 
 // Next skips to the next track.
-func (e *Engine) Next(context.Context) error { return e.send(map[string]any{"cmd": "next"}) }
+func (e *Engine) Next(ctx context.Context) error { return e.send(ctx, map[string]any{"cmd": "next"}) }
 
 // Previous goes to the previous track.
-func (e *Engine) Previous(context.Context) error { return e.send(map[string]any{"cmd": "previous"}) }
+func (e *Engine) Previous(ctx context.Context) error {
+	return e.send(ctx, map[string]any{"cmd": "previous"})
+}
 
 // Launch has no app to open: the engine is the player.
 func (e *Engine) Launch(context.Context) error { return transport.ErrNotInstalled }
 
 // Seek moves to a position in the track.
-func (e *Engine) Seek(_ context.Context, position time.Duration) error {
+func (e *Engine) Seek(ctx context.Context, position time.Duration) error {
 	if position < 0 {
 		return transport.ErrRange
 	}
-	return e.send(map[string]any{"cmd": "seek", "ms": position.Milliseconds()})
+	return e.send(ctx, map[string]any{"cmd": "seek", "ms": position.Milliseconds()})
 }
 
 // Volume sets the volume, from 0 to 100.
-func (e *Engine) Volume(_ context.Context, volume int) error {
+func (e *Engine) Volume(ctx context.Context, volume int) error {
 	if volume < 0 || volume > 100 {
 		return transport.ErrRange
 	}
-	return e.send(map[string]any{"cmd": "volume", "value": volume})
+	return e.send(ctx, map[string]any{"cmd": "volume", "value": volume})
 }
 
 // Shuffle turns shuffle on or off.
-func (e *Engine) Shuffle(_ context.Context, on bool) error {
-	return e.send(map[string]any{"cmd": "shuffle", "on": on})
+func (e *Engine) Shuffle(ctx context.Context, on bool) error {
+	return e.send(ctx, map[string]any{"cmd": "shuffle", "on": on})
 }
 
 // Repeat turns repeat of the context on or off.
-func (e *Engine) Repeat(_ context.Context, on bool) error {
-	return e.send(map[string]any{"cmd": "repeat", "on": on})
+func (e *Engine) Repeat(ctx context.Context, on bool) error {
+	return e.send(ctx, map[string]any{"cmd": "repeat", "on": on})
 }
 
 // Play starts a track, an album, a playlist, an artist, a show or an
 // episode, given as its Spotify URI.
-func (e *Engine) Play(_ context.Context, uri string) error {
+func (e *Engine) Play(ctx context.Context, uri string) error {
 	if !uriRe.MatchString(uri) {
 		return fmt.Errorf("%w: %q", transport.ErrURI, uri)
 	}
-	return e.send(map[string]any{"cmd": "play", "uri": uri})
+	return e.send(ctx, map[string]any{"cmd": "play", "uri": uri})
 }
 
 // PlayFrom starts a track inside its album or playlist, so that what
 // follows it is the rest of that context. contextURI is the album or the
 // playlist, and trackURI the track in it.
-func (e *Engine) PlayFrom(_ context.Context, contextURI, trackURI string) error {
+func (e *Engine) PlayFrom(ctx context.Context, contextURI, trackURI string) error {
 	if !uriRe.MatchString(contextURI) {
 		return fmt.Errorf("%w: %q", transport.ErrURI, contextURI)
 	}
 	if !trackRe.MatchString(trackURI) {
 		return fmt.Errorf("%w: %q", transport.ErrURI, trackURI)
 	}
-	return e.send(map[string]any{"cmd": "play", "uri": contextURI, "offset": trackURI})
+	return e.send(ctx, map[string]any{"cmd": "play", "uri": contextURI, "offset": trackURI})
 }
 
 // Read returns the last state the player pushed.

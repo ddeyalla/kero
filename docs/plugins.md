@@ -55,7 +55,9 @@ What the user gave it, its settings and secrets, lives apart, in
 ## Commands
 
 Spotify's failed track and Up next lists offer **Retry** in place. A failed
-read keeps the open album or playlist and any cached tracks. An offline
+read keeps the open album or playlist and any cached tracks. A play that a
+newer press has superseded completes silently; only the current command
+reports a failure. An offline
 library also offers Retry, without changing the selected tab. These paths
 live in `internal/plugin/builtin/spotify/drill.go`, `view.go` and `spotify.go`.
 

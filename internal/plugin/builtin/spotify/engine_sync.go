@@ -129,7 +129,7 @@ func (p *plugin) startEngine(conn *sdk.Conn, library *web.Client) {
 	panes := p.paneIDsLocked()
 	p.mu.Unlock()
 	if engineEager {
-		_, _ = eng.wake()
+		_, _ = eng.wake(context.Background())
 	}
 	if monitor != nil {
 		_ = monitor.Close()

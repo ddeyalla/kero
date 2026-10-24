@@ -183,3 +183,91 @@ func TestTheLastPaneClosedKeepsAPlayingTrack(t *testing.T) {
 	f.hold(transport.Snapshot{State: transport.StatePaused, Track: "Juicy", ReadAt: time.Now()})
 	eventually(t, "the web view to close", func() bool { _, closed := f.counts(); return closed == 1 })
 }
+
+// A play whose caller is already gone does not open a web view or send
+// anything.
+func TestLazyPlayRejectsAnAlreadyCancelledContext(t *testing.T) {
+	p, _, f := lazyPlugin(t, &webAPI{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	err := p.activePlayer().Play(ctx, "spotify:track:t1")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("play = %v, want context.Canceled", err)
+	}
+	if time.Since(start) > 200*time.Millisecond {
+		t.Errorf("a cancelled play took %v", time.Since(start))
+	}
+	if started, _ := f.counts(); started != 0 {
+		t.Errorf("the web view opened %d times for a cancelled play", started)
+	}
+	if calls := f.calls(); len(calls) != 0 {
+		t.Errorf("commands = %v, want none", calls)
+	}
+}
+
+// A play waits for a cold web view only as long as its caller allows: at
+// the deadline it returns, and the play is not sent later.
+func TestLazyPlayStopsAtItsDeadlineWhileTheWebViewStarts(t *testing.T) {
+	old := engineWakeTimeout
+	engineWakeTimeout = 2 * time.Second
+	t.Cleanup(func() { engineWakeTimeout = old })
+	p, _, f := lazyPlugin(t, &webAPI{})
+	f.mu.Lock()
+	f.ready = false
+	f.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := p.activePlayer().Play(ctx, "spotify:track:t1")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("play = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("a play past its deadline took %v", elapsed)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if calls := f.calls(); len(calls) != 0 {
+		t.Errorf("commands after the deadline = %v, want none", calls)
+	}
+}
+
+// A play waiting behind another wake stops as soon as its caller does,
+// rather than waiting for the gate and sending late.
+func TestLazyPlayCancelsWhileAnotherWakeOwnsTheGate(t *testing.T) {
+	old := engineWakeTimeout
+	engineWakeTimeout = 2 * time.Second
+	t.Cleanup(func() { engineWakeTimeout = old })
+	p, _, f := lazyPlugin(t, &webAPI{})
+	f.mu.Lock()
+	f.ready = false
+	f.mu.Unlock()
+
+	first := make(chan struct{})
+	go func() {
+		defer close(first)
+		_ = p.activePlayer().Play(context.Background(), "spotify:track:first")
+	}()
+	eventually(t, "the first wake", func() bool { started, _ := f.counts(); return started == 1 })
+	time.Sleep(20 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := p.activePlayer().Play(ctx, "spotify:track:second")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second play = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+		t.Errorf("the waiting play took %v past its deadline", elapsed)
+	}
+
+	f.mu.Lock()
+	f.ready = true
+	f.mu.Unlock()
+	<-first
+	if calls := f.calls(); !slices.Equal(calls, []string{"play spotify:track:first"}) {
+		t.Errorf("commands = %v, want only the first play", calls)
+	}
+}
