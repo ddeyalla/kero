@@ -69,9 +69,10 @@ allocator protects, so an optional pin moves into the labeled plugin overflow
 rather than causing otherwise avoidable scrolling. Visible pins do not also
 appear in that menu.
 
-`navFitSessionWidths` caps the preferred width at 220 DIPs and uses an 80-DIP
-minimum. A compact tab whose preferred width is at most 120 DIPs keeps that
-full width. When every preferred width does not fit, only longer tabs shrink:
+`navSessionWidth` caps each preferred width at 220 DIPs. `navFitSessionWidths`
+fits those capped values using an 80-DIP minimum. A compact tab whose
+preferred width is at most 120 DIPs keeps that full width. When every
+preferred width does not fit, only longer tabs shrink:
 their flexible width above 80 is scaled by one shared proportion, while
 compact tabs stay whole. If the compact widths and 80-DIP long-tab floors
 exceed the room, `ui.ScrollHorizontal` scrolls the row. The overflow button
