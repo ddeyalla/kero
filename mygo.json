@@ -2,7 +2,7 @@
   "name": "Shibu Code",
   "icon": "resources/shibu-icon.png",
   "identifier": "dev.ddeyalla.kero",
-  "version": "2.0.7-local.4",
+  "version": "2.0.7-local.5",
   "out": "build",
   "i18n": {
     "dir": "locales",
