@@ -455,7 +455,7 @@ func (a *App) browserBar(c *ui.Context, pal *palette, st *browserState, p *proto
 		field := ui.Row(c.Key("address")).Grow(1).MinWidth(0).Height(28).Radius(8).Padding(0, 10).Gap(6).AlignItems(ui.Center).
 			Margin(0, 4)
 		// The address has no field() outline; keep its rim visible on white.
-		field.InsetShadow(0, 0, 0, 0.5, pal.text.Alpha(0.12))
+		field.InsetShadow(0, 0, 0, 0.5, pal.hairline)
 		glassToolbar(c, field, pal)
 		field.Children(func() {
 			controlIcon(c, globeIcon, 13, pal.textFaint, pal.dark)

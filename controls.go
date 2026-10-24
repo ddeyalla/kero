@@ -282,12 +282,11 @@ func (a *App) searchPopup(c *ui.Context, key, value string, options []string, wi
 // field styles a text field's frame, around its input.
 func field(c *ui.Context, frame ui.Element, focused bool, pal *palette) ui.Element {
 	frame.Height(controlH+2).Padding(0, 8).Gap(6).Radius((controlH + 2) / 2).AlignItems(ui.Center)
-	stroke := ui.RGBA(0, 0, 0, 0.13)
 	bg := ui.Hex("#ffffff")
 	if pal.dark {
-		stroke, bg = ui.RGBA(255, 255, 255, 0.13), ui.RGBA(255, 255, 255, 0.06)
+		bg = ui.RGBA(255, 255, 255, 0.06)
 	}
-	frame.Background(bg).InsetShadow(0, 0, 0, 1, stroke)
+	frame.Background(bg).InsetShadow(0, 0, 0, 1, pal.controlBorder)
 	glow := frame.Animate("glow", b2f(focused), hover.Duration)
 	if glow > 0 {
 		frame.Shadow(0, 0, 0, 3.5*glow, pal.accent.Alpha(0.32*glow)).InsetShadow(0, 0, 0, 1, pal.accent.Alpha(0.75*glow))

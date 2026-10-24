@@ -16,6 +16,10 @@ builds only. What each feature is and where it stands is tracked in the
   now follows the selected accent instead of staying system blue. The ring
   keeps its normal opacity, and Increase Contrast still draws a full-opacity
   ring. Custom field outlines already used the accent.
+- Increase Contrast now strengthens Shibu's own muted and faint text, card
+  and field edges, dividers and control hairlines, including the opaque
+  Reduce Transparency fallback. The normal appearance, the selected or
+  ambient accent and the shared focus ring do not change.
 
 ## [2.0.7-local.5] - 2026-10-24
 

@@ -160,6 +160,32 @@ buttons retain their existing styling. Settings and Attention search fields
 keep their existing outline, without a second ring. `glass_capsule_edge_test.go` renders
 actual plugin menus and toolbar material over white and checks all four edges.
 
+## Increase Contrast
+
+The desktop's Increase Contrast reaches Shibu's own drawing, not only
+MyGo's glass. `paletteFor` asks `highContrastPal` for a cached variant of
+the frame's accent palette; the accent, card fills and body text are
+untouched. Muted and faint text move 35% and 55% toward the body text, and
+the boundaries High Contrast owns — card and field edges, dividers, and
+the `hairline`, `hairlineSoft` and `hairlineStrong` used by `controlFace`,
+`litEdge`, Browser/Files toolbars and the shared field rim — take the text
+color at a visible opacity. Light pane cards gain a real one-point boundary through
+`raised`, whose ordinary edge is only a shadow; it is painted with an inset
+rim, so content and terminal bounds do not move. The focused pane's
+edge becomes fully opaque in the accent. The variant is derived from the
+ordinary accent palette before the app's ambient blend — the palette the
+accent cache returns, so each preset has its own — and is cached by that
+palette; the per-app ambient color blends in afterwards. The ordinary
+palette is never mutated, and turning the setting off returns it exactly.
+
+`high_contrast_test.go` renders muted and faint text, a card edge and a
+styled field in light and dark, toggles the setting in the same app, and
+compares rendered contrast and edges, the accent and the ordinary frame
+before and after. It also checks a selected and an ambient accent, the
+per-preset cache, and an opaque `controlFace` under Reduce Transparency.
+`SetPreferences` stands for the desktop setting; the native OS switch is
+Codex's hand check.
+
 ## Delivery review corrections
 
 A failed Spotify refresh leaves saved track and queue rows visible with a

@@ -300,7 +300,7 @@ func (a *App) navProjectGroup(c *ui.Context, pal *palette, g group, headerW floa
 	id := g.project.ID
 	frame := ui.Row(c.Key("nav-group-" + id)).Shrink(0).Gap(navTabGap).Padding(navGroupPad).
 		AlignItems(ui.Center).FillHeight()
-	frame.InsetShadow(0, 0, 0, 0.5, pal.text.Alpha(0.12))
+	frame.InsetShadow(0, 0, 0, 0.5, pal.hairline)
 	glassToolbar(c, frame, pal).Radius(concentric(7, navGroupPad)).Children(func() {
 		a.navProject(c, pal, g, headerW)
 		if a.prefs.Collapsed[id] {

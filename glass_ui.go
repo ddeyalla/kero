@@ -103,7 +103,7 @@ func glassToolbar(c *ui.Context, e ui.Element, pal *palette) ui.Element {
 func toolbarGroup(c *ui.Context, key string, pal *palette, children func()) {
 	e := ui.Row(c.Key(key)).Shrink(0).Gap(0).Padding(2).AlignItems(ui.Center)
 	// Fields that already have an outline use glassToolbar directly.
-	e.InsetShadow(0, 0, 0, 0.5, pal.text.Alpha(0.12))
+	e.InsetShadow(0, 0, 0, 0.5, pal.hairline)
 	glassToolbar(c, e, pal).Children(children)
 }
 

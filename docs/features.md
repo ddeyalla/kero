@@ -180,6 +180,7 @@ Current release: **2.0.7-local.5** (Kero 2.0.7), 2026-10-24.
 | First run: a ~900 ms reveal of the real shell, covering the window from its first frame, skipped after 2 s or on a connection error, cancellable, Reduce Motion aware, silent, shown once | Automatic, on the first launch | 2.0.7-local.2 | Untried |
 | Floating panels on Liquid Glass: the command palette, the confirmation dialog, the New Pane chooser, Settings and a pane's drag chip; no dimming under them except a confirmation; concentric corners; opaque under Reduce Transparency | `Cmd+P`, `Cmd+,`, `Cmd+Alt+N` (New Pane chooser), closing a busy session, dragging a pane's title | 2.0.7-local.2 | Untried |
 | Glass Browser/Files toolbar groups, capsule fields and controls, native SF Symbols, held slider/switch lenses and soft scrolling edges; sidebar and pane-header icon buttons retain their previous plain style; opaque under Reduce Transparency | Sidebar, pane headers, Browser/Files/Attention toolbars, Settings and plugin controls | 2.0.7-local.2 | Automated checks and isolated dev app; hand acceptance pending |
+| Increase Contrast strengthens app-drawn muted and faint text, card and field edges, dividers and control hairlines, including the opaque Reduce Transparency fallback; the normal appearance and the selected or ambient accent stay as they are | Automatic from the desktop's Increase Contrast | Unreleased | Tested |
 
 ## Navigation
 
