@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"kero/internal/plugin/builtin/spotify/engine"
@@ -42,6 +43,45 @@ type idler interface {
 	Release()
 }
 
+// source is the identity of one inner engine. The lazy wrapper retires it
+// before the inner engine is replaced, so an error callback that was
+// dispatched before the replacement can still tell the plugin, at the
+// point where it changes state, that its source is gone. The plugin's
+// decimal play request is an owner of a command, not an engine identity.
+type source struct {
+	retired atomic.Bool
+}
+
+func (s *source) retire() {
+	if s != nil {
+		s.retired.Store(true)
+	}
+}
+
+func (s *source) live() bool {
+	return s != nil && !s.retired.Load()
+}
+
+// sourceError carries the inner engine that reported err. Its Unwrap keeps
+// every errors.Is and errors.As check of the original error.
+type sourceError struct {
+	source *source
+	err    error
+}
+
+func (e *sourceError) Error() string { return e.err.Error() }
+func (e *sourceError) Unwrap() error { return e.err }
+
+// errorSource gives the inner engine that reported err, or nil when the
+// caller reported it directly.
+func errorSource(err error) *source {
+	var se *sourceError
+	if errors.As(err, &se) {
+		return se.source
+	}
+	return nil
+}
+
 // lazyEngine is the engine that opens its web view only when a play wants
 // it, and closes it again after engineIdleTimeout with nothing playing, or
 // when the last pane closes while nothing plays. Until then it is a player
@@ -70,6 +110,8 @@ type lazyEngine struct {
 
 	mu    sync.Mutex
 	inner playerEngine
+	// source is the identity of inner, retired before inner is replaced.
+	source *source
 	// gen numbers the engines, so that a hook or a timer of an engine that
 	// is gone does not act on the next one.
 	gen     int
@@ -100,6 +142,8 @@ func (w *lazyEngine) Close() error {
 	w.closed = true
 	inner := w.inner
 	w.inner = nil
+	w.source.retire()
+	w.source = nil
 	w.gen++
 	w.stopIdleLocked()
 	w.mu.Unlock()
@@ -141,7 +185,16 @@ func (w *lazyEngine) wake(ctx context.Context) (playerEngine, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+	// Taking the gate and its owner's cancellation can happen together;
+	// do not build or start a web view for a call that is already gone.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	w.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		w.mu.Unlock()
+		return nil, err
+	}
 	if w.closed {
 		w.mu.Unlock()
 		return nil, engine.ErrClosed
@@ -150,14 +203,15 @@ func (w *lazyEngine) wake(ctx context.Context) (playerEngine, error) {
 	if inner == nil {
 		w.gen++
 		gen := w.gen
+		src := &source{}
 		inner = w.build(
 			func(snap transport.Snapshot) { w.pushed(gen, snap) },
 			func(err error) {
 				w.mu.Lock()
-				current := w.gen == gen
+				current := w.gen == gen && w.source == src
 				w.mu.Unlock()
 				if current {
-					w.onError(err)
+					w.onError(&sourceError{source: src, err: err})
 				}
 			},
 		)
@@ -166,6 +220,7 @@ func (w *lazyEngine) wake(ctx context.Context) (playerEngine, error) {
 			return nil, errNoEngine
 		}
 		w.inner = inner
+		w.source = src
 	}
 	if !w.playing {
 		// The web view is wanted now: a play that does not land still
@@ -179,6 +234,8 @@ func (w *lazyEngine) wake(ctx context.Context) (playerEngine, error) {
 	if err := inner.Start(); err != nil {
 		w.mu.Lock()
 		if w.gen == gen && w.inner == inner {
+			w.source.retire()
+			w.source = nil
 			w.inner = nil
 			w.gen++
 			w.stopIdleLocked()
@@ -274,6 +331,8 @@ func (w *lazyEngine) teardown(gen int) {
 	}
 	inner := w.inner
 	w.inner = nil
+	w.source.retire()
+	w.source = nil
 	w.gen++
 	w.stopIdleLocked()
 	panes := !w.released
@@ -305,12 +364,21 @@ func (w *lazyEngine) PlayPause(ctx context.Context) error {
 
 // Play starts a track, and opens the web view for it.
 func (w *lazyEngine) Play(ctx context.Context, uri string) error {
+	return w.PlayRequest(ctx, uri, "")
+}
+
+// PlayRequest is Play with the plugin's identity for the accepted play, so
+// that its later page error can say which play failed.
+func (w *lazyEngine) PlayRequest(ctx context.Context, uri, request string) error {
 	inner, err := w.wake(ctx)
 	if err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if rp, ok := inner.(requestPlayer); ok {
+		return rp.PlayRequest(ctx, uri, request)
 	}
 	return inner.Play(ctx, uri)
 }
@@ -318,12 +386,21 @@ func (w *lazyEngine) Play(ctx context.Context, uri string) error {
 // PlayFrom starts a track inside its album or playlist, and opens the web
 // view for it.
 func (w *lazyEngine) PlayFrom(ctx context.Context, contextURI, trackURI string) error {
+	return w.PlayFromRequest(ctx, contextURI, trackURI, "")
+}
+
+// PlayFromRequest is PlayFrom with the plugin's identity for the accepted
+// play, so that its later page error can say which play failed.
+func (w *lazyEngine) PlayFromRequest(ctx context.Context, contextURI, trackURI, request string) error {
 	inner, err := w.wake(ctx)
 	if err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if rp, ok := inner.(requestContextPlayer); ok {
+		return rp.PlayFromRequest(ctx, contextURI, trackURI, request)
 	}
 	if cp, ok := inner.(contextPlayer); ok {
 		return cp.PlayFrom(ctx, contextURI, trackURI)

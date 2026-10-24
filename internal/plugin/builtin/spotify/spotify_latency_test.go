@@ -30,6 +30,10 @@ func (g *gatedEngine) Play(ctx context.Context, uri string) error {
 	return nil
 }
 
+func (g *gatedEngine) PlayRequest(ctx context.Context, uri, _ string) error {
+	return g.Play(ctx, uri)
+}
+
 // timers holds the guess timers that the plugin armed, for a test to fire.
 type timers struct {
 	mu  sync.Mutex
@@ -80,6 +84,10 @@ func (e *sequenceEngine) Play(_ context.Context, uri string) error {
 	_ = e.fakeEngine.record("play " + uri)
 	e.started <- uri
 	return <-e.gates[uri]
+}
+
+func (e *sequenceEngine) PlayRequest(ctx context.Context, uri, _ string) error {
+	return e.Play(ctx, uri)
 }
 
 var pressRow = protocol.EventParams{Pane: "p1", Node: "results", Kind: protocol.KindSelect, Value: "album-a1"}
@@ -286,6 +294,8 @@ func TestAFailedOlderPlayDoesNotRevertANewerGuess(t *testing.T) {
 type failingEngine struct{ *fakeEngine }
 
 func (failingEngine) Play(context.Context, string) error { return engine.ErrClosed }
+
+func (f failingEngine) PlayRequest(ctx context.Context, uri, _ string) error { return f.Play(ctx, uri) }
 
 func TestAStateOfANewTrackReplacesTheGuess(t *testing.T) {
 	p, s, f, ts := pushedPlugin(t)
@@ -560,6 +570,10 @@ type deadlineEngine struct{ *fakeEngine }
 
 func (deadlineEngine) Play(context.Context, string) error { return context.DeadlineExceeded }
 
+func (e deadlineEngine) PlayRequest(ctx context.Context, uri, _ string) error {
+	return e.Play(ctx, uri)
+}
+
 // A play that runs out its command deadline names that cause, and still
 // brings the row back.
 func TestAPlayDeadlineReportsAnActionableCause(t *testing.T) {
@@ -604,6 +618,10 @@ func newIndexedPlayEngine(t *testing.T, n int) *indexedPlayEngine {
 		}
 	})
 	return e
+}
+
+func (e *indexedPlayEngine) PlayRequest(ctx context.Context, uri, _ string) error {
+	return e.Play(ctx, uri)
 }
 
 func (e *indexedPlayEngine) Play(ctx context.Context, uri string) error {

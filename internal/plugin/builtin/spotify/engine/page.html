@@ -41,7 +41,8 @@ const postState = (type, extra) => post(Object.assign({type, page: pageId, seq: 
 // untilReady settles when the player is connected, at once if it is.
 const readyWaiters = [];
 const untilReady = () => playerReady ? Promise.resolve() : new Promise(resolve => readyWaiters.push(resolve));
-const fail = (kind, e) => post({type: 'error', kind, message: String((e && e.message) || e)});
+const fail = (kind, e, c) => post({type: 'error', kind, message: String((e && e.message) || e),
+  command: (c && c.cmd) || '', request: (c && c.request) || ''});
 
 // within gives a call at most ms to settle. The SDK's calls can hang, and
 // one that hangs must not hold up the commands behind it.
@@ -388,7 +389,7 @@ commands.onerror = () => {
 // double click. Parallel calls to the SDK break its playback.
 const pending = [];
 let running = false;
-let lastPlay = {uri: '', at: 0};
+let lastPlay = {uri: '', at: 0, request: ''};
 // A play that waited longer than this is too old to run: the click is past.
 const staleAfter = 5000;
 
@@ -401,8 +402,14 @@ function enqueue(c) {
   if (c.cmd === 'play') {
     const now = Date.now();
     const key = c.uri + (c.offset ? '#' + c.offset : '');
-    if (key === lastPlay.uri && now - lastPlay.at < 1000) return;
-    lastPlay = {uri: key, at: now};
+    // A numbered play is one the plugin accepted. Only the same accepted
+    // command (same request) is the double click here; a different numbered
+    // request is a later play and must reach Spotify, even when this page
+    // took the older one less than a second ago. An untagged pair, or a mix,
+    // keeps the old check.
+    const same = !c.request || !lastPlay.request || c.request === lastPlay.request;
+    if (key === lastPlay.uri && now - lastPlay.at < 1000 && same) return;
+    lastPlay = {uri: key, at: now, request: c.request || ''};
   }
   c.at = Date.now();
   pending.push(c);
@@ -455,10 +462,10 @@ async function drain() {
       try {
         await execute(c);
       } catch (err) {
-        fail('command', err);
+        fail('command', err, c);
         // A press that failed for good must not be swallowed by the double
         // click check, and no reconnect may stay waited for.
-        if (c.cmd === 'play') lastPlay = {uri: '', at: 0};
+        if (c.cmd === 'play') lastPlay = {uri: '', at: 0, request: ''};
       }
     }
   } finally {

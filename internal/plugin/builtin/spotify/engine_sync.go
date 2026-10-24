@@ -71,6 +71,39 @@ type contextPlayer interface {
 	PlayFrom(ctx context.Context, contextURI, trackURI string) error
 }
 
+// requestPlayer is a player that carries the plugin's identity for an
+// accepted play, so that a later page error can be matched to it.
+type requestPlayer interface {
+	PlayRequest(ctx context.Context, uri, request string) error
+}
+
+// requestContextPlayer is a requestPlayer that also starts a track inside
+// its album or playlist.
+type requestContextPlayer interface {
+	PlayFromRequest(ctx context.Context, contextURI, trackURI, request string) error
+}
+
+// playRequest starts uri, with its request identity when the player takes
+// one. A player that does not (the desktop app) plays as before.
+func playRequest(ctx context.Context, player transport.Player, uri, request string) error {
+	if rp, ok := player.(requestPlayer); ok {
+		return rp.PlayRequest(ctx, uri, request)
+	}
+	return player.Play(ctx, uri)
+}
+
+// playFromRequest starts trackURI inside contextURI, with its request
+// identity when the player takes one.
+func playFromRequest(ctx context.Context, player transport.Player, contextURI, trackURI, request string) error {
+	if rp, ok := player.(requestContextPlayer); ok {
+		return rp.PlayFromRequest(ctx, contextURI, trackURI, request)
+	}
+	if cp, ok := player.(contextPlayer); ok {
+		return cp.PlayFrom(ctx, contextURI, trackURI)
+	}
+	return player.Play(ctx, trackURI)
+}
+
 // syncEngine makes the engine the player while the user can stream, and the
 // desktop app the player otherwise. The user can stream when the Web API
 // client holds tokens with the streaming scope: a sign-in before the engine

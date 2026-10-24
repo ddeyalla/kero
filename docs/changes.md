@@ -2056,11 +2056,38 @@ its row marker, revert its guess, set a notice, clear a newer notice or read
 after completion. The URI remains duplicate-click tracking only, so A, B,
 then A again still lets the newest A own the result. A completion that a
 newer press has superseded changes nothing; a current failure still reports
-and reverts normally. A `play` of the same URI and offset within one second of the
-last is dropped as a double click. Play and toggle retry on a 403 or 404. The
-page wakes the audio after a play, a stall watchdog fixes a track whose
-position stands still, and the player reconnects with backoff of 2, 5 and 15
-seconds. Fetches to the engine's own server time out after 8 seconds. The
+and reverts normally. A play carries that request number through the
+engine's command queue, SSE payload, page retry and page error (the page's
+`command` and `request` fields). `playbackErrorFor` checks it again under
+`p.mu` at the callback, so a delayed error from an older request changes
+nothing. A current play error reports its own cause and reverts only its own
+guess; a non-play command error reports without taking back a newer play.
+`beginPlay` makes the play's timeout context and keeps its cancel
+(`playCancel`); a newer press cancels a request still on its way to the
+engine, while a command the engine already queued keeps running.
+`wake` checks cancellation after taking its gate and once more under the
+lazy engine's lock, so a canceled play builds no web view.
+
+The engine's double-click window keeps one accepted command. When an
+identical play arrives inside it with a different request, `sendRequest`
+returns `engine.CoalescedError` with the accepted request, and
+`coalescePlay` makes that request the owner instead of leaving a newer click
+owning a command that was never sent. If the accepted command fails while
+the duplicate click is still waiting for that answer, `playDeferred` keeps
+the error and the binding applies it after rechecking its source, so the sole
+accepted command's failure is not lost and a retired engine's error is not
+replayed. A page failure clears the engine's
+`lastPlay` window, so an immediate retry of the same row is sent; the page
+does the same, and its own check compares the request, so a later accepted
+play is not mistaken for the earlier click. The lazy engine wraps each inner
+engine's errors with a `source` token. A callback can pass the lazy engine's
+first generation check before a teardown and apply after the replacement;
+`playbackErrorFor` checks the token under `p.mu` before changing a notice,
+guess, mode or request, so a retired source changes nothing. Play and toggle
+retry on a 403 or 404. The page wakes the audio after a play, a stall
+watchdog fixes a track whose position stands still, and the player reconnects
+with backoff of 2, 5 and 15 seconds. Fetches to the engine's own server time
+out after 8 seconds. The
 host's `slider` commits on `Dragged()` (`plugin_view.go`), not `Pressed()`,
 which drops when the pointer leaves the thin track. Plugin web views open with
 `PageOptions{AllowAutoplay: true, RunWhenHidden: true}` (`plugin_web.go`).

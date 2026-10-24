@@ -58,10 +58,26 @@ var (
 type PlaybackError struct {
 	Kind    string
 	Message string
+	// Command is the command that failed, when the page names it, and
+	// Request is the plugin's identity for an accepted play. A play error
+	// with no Request came from an untracked caller.
+	Command string
+	Request string
 }
 
 func (e *PlaybackError) Error() string {
 	return fmt.Sprintf("spotify engine: %s: %s", e.Kind, e.Message)
+}
+
+// CoalescedError says a play was not sent again: an identical one was
+// accepted within playWindow. Request is the identity of that accepted
+// play, so the caller can keep one owner for the one command the page runs.
+type CoalescedError struct {
+	Request string
+}
+
+func (e *CoalescedError) Error() string {
+	return "spotify engine: the play is already accepted"
 }
 
 // PremiumRequired tells whether Spotify refused because the account is not
@@ -132,9 +148,12 @@ type Engine struct {
 	done  chan struct{}
 
 	// lastPlay is the URI (and the offset) of the last play command and
-	// when it was sent, to drop a double click.
-	lastPlay   string
-	lastPlayAt time.Time
+	// when it was sent, to drop a double click. lastPlayRequest is the
+	// identity of that accepted command, so a coalesced click keeps the
+	// command that the page really runs as its owner.
+	lastPlay        string
+	lastPlayAt      time.Time
+	lastPlayRequest string
 }
 
 // queued is a command that waits for the page to take it.
@@ -287,6 +306,8 @@ type event struct {
 	Value    int     `json:"value"`
 	Kind     string  `json:"kind"`
 	Message  string  `json:"message"`
+	Command  string  `json:"command"`
+	Request  string  `json:"request"`
 
 	// The page sends these with "ready", to tell why audio may stay silent.
 	Count      int    `json:"count"`
@@ -383,7 +404,15 @@ func (e *Engine) handle(ev event) {
 		snap := e.snap
 		emit = &snap
 	case "error":
-		fail = &PlaybackError{Kind: ev.Kind, Message: ev.Message}
+		// A play that failed for good must not have its retry dropped as a
+		// double click. The page clears its own check after a failure; the
+		// engine clears the one it applied before the page saw the command.
+		// Only the owner's error clears the window: an older tagged or
+		// untagged play must not release a newer accepted command.
+		if ev.Command == "play" && ev.Request == e.lastPlayRequest {
+			e.lastPlay, e.lastPlayAt, e.lastPlayRequest = "", time.Time{}, ""
+		}
+		fail = &PlaybackError{Kind: ev.Kind, Message: ev.Message, Command: ev.Command, Request: ev.Request}
 	}
 	e.mu.Unlock()
 	if emit != nil && e.cfg.Emit != nil {
@@ -504,6 +533,15 @@ func (e *Engine) pop() (queued, bool) {
 		q := e.queue[0]
 		e.queue = e.queue[1:]
 		if q.cmd == "play" && e.cfg.Now().Sub(q.at) > staleAfter {
+			// A play that never reached the page is not an accepted play:
+			// do not let a retry look like its double click.
+			var stale struct {
+				Request string `json:"request"`
+			}
+			_ = json.Unmarshal(q.raw, &stale)
+			if stale.Request == e.lastPlayRequest {
+				e.lastPlay, e.lastPlayAt, e.lastPlayRequest = "", time.Time{}, ""
+			}
 			log.Printf("engine: command play dropped, it waited too long")
 			continue
 		}
@@ -528,6 +566,12 @@ func (e *Engine) requeue(q queued) {
 // play of the same URI as the one just sent is a double click and dropped.
 // The page runs what it takes one at a time, and does the same.
 func (e *Engine) send(ctx context.Context, cmd map[string]any) error {
+	return e.sendRequest(ctx, cmd, "")
+}
+
+// sendRequest is send for a play that the plugin numbered. The identity
+// travels with the command and comes back on its page error.
+func (e *Engine) sendRequest(ctx context.Context, cmd map[string]any, request string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -545,11 +589,16 @@ func (e *Engine) send(ctx context.Context, cmd map[string]any) error {
 		log.Printf("engine: command %v refused, the player is not ready", cmd["cmd"])
 		return ErrStarting
 	}
+	if request != "" {
+		cmd["request"] = request
+	}
 	raw, err := json.Marshal(cmd)
 	if err != nil {
 		return err
 	}
 	name, _ := cmd["cmd"].(string)
+	var playKey string
+	var playAt time.Time
 	e.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		e.mu.Unlock()
@@ -560,13 +609,19 @@ func (e *Engine) send(ctx context.Context, cmd map[string]any) error {
 		if offset, _ := cmd["offset"].(string); offset != "" {
 			uri += "#" + offset
 		}
-		now := e.cfg.Now()
-		if uri == e.lastPlay && now.Sub(e.lastPlayAt) < playWindow {
+		playKey = uri
+		playAt = e.cfg.Now()
+		if uri == e.lastPlay && playAt.Sub(e.lastPlayAt) < playWindow {
+			accepted := e.lastPlayRequest
 			e.mu.Unlock()
 			log.Printf("engine: command play dropped, the same as the last")
+			if request != "" && accepted != "" && request != accepted {
+				// The click joined the accepted play. Its owner is that
+				// play, whose identity the page will put on an error.
+				return &CoalescedError{Request: accepted}
+			}
 			return nil
 		}
-		e.lastPlay, e.lastPlayAt = uri, now
 	}
 	// Only the last command in line gives way: a seek that waits before
 	// a skip is not replaced by a seek after it, which would run the two
@@ -584,6 +639,11 @@ func (e *Engine) send(ctx context.Context, cmd map[string]any) error {
 			return errors.New("the playback engine is not taking commands")
 		}
 		e.queue = append(e.queue, queued{name, raw, e.cfg.Now()})
+		// A play that did not reach the queue is not an accepted play, and
+		// must not make the next click look like its double click.
+		if name == "play" {
+			e.lastPlay, e.lastPlayAt, e.lastPlayRequest = playKey, playAt, request
+		}
 	}
 	e.mu.Unlock()
 	if replaced {
@@ -644,23 +704,35 @@ func (e *Engine) Repeat(ctx context.Context, on bool) error {
 // Play starts a track, an album, a playlist, an artist, a show or an
 // episode, given as its Spotify URI.
 func (e *Engine) Play(ctx context.Context, uri string) error {
+	return e.PlayRequest(ctx, uri, "")
+}
+
+// PlayRequest is Play with the plugin's identity for the accepted play, so
+// that a later page error can say which play failed.
+func (e *Engine) PlayRequest(ctx context.Context, uri, request string) error {
 	if !uriRe.MatchString(uri) {
 		return fmt.Errorf("%w: %q", transport.ErrURI, uri)
 	}
-	return e.send(ctx, map[string]any{"cmd": "play", "uri": uri})
+	return e.sendRequest(ctx, map[string]any{"cmd": "play", "uri": uri}, request)
 }
 
 // PlayFrom starts a track inside its album or playlist, so that what
 // follows it is the rest of that context. contextURI is the album or the
 // playlist, and trackURI the track in it.
 func (e *Engine) PlayFrom(ctx context.Context, contextURI, trackURI string) error {
+	return e.PlayFromRequest(ctx, contextURI, trackURI, "")
+}
+
+// PlayFromRequest is PlayFrom with the plugin's identity for the accepted
+// play, so that a later page error can say which play failed.
+func (e *Engine) PlayFromRequest(ctx context.Context, contextURI, trackURI, request string) error {
 	if !uriRe.MatchString(contextURI) {
 		return fmt.Errorf("%w: %q", transport.ErrURI, contextURI)
 	}
 	if !trackRe.MatchString(trackURI) {
 		return fmt.Errorf("%w: %q", transport.ErrURI, trackURI)
 	}
-	return e.send(ctx, map[string]any{"cmd": "play", "uri": contextURI, "offset": trackURI})
+	return e.sendRequest(ctx, map[string]any{"cmd": "play", "uri": contextURI, "offset": trackURI}, request)
 }
 
 // Read returns the last state the player pushed.

@@ -251,17 +251,17 @@ func (p *plugin) selectTrack(e protocol.EventParams, queue bool) {
 func (p *plugin) playTrack(pane string, track web.ListTrack, contextURI string) {
 	uri := track.URI
 	row := entry{title: track.Name, subtitle: track.ArtistLine(), image: track.Artwork}
-	req, seq, ok := p.beginPlay(pane, row, uri, uri)
+	req, seq, ctx, cancel, ok := p.beginPlay(pane, row, uri, uri)
 	if !ok {
 		return
 	}
-	p.actionWith(pane, localePlayFailed(), func(ctx context.Context) error {
-		player := p.activePlayer()
+	request := strconv.FormatUint(req, 10)
+	p.actionWithContext(ctx, cancel, pane, localePlayFailed(), func(ctx context.Context) error {
 		var err error
-		if cp, ok := player.(contextPlayer); ok && contextURI != "" {
-			err = cp.PlayFrom(ctx, contextURI, uri)
+		if contextURI != "" {
+			err = p.playFromRequest(ctx, req, contextURI, uri, request)
 		} else {
-			err = player.Play(ctx, uri)
+			err = p.playRequest(ctx, req, uri, request)
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			err = errPlayTimeout
