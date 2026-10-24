@@ -357,6 +357,9 @@ func TestLazyPlayCancelsWhileAnotherWakeOwnsTheGate(t *testing.T) {
 	f.ready = true
 	f.mu.Unlock()
 	<-first
+	// A play that returned past its deadline must not send from a goroutine
+	// that outlives the return. Wait out the wake timeout before checking.
+	time.Sleep(engineWakeTimeout + 50*time.Millisecond)
 	if calls := f.calls(); !slices.Equal(calls, []string{"play spotify:track:first"}) {
 		t.Errorf("commands = %v, want only the first play", calls)
 	}
