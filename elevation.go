@@ -116,6 +116,17 @@ func borderless(c *ui.Context, pal *palette) *ui.Theme {
 	t := *c.Theme()
 	t.Accent = pal.accent
 	t.Selection = pal.accent.Alpha(0.25)
+	// The keyboard focus ring follows the app's accent, not only the
+	// desktop's: a preset such as Plum or Sea must tint the shared
+	// controls too. The followed theme's alpha stays, so the desktop's
+	// usual half-opacity ring and Increase Contrast's full-opacity one
+	// both survive; the dark ring is lightened as MyGo's own is.
+	focus := pal.accent
+	if pal.dark {
+		focus = focus.Mix(ui.Hex("#ffffff"), 0.2)
+	}
+	focus.A = t.Focus.A
+	t.Focus = focus
 	t.Border = ui.Transparent
 	t.Surface = pal.control
 	t.SurfaceHover = pal.controlHover

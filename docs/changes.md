@@ -1629,6 +1629,20 @@ theme anew. A unit test holds every accent to its numbers: at least 3 to 1
 on the card and the sidebar, in both appearances, and the white text of a
 primary button at 4.5 to 1 on it.
 
+**Focus follows the accent.** [`borderless`](../elevation.go) gives the
+shared theme its accent and selection; it also sets `Theme.Focus`, the
+color MyGo's `FocusRing` paints around generic controls and sliders. A
+preset such as Plum or Sea therefore tints the keyboard focus ring, not
+only the custom field outlines that already use `pal.accent`. The ring
+takes the followed theme's alpha, so the desktop's usual 55% light / 60%
+dark ring and Increase Contrast's full-opacity ring both survive; in the
+dark the accent is lightened 20% as MyGo's own focus color is. The focus
+regression in `focus_ring_test.go` focuses a shared slider with Tab and
+reads the rendered ring in light and dark for Plum, Sea and the default
+Blue, checks that Increase Contrast is fuller in both appearances, and
+switches accents frame to frame to prove no theme or palette cache keeps
+the old one.
+
 **The grain.** [`grain.go`](../grain.go) holds one fragment shader of
 package `ui/shader`: a hash of each two points in a repeating 300-point tile, half the
 specks white and half black, from no image and no time. `backdrop` draws
