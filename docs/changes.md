@@ -51,17 +51,39 @@ the 200-point minimum, in either sidebar, including a stale service,
 connecting and disconnected states. The connection and restart control is
 the same icon-only `navConnection` the tab row uses.
 
-`navigation_tabs.go` draws the row. `groups()` stays the source of truth for
-project order, pinned-session order and the synthetic Other group. Project
-header widths are measured first, then the fixed utility cluster; session
-tabs share the rest at 120–220 DIPs. Below 120 the row stops shrinking and
-uses `ui.ScrollHorizontal`, and the overflow button lists the sessions by
-project plus the plugin shortcuts that did not fit. Every tab has the same
-width; no row wraps. A project header folds its sessions on click, keeps the
-selected session's panes in view and marks itself when it is folded over the
-active session. Tabs reuse `sessionMenu`, the rename and drag helpers, and
-the pin and project ordering operations. Session drag uses a vertical
-insertion rule; project headers drag whole groups.
+`navigation_tabs.go` draws the shared top and bottom row. `groups()` stays the
+source of truth for project order, pinned-session order and the synthetic
+Other group. `navProjectGroup` puts each project header and its sessions in a
+glass capsule with two points of padding, two-point gaps between its children
+and six points between project capsules. `glassToolbar` supplies an opaque
+control surface under Reduce Transparency; the capsule nesting does not
+replace the project's or session's own controls.
+
+Project header widths and the required utility cluster come out of the
+available width first. `navSessionWidth` measures each session's full title at
+its actual font weight, status, optional pin, reserved close control, padding,
+gaps and border. `navPreferredSessionWidths` measures the visible tabs once
+for both optional plugin-pin eligibility and allocation. Pin visibility
+reserves the sum of `navSessionFloor`, the same compact-title floors the
+allocator protects, so an optional pin moves into the labeled plugin overflow
+rather than causing otherwise avoidable scrolling. Visible pins do not also
+appear in that menu.
+
+`navFitSessionWidths` caps the preferred width at 220 DIPs and uses an 80-DIP
+minimum. A compact tab whose preferred width is at most 120 DIPs keeps that
+full width. When every preferred width does not fit, only longer tabs shrink:
+their flexible width above 80 is scaled by one shared proportion, while
+compact tabs stay whole. If the compact widths and 80-DIP long-tab floors
+exceed the room, `ui.ScrollHorizontal` scrolls the row. The overflow button
+lists sessions from expanded project groups plus plugin shortcuts that did
+not fit; explicitly folded projects stay represented by their headers and
+their sessions stay out of the menu. No row wraps.
+
+A project header folds its sessions on click, keeps the selected session's
+panes in view and marks itself when it is folded over the active session.
+Tabs reuse `sessionMenu`, the rename and drag helpers, and the pin and project
+ordering operations. Session drag uses a vertical insertion rule; project
+headers drag whole groups.
 
 Selection by name goes through `selectRevealing` instead of `selectSession`.
 The palette, overflow menu, number and next/previous shortcuts, attention
@@ -110,11 +132,15 @@ plugin pane.
 
 The navigation tests in `navigation_test.go` cover the four shells, saved
 and invalid placements, unchanged pane identity, focus, zoom and terminal
-attachment, folding the active project, the 120/220 width bounds, overflow
-selection and reveal, pins and Other order, drag without selection, close and
-menus, Cmd+B geometry, Settings and palette actions, and the transient usage
-surface's hover, pin, outside click, keyboard Escape, coexistence with a real
-Usage pane, missing plugin and crash/restart.
+attachment, folding the active project, content-measured widths and the
+80/220 bounds, compact-title protection, pinned-title room, plugin-pin
+eligibility against those floors without wide-window menu duplicates, overflow
+selection and reveal, pins and Other order, drag without selection, close, rename and
+menus, and capsule interactions in top and bottom, light and dark, with and
+without Reduce Transparency. They also cover Cmd+B geometry, Settings and
+palette actions, and the transient usage surface's hover, pin, outside click,
+keyboard Escape, coexistence with a real Usage pane, missing plugin and
+crash/restart.
 
 ## Glass control boundaries
 

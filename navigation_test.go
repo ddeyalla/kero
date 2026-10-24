@@ -21,6 +21,8 @@ import (
 func navTestApp(t *testing.T) *App {
 	t.Helper()
 	a := testApp(t)
+	// Save before the fixture's TempDir cleanup, including wide layout sweeps.
+	t.Cleanup(a.flushPrefs)
 	a.st.Sessions[0].Name = "api"
 	a.st.Projects = append(a.st.Projects, proto.Project{ID: "p2", Name: "ship", Dir: "/tmp/ship"})
 	a.st.Sessions = append(a.st.Sessions,
@@ -494,16 +496,161 @@ func TestTabsKeepPinsAndOtherLast(t *testing.T) {
 	}
 }
 
-func TestPluginShortcutsMoveIntoTheOverflow(t *testing.T) {
+func TestTabsFitTheirTitles(t *testing.T) {
 	a := navTestApp(t)
+	a.session("s2").Name = "a much longer session name"
+	a.setNavPlacement(navTop)
+	tt := ui.NewTester(a.view, 1400, 700)
+	tt.Frame()
+	short := tabWidth(t, tt, locales.NavSessionTab("api"))
+	long := tabWidth(t, tt, locales.NavSessionTab("a much longer session name"))
+	if short >= long {
+		t.Errorf("the short title's tab is %v wide, the long title's %v", short, long)
+	}
+	if short >= navTabMax || long > navTabMax+0.5 {
+		t.Errorf("content-sized tabs stretch beyond their preferred widths: short %v, long %v", short, long)
+	}
+}
+
+func TestTabsKeepCompactTitlesWhole(t *testing.T) {
+	a := navTestApp(t)
+	a.session("s2").Name = "a much longer session name that can yield its spare room"
+	a.setNavPlacement(navTop)
+	wide := ui.NewTester(a.view, 1400, 700)
+	wide.SetDark(true)
+	wide.Advance(300 * time.Millisecond)
+	wide.Frame()
+	want := tabWidth(t, wide, locales.NavSessionTab("api"))
+	longWant := tabWidth(t, wide, locales.NavSessionTab(a.session("s2").Name))
+
+	narrow := ui.NewTester(a.view, 640, 700)
+	narrow.SetDark(true)
+	narrow.Advance(300 * time.Millisecond)
+	narrow.Frame()
+	if got := tabWidth(t, narrow, locales.NavSessionTab("api")); got != want {
+		t.Errorf("a compact title shrank from %v to %v", want, got)
+	}
+	if got := tabWidth(t, narrow, locales.NavSessionTab(a.session("s2").Name)); got >= longWant {
+		t.Errorf("the long title did not yield room: %v, preferred %v", got, longWant)
+	}
+	shot(t, narrow, "nav-tabs-content-sized")
+}
+
+func TestPinnedTabKeepsTitleRoom(t *testing.T) {
+	a := navTestApp(t)
+	a.setNavPlacement(navTop)
+	measure := func() (tab, title ui.Rect) {
+		t.Helper()
+		tt := ui.NewTester(a.view, 1400, 700)
+		tt.SetDark(true)
+		tt.Frame()
+		tab, ok1 := tt.Find(locales.NavSessionTab("web"))
+		title, ok2 := tt.Find("web")
+		if !ok1 || !ok2 {
+			t.Fatalf("missing pinned tab or its title: %q", tt.Texts())
+		}
+		return tab, title
+	}
+	plainTab, plainTitle := measure()
+	a.prefs.SessionPins = map[string]bool{"s2": true}
+	pinnedTab, pinnedTitle := measure()
+	if pinnedTab.W <= plainTab.W {
+		t.Errorf("the pin took no added tab width: plain %v, pinned %v", plainTab.W, pinnedTab.W)
+	}
+	if pinnedTitle.W < plainTitle.W {
+		t.Errorf("the pin stole title room: plain %v, pinned %v", plainTitle.W, pinnedTitle.W)
+	}
+}
+
+func TestTabCapsulesPreserveInteractions(t *testing.T) {
+	for _, place := range []navPlacement{navTop, navBottom} {
+		for _, dark := range []bool{false, true} {
+			for _, reduced := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/dark-%v/reduced-%v", place, dark, reduced), func(t *testing.T) {
+					a := navTestApp(t)
+					a.setNavPlacement(place)
+					tt := ui.NewTester(a.view, 1100, 700)
+					tt.SetDark(dark)
+					tt.SetPreferences(ui.Preferences{ReduceMotion: true, ReduceTransparency: reduced, TextScale: 1})
+					tt.Advance(300 * time.Millisecond)
+					tt.Frame()
+					shot(t, tt, fmt.Sprintf("nav-%s-capsules-dark-%v-reduced-%v", place, dark, reduced))
+
+					if err := tt.Click(locales.NavSessionTab("web")); err != nil {
+						t.Fatal(err)
+					}
+					tt.Frame()
+					if a.selected != "s2" {
+						t.Fatalf("the capsule intercepted tab selection: %q", a.selected)
+					}
+					if err := tt.Click("demo"); err != nil {
+						t.Fatal(err)
+					}
+					tt.Frame()
+					if !a.prefs.Collapsed["p1"] || a.selected != "s2" {
+						t.Fatalf("folding changed the selection: collapsed %v, selected %q", a.prefs.Collapsed["p1"], a.selected)
+					}
+					if err := tt.Click("demo"); err != nil {
+						t.Fatal(err)
+					}
+					tt.Frame()
+					tab, ok := tt.Find(locales.NavSessionTab("web"))
+					if !ok {
+						t.Fatalf("unfolding did not restore the tab: %q", tt.Texts())
+					}
+					x, y := tab.X+tab.W/2, tab.Y+tab.H/2
+					tt.ClickAt(x, y)
+					tt.ClickAt(x, y)
+					tt.Frame()
+					if a.renaming != "s2" {
+						t.Fatalf("double click renamed %q, not s2", a.renaming)
+					}
+					tt.Key(0, ui.KeyEscape)
+					tt.Frame()
+				})
+			}
+		}
+	}
+}
+
+func TestTabsProjectGroupSpacing(t *testing.T) {
+	a := navTestApp(t)
+	a.setNavPlacement(navTop)
+	tt := ui.NewTester(a.view, 1400, 700)
+	tt.Frame()
+	demo, ok1 := tt.Find("demo")
+	api, ok2 := tt.Find(locales.NavSessionTab("api"))
+	web, ok3 := tt.Find(locales.NavSessionTab("web"))
+	ship, ok4 := tt.Find("ship")
+	if !ok1 || !ok2 || !ok3 || !ok4 {
+		t.Fatalf("missing project groups or tabs: %q", tt.Texts())
+	}
+	if gap := api.X - (demo.X + demo.W); gap != navTabGap {
+		t.Errorf("a project header and its tab are %v apart, want %v", gap, navTabGap)
+	}
+	if gap := web.X - (api.X + api.W); gap != navTabGap {
+		t.Errorf("tabs in one project are %v apart, want %v", gap, navTabGap)
+	}
+	want := float32(navGroupGap + 2*navGroupPad)
+	if gap := ship.X - (web.X + web.W); gap != want {
+		t.Errorf("separate project capsules are %v apart, want %v", gap, want)
+	}
+}
+
+func pinFakePlugin(a *App) {
 	a.plugins.known = []registry.Plugin{{Manifest: protocol.Manifest{
 		ID: "fake", Name: "Fake", Version: "1.0.0", Run: []string{"fake"},
 		Widgets: []protocol.Widget{{Name: "main", Title: "Main", Icon: "board"}},
 	}, Builtin: true}}
 	a.plugins.knownAt = true
 	a.prefs.Pinned = []pinRef{{Plugin: "fake", Widget: "main"}}
+}
+
+func TestPluginShortcutsMoveIntoTheOverflow(t *testing.T) {
+	a := navTestApp(t)
+	pinFakePlugin(a)
 	a.setNavPlacement(navTop)
-	narrow := ui.NewTester(a.view, 720, 700)
+	narrow := ui.NewTester(a.view, 560, 700)
 	narrow.Frame()
 	if _, ok := narrow.Find("Fake"); ok {
 		t.Fatalf("the plugin shortcut did not make room: %q", narrow.Texts())
@@ -533,6 +680,58 @@ func TestPluginShortcutsMoveIntoTheOverflow(t *testing.T) {
 		if label == locales.PagePlugins() {
 			t.Fatalf("the overflow duplicates a visible plugin shortcut: %q", wide.Menu())
 		}
+	}
+}
+
+func TestPluginPinsRespectCompactTitleFloors(t *testing.T) {
+	for _, tc := range []struct {
+		place navPlacement
+		width int
+	}{
+		{navTop, 715},
+		{navBottom, 645},
+	} {
+		t.Run(string(tc.place), func(t *testing.T) {
+			a := navTestApp(t)
+			pinFakePlugin(a)
+			a.setNavPlacement(tc.place)
+			tt := ui.NewTester(a.view, tc.width, 500)
+			tt.Frame()
+			if _, visible := tt.Find("Fake"); visible {
+				t.Fatal("the optional pin stayed beside compact titles it forced to scroll")
+			}
+			if a.nav.scroll.MaxX > 0.5 {
+				t.Fatalf("moving the optional pin into overflow left avoidable scrolling: %v", a.nav.scroll.MaxX)
+			}
+			if err := tt.Click(locales.NavOverflow()); err != nil {
+				t.Fatal(err)
+			}
+			tt.Frame()
+			found := false
+			for _, label := range tt.Menu() {
+				found = found || label == locales.PagePlugins()
+			}
+			if !found {
+				t.Fatalf("the hidden pin has no labeled overflow: %q", tt.Menu())
+			}
+			tt.Key(0, ui.KeyEscape)
+			tt.Frame()
+
+			wide := ui.NewTester(a.view, 1400, 500)
+			wide.Frame()
+			if _, visible := wide.Find("Fake"); !visible {
+				t.Fatal("the pin did not return when the measured floors left room")
+			}
+			if err := wide.Click(locales.NavOverflow()); err != nil {
+				t.Fatal(err)
+			}
+			wide.Frame()
+			for _, label := range wide.Menu() {
+				if label == locales.PagePlugins() {
+					t.Fatalf("the overflow duplicates the visible pin: %q", wide.Menu())
+				}
+			}
+		})
 	}
 }
 

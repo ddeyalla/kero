@@ -8,6 +8,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/egoist/mygo/ui"
 
@@ -16,20 +17,25 @@ import (
 )
 
 const (
-	navIconW   = 28
-	navIconGap = 2
-	navTabGap  = 2
+	navIconW    = 28
+	navIconGap  = 2
+	navTabGap   = 2
+	navGroupGap = 6
+	navGroupPad = 2
 	// navTabMin is the narrowest a session tab gets before the row scrolls,
-	// and navTabMax the widest it grows. They are the plan's design values,
-	// not user settings.
-	navTabMin = 120
-	navTabMax = 220
+	// and navTabMax the widest it grows. They are fixed design values, not
+	// user settings.
+	navTabMin = 80
+	// navTabCompact is the preferred width at or below which a title stays
+	// whole; only longer tabs give up room when the row is short of space.
+	navTabCompact = 120
+	navTabMax     = 220
 	// navProjectMax keeps a long project name from taking the tabs' room.
 	navProjectMax = 180
 	// navAttentionW is the attention count's fixed width, so that the tab
 	// widths do not depend on how the count reads.
 	navAttentionW = 46
-	navRowH       = 28
+	navRowH       = 30
 )
 
 // navBar is the row of tabs, over the panes or under them. It takes the
@@ -52,9 +58,8 @@ func (a *App) navBar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 }
 
 // navBarContent places the scrolling tabs and the fixed utilities. Project
-// header and utility widths are taken out of the window first, then the
-// session tabs share what is left, across the floor and the preferred
-// maximum.
+// header and utility widths are taken out of the window first, then each
+// session tab takes its content's width within the shared room.
 func (a *App) navBarContent(c *ui.Context, pal *palette, bar ui.TitleBar, top bool) {
 	if !a.plugins.knownAt {
 		a.discoverPlugins()
@@ -70,30 +75,36 @@ func (a *App) navBarContent(c *ui.Context, pal *palette, bar ui.TitleBar, top bo
 
 	headerW := make(map[string]float32, len(groups))
 	var headers, gaps float32
-	children, tabs := 0, 0
-	for _, g := range groups {
+	for i, g := range groups {
 		w := a.navProjectWidth(c, g)
 		headerW[g.project.ID] = w
 		headers += w
-		children++
+		children := 1
 		if !a.prefs.Collapsed[g.project.ID] {
-			tabs += len(g.sessions)
 			children += len(g.sessions)
 		}
+		gaps += float32(children-1) * navTabGap
+		if i > 0 {
+			gaps += navGroupGap
+		}
 	}
-	if children > 1 {
-		gaps = float32(children-1) * navTabGap
+	groupPads := float32(len(groups)) * 2 * navGroupPad
+
+	preferredW := a.navPreferredSessionWidths(c, groups)
+	var floorTotal float32
+	for _, preferred := range preferredW {
+		floorTotal += navSessionFloor(preferred)
 	}
 
 	pins := a.pinRows()
 	utilsNoPins := navUtilitiesWidth(waiting > 0, badConn, 0)
 	pinsW := navUtilitiesWidth(false, false, len(pins)) - navUtilitiesWidth(false, false, 0)
-	// The plugin shortcuts stay at the right while the tabs can still be
-	// read; otherwise they move, labelled, into the overflow menu.
+	// Optional plugin shortcuts must fit beside the same compact-title floors
+	// the tab allocator protects; otherwise they move, labelled, into overflow.
 	showPins := false
 	if len(pins) > 0 {
-		availNoPins := avail - utilsNoPins - gaps - headers
-		showPins = availNoPins-float32(tabs)*navTabMin >= pinsW
+		availNoPins := avail - utilsNoPins - gaps - headers - groupPads
+		showPins = availNoPins-floorTotal >= pinsW
 	}
 	shownPins := 0
 	if showPins {
@@ -101,23 +112,14 @@ func (a *App) navBarContent(c *ui.Context, pal *palette, bar ui.TitleBar, top bo
 	}
 	utilsW := navUtilitiesWidth(waiting > 0, badConn, shownPins)
 
-	tabW := float32(navTabMax)
-	if tabs > 0 {
-		room := avail - utilsW - gaps - headers
-		tabW = min(max(room/float32(tabs), navTabMin), navTabMax)
-	}
+	room := avail - utilsW - gaps - headers - groupPads
+	tabW := navFitSessionWidths(preferredW, room)
 
 	scroll := ui.ScrollHorizontal(c.Key("nav-tabs")).TrackScroll(&a.nav.scroll).Grow(1).MinWidth(0).Height(navRowH)
 	scroll.Children(func() {
-		ui.Row(c.Key("nav-tab-row")).Gap(navTabGap).AlignItems(ui.Center).FillHeight().Children(func() {
+		ui.Row(c.Key("nav-tab-row")).Gap(navGroupGap).AlignItems(ui.Center).FillHeight().Children(func() {
 			for _, g := range groups {
-				a.navProject(c, pal, g, headerW[g.project.ID])
-				if a.prefs.Collapsed[g.project.ID] {
-					continue
-				}
-				for _, s := range g.sessions {
-					a.navSession(c, pal, s, tabW)
-				}
+				a.navProjectGroup(c, pal, g, headerW[g.project.ID], tabW)
 			}
 		})
 	})
@@ -126,6 +128,73 @@ func (a *App) navBarContent(c *ui.Context, pal *palette, bar ui.TitleBar, top bo
 	utils.Children(func() {
 		a.navUtilities(c, pal, pins, showPins, waiting, badConn)
 	})
+}
+
+// navPreferredSessionWidths measures the tabs once for both pin eligibility
+// and allocation, so those decisions share the same titles and compact floors.
+func (a *App) navPreferredSessionWidths(c *ui.Context, groups []group) map[string]float32 {
+	widths := make(map[string]float32)
+	for _, g := range groups {
+		if a.prefs.Collapsed[g.project.ID] {
+			continue
+		}
+		for _, s := range g.sessions {
+			widths[s.ID] = a.navSessionWidth(c, s)
+		}
+	}
+	return widths
+}
+
+// navSessionFloor is the width a tab keeps even when the row is short of room.
+func navSessionFloor(preferred float32) float32 {
+	if preferred <= navTabCompact {
+		return preferred
+	}
+	return navTabMin
+}
+
+// navFitSessionWidths fits measured tabs to the room. Compact titles stay
+// whole; longer tabs share the remaining room, and the row scrolls when even
+// their readable floors do not fit.
+func navFitSessionWidths(preferredW map[string]float32, room float32) map[string]float32 {
+	widths := make(map[string]float32, len(preferredW))
+	floors := make(map[string]float32, len(preferredW))
+	var desiredTotal, floorTotal, flexibleTotal float32
+	for id, desired := range preferredW {
+		floor := navSessionFloor(desired)
+		widths[id] = desired
+		floors[id] = floor
+		desiredTotal += desired
+		floorTotal += floor
+		flexibleTotal += desired - floor
+	}
+	if desiredTotal <= room {
+		return widths
+	}
+	if floorTotal >= room {
+		return floors
+	}
+	scale := (room - floorTotal) / flexibleTotal
+	for id, desired := range widths {
+		widths[id] = floors[id] + (desired-floors[id])*scale
+	}
+	return widths
+}
+
+// navSessionWidth is a tab's preferred width: its full title, status, pin and
+// the close button's reserved space, capped at the usual maximum.
+func (a *App) navSessionWidth(c *ui.Context, s *proto.Session) float32 {
+	title := s.DisplayName(a.set.SessionName)
+	weight := 400
+	if s.Unread {
+		weight = 650
+	}
+	titleW, _ := c.MeasureText(0, ui.Span{Text: title, Size: 13, Weight: weight})
+	fixed := float32(16 /* padding */ + 13 /* status */ + 16 /* close */ + 12 /* gaps */ + 2 /* dark border */)
+	if a.prefs.SessionPins[s.ID] {
+		fixed += 10 + 6
+	}
+	return min(max(float32(math.Ceil(float64(titleW+fixed))), navTabMin), navTabMax)
 }
 
 // navChosenFill is the selected tab's and folded project header's fill. The
@@ -219,6 +288,25 @@ func (a *App) navProjectWidth(c *ui.Context, g group) float32 {
 		}
 	}
 	return max(72, min(w, 260))
+}
+
+// navProjectGroup keeps a project's header and its session tabs in one glass
+// capsule. The space between capsules separates projects; the quieter space
+// and selected tab's raised fill separate the sessions inside one.
+func (a *App) navProjectGroup(c *ui.Context, pal *palette, g group, headerW float32, tabW map[string]float32) {
+	id := g.project.ID
+	frame := ui.Row(c.Key("nav-group-" + id)).Shrink(0).Gap(navTabGap).Padding(navGroupPad).
+		AlignItems(ui.Center).FillHeight()
+	frame.InsetShadow(0, 0, 0, 0.5, pal.text.Alpha(0.12))
+	glassToolbar(c, frame, pal).Radius(concentric(7, navGroupPad)).Children(func() {
+		a.navProject(c, pal, g, headerW)
+		if a.prefs.Collapsed[id] {
+			return
+		}
+		for _, s := range g.sessions {
+			a.navSession(c, pal, s, tabW[s.ID])
+		}
+	})
 }
 
 // navProject is a project's header in the tabs: its name and session count,

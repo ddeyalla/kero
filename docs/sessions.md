@@ -76,17 +76,31 @@ General › Placement**, the **View** menu or the command palette, or run `kero 
 default shortcut;
 you can bind one in Settings › Keyboard. The placement survives a restart.
 
-In the tabs, projects run from the left in their saved order, with pinned
-sessions first and **Other** last. Click a project header to fold its sessions
-away; it shows the session count and how many need you, keeps the selected
-session's panes on screen, and marks itself while folded. Tabs shrink to a
-readable width and then the row scrolls; the button at the right lists every
-session by project. A session chosen there, in the palette, by a shortcut, in
-an attention jump or from a plugin notification opens its project and scrolls
-its tab into view. An attention jump reveals the tab even when that session
-is already selected. A session whose project is unknown or empty is shown in
-**Other**, and choosing it opens **Other** too. Folding a project changes no
-selection and stays folded until an explicit selection asks to reveal it.
+In both top and bottom tabs, projects run from the left in their saved order,
+with pinned sessions first and **Other** last. Each project header and its
+sessions have a distinct glass capsule: two points of padding and internal
+spacing, with six points between project capsules. Reduce Transparency gives
+the capsules an opaque control surface.
+
+A tab measures its status, optional pin, title and reserved close control
+instead of taking the same width as every other tab. Its preferred width is
+capped at 220 points. Compact titles whose preferred tab width is at most 120
+points stay whole; longer tabs shrink proportionally toward 80 points when
+room is short. Compact tabs do not shrink to make room. When these floors
+exceed the available width, the row scrolls. The button at the right lists
+sessions from expanded project groups; explicitly folded projects are
+represented only by their headers. Optional plugin shortcuts appear there
+only when they do not fit beside those same measured compact-title floors.
+
+Click a project header to fold its sessions away; it shows the session count
+and how many need you, keeps the selected session's panes on screen, and marks
+itself while folded. A session chosen in the overflow, palette, by a shortcut,
+in an attention jump or from a plugin notification opens its project and
+scrolls its tab into view. An attention jump reveals the tab even when that
+session is already selected. A session whose project is unknown or empty is
+shown in **Other**, and choosing it opens **Other** too. Folding a project
+changes no selection and stays folded until an explicit selection asks to
+reveal it.
 
 <kbd>⌘</kbd> <kbd>B</kbd> hides or shows whichever navigation surface is in
 use without changing the placement. The compact utility icons in either
