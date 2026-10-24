@@ -112,6 +112,7 @@ func (a *App) view(c *ui.Context) {
 	// Every plugin pane this frame draws marks itself: the rest are
 	// hidden, and hear it.
 	a.beginPluginFrame()
+	a.navUsage.drawn, a.navUsage.triggerOver = false, false
 
 	if a.pendingToast != "" {
 		c.Toast(a.pendingToast)
@@ -128,24 +129,20 @@ func (a *App) view(c *ui.Context) {
 	}
 	// A curve, not a spring: see slide.
 	progress := row.AnimateTo("sidebar", b2f(!a.prefs.SidebarHidden), slide)
-	a.chrome = chromeFor(progress, a.prefs.SidebarWidth, bar)
+	a.chrome = a.navChrome(progress, a.prefs.SidebarWidth, bar)
 	shown := a.chrome.shown
 	row.Children(func() {
-		w := a.chrome.sideW
-		side := ui.Row(c).Width(w).Shrink(0).AlignItems(ui.Stretch).ClipX()
-		side.Children(func() {
-			ui.Column(c).Width(a.prefs.SidebarWidth).Shrink(0).Margin(0, 0, 0, w-a.prefs.SidebarWidth).
-				Opacity(0.4 + 0.6*shown).Children(func() { a.sidebar(c, pal, bar) })
-		})
-		// The gaps around the cards move the window too.
-		main := ui.Column(c).Grow(1).MinWidth(0).Padding(a.chrome.topPad, cardGap, cardGap, a.chrome.mainPad).DragWindow()
-		main.Children(func() {
-			if shown > 0.01 {
-				a.resizeHandle(c, pal)
-			}
-			a.card(c, pal, bar, shown)
-		})
+		if a.navVertical() {
+			a.verticalShell(c, pal, bar, shown)
+			return
+		}
+		a.horizontalShell(c, pal, bar, shown)
 	})
+	// A popover whose icon is not on screen, as with navigation hidden,
+	// goes with it.
+	if a.navUsage.open && !a.navUsage.drawn {
+		a.dismissNavUsage(false)
+	}
 	a.paletteView(c, pal)
 	a.chooserView(c, pal)
 	a.sweepViews()
@@ -180,14 +177,75 @@ func (a *App) view(c *ui.Context) {
 	}
 }
 
+// verticalShell shows a sidebar beside the session's panes. The sidebar is
+// on the left or the right of the panes, and the panes' column keeps the
+// gaps that move the window.
+func (a *App) verticalShell(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32) {
+	place := a.navPlacement()
+	w := a.chrome.sideW
+	side := func() {
+		box := ui.Row(c).Width(w).Shrink(0).AlignItems(ui.Stretch).ClipX()
+		box.Children(func() {
+			ui.Column(c).Width(a.prefs.SidebarWidth).Shrink(0).Margin(0, 0, 0, w-a.prefs.SidebarWidth).
+				Opacity(0.4 + 0.6*shown).Children(func() { a.sidebar(c, pal, bar) })
+		})
+	}
+	main := func() {
+		col := ui.Column(c).Grow(1).MinWidth(0).Padding(a.chrome.topPad, cardGap, cardGap, a.chrome.mainPad).DragWindow()
+		col.Children(func() {
+			if shown > 0.01 {
+				a.resizeHandle(c, pal, place == navRight)
+			}
+			a.card(c, pal, bar, shown)
+		})
+	}
+	if place == navLeft {
+		side()
+		main()
+		return
+	}
+	main()
+	side()
+}
+
+// horizontalShell shows the session's panes under or over the navigation
+// tabs. Horizontal navigation replaces the sidebar: the panes take the
+// window's width, and the tabs take the title bar's line or the bottom's.
+func (a *App) horizontalShell(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32) {
+	top := a.navPlacement() == navTop
+	main := ui.Column(c).Grow(1).MinWidth(0).DragWindow()
+	main.Children(func() {
+		if top {
+			a.navBar(c, pal, bar)
+		}
+		body := ui.Column(c).Grow(1).MinHeight(0).
+			Padding(a.chrome.topPad, cardGap, cardGap, a.chrome.mainPad)
+		body.Children(func() { a.card(c, pal, bar, shown) })
+		if !top {
+			a.navBar(c, pal, bar)
+		}
+	})
+}
+
 // resizeHandle is the sidebar's edge, which a drag moves.
-func (a *App) resizeHandle(c *ui.Context, pal *palette) {
-	h := ui.Box(c.Key("resize")).Absolute().Left(-4).Top(0).Bottom(0).Width(9).Cursor(ui.CursorResizeColumn)
+func (a *App) resizeHandle(c *ui.Context, pal *palette, atRight bool) {
+	h := ui.Box(c.Key("resize")).Absolute().Top(0).Bottom(0).Width(9).Cursor(ui.CursorResizeColumn)
+	if atRight {
+		h.Right(-4)
+	} else {
+		h.Left(-4)
+	}
 	if dx, _, ok := h.Dragged(); ok {
 		if a.sideDrag == 0 {
 			a.sideDrag = a.prefs.SidebarWidth
 		}
-		a.sideDrag += dx
+		// The edge is the sidebar's right on the left, and its left on the
+		// right: dragging toward the window's own edge makes it wider.
+		if atRight {
+			a.sideDrag -= dx
+		} else {
+			a.sideDrag += dx
+		}
 		a.prefs.SidebarWidth = min(max(a.sideDrag, minSidebar), maxSidebar)
 	} else if a.sideDrag != 0 && !h.Pressed() {
 		a.sideDrag = 0
@@ -304,15 +362,26 @@ func (a *App) hoverIntent(c *ui.Context, key string, over bool) bool {
 // --- the sidebar ---
 
 func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
-	ui.Row(c).Height(topBar).Shrink(0).AlignItems(ui.Center).Padding(0, 12, 0, lead(bar)).Gap(2).DragWindow().Children(func() {
-		// After the traffic lights on macOS, at the right; elsewhere the
-		// window controls are at the right, and the buttons at the left,
-		// where they stay as the sidebar hides (chrome.buttonsLeft).
-		if runtime.GOOS == "darwin" {
+	left := a.navPlacement() == navLeft
+	pad := float32(12)
+	if left {
+		// After the traffic lights, which sit over the sidebar's title bar.
+		pad = lead(bar)
+	}
+	ui.Row(c).Height(topBar).Shrink(0).AlignItems(ui.Center).Padding(0, 12, 0, pad).Gap(2).DragWindow().Children(func() {
+		// On the left on macOS the buttons are at the right of the lights,
+		// pushed there by a spacer; elsewhere the window controls are at
+		// the right, and the buttons at the left, where they stay as the
+		// sidebar hides (chrome.buttonsLeft). A sidebar on the right has
+		// no lights over it, and its buttons lead it.
+		if left && runtime.GOOS == "darwin" {
 			ui.Spacer(c)
 		}
-		iconButton(c, "hide-sidebar", sidebarIcon, a.tip(locales.SidebarHide(), "sidebar.toggle"), pal, a.toggleSidebar)
+		iconButton(c, "hide-sidebar", sidebarIcon, a.tip(a.navHideTitle(), "sidebar.toggle"), pal, a.toggleSidebar)
 		iconButton(c, "new-session", plusIcon, a.tip(locales.ActionNewSession(), "session.new"), pal, func() { a.newSession("") })
+		if !left {
+			ui.Spacer(c)
+		}
 	})
 	// The first row starts 30 below the lights' line, as it did under the
 	// taller bar, and the rows' left edge lines up with the close light's,
@@ -332,8 +401,6 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 			}
 		})
 	})
-	a.usageSidebar(c, pal)
-	a.resourceSidebar(c, pal)
 	a.sidebarFooter(c, pal)
 	// Times ago move on, a minute at a time as they read, while the
 	// sidebar shows them (agoTick).
@@ -380,37 +447,7 @@ func (a *App) projectGroupRows(c *ui.Context, pal *palette, g group, gi int, n *
 		a.toggleProject(id)
 	}
 	pointerTooltip(c, hdr, "tip-project-"+id, proto.ShortDir(g.project.Dir))
-	hdr.ContextMenu(func(m *ui.Menu) {
-		if m.Item(locales.ActionNewSession()).Chosen() {
-			a.newSession(id)
-		}
-		label := locales.SidebarCollapse()
-		if collapsed {
-			label = locales.SidebarExpand()
-		}
-		if m.Item(label).Chosen() {
-			a.toggleProject(id)
-		}
-		a.projectOrderMenu(m, &g.project)
-		if m.Item(locales.SessionRename()).Disabled(id == "").Chosen() {
-			a.startProjectRename(id)
-		}
-		if lin := a.st.Linear; id != "" && lin != nil && len(lin.Projects) > 0 {
-			m.Submenu(locales.ProjectLinear(), func(m *ui.Menu) { a.projectLinearMenu(m, g.project) })
-		}
-		m.Separator()
-		if m.Item(locales.SidebarCloseProjectMenu()).Disabled(id == "").Chosen() {
-			name, count := g.project.Name, len(g.sessions)
-			a.confirm = &confirmation{
-				open:    true,
-				title:   locales.ConfirmCloseTitle(name),
-				detail:  locales.ConfirmCloseProjectDetail(count),
-				action:  locales.SidebarCloseProject(),
-				destroy: true,
-				run:     func() { a.call("project.close", proto.IDParams{ID: id}, nil) },
-			}
-		}
-	})
+	hdr.ContextMenu(func(m *ui.Menu) { a.projectMenu(m, g) })
 	hdr.Children(func() {
 		if renaming {
 			in := ui.TextInputBase(c.Key("rename"), &a.renameBuf).Grow(1).MinWidth(0).FontSize(12.5).FontWeight(600).AutoFocus()
@@ -459,6 +496,43 @@ func (a *App) projectGroupRows(c *ui.Context, pal *palette, g group, gi int, n *
 	}
 	for _, s := range g.sessions {
 		a.sessionRow(c, pal, s, n)
+	}
+}
+
+// projectMenu is a project header's menu, shared by the sidebar and the
+// horizontal tabs: a session in it, folding it, its order and its name, the
+// Linear board it feeds, and closing it.
+func (a *App) projectMenu(m *ui.Menu, g group) {
+	id := g.project.ID
+	collapsed := a.prefs.Collapsed[id]
+	if m.Item(locales.ActionNewSession()).Chosen() {
+		a.newSession(id)
+	}
+	label := locales.SidebarCollapse()
+	if collapsed {
+		label = locales.SidebarExpand()
+	}
+	if m.Item(label).Chosen() {
+		a.toggleProject(id)
+	}
+	a.projectOrderMenu(m, &g.project)
+	if m.Item(locales.SessionRename()).Disabled(id == "").Chosen() {
+		a.startProjectRename(id)
+	}
+	if lin := a.st.Linear; id != "" && lin != nil && len(lin.Projects) > 0 {
+		m.Submenu(locales.ProjectLinear(), func(m *ui.Menu) { a.projectLinearMenu(m, g.project) })
+	}
+	m.Separator()
+	if m.Item(locales.SidebarCloseProjectMenu()).Disabled(id == "").Chosen() {
+		name, count := g.project.Name, len(g.sessions)
+		a.confirm = &confirmation{
+			open:    true,
+			title:   locales.ConfirmCloseTitle(name),
+			detail:  locales.ConfirmCloseProjectDetail(count),
+			action:  locales.SidebarCloseProject(),
+			destroy: true,
+			run:     func() { a.call("project.close", proto.IDParams{ID: id}, nil) },
+		}
 	}
 }
 
@@ -603,91 +677,229 @@ func (a *App) sessionMenu(m *ui.Menu, s *proto.Session) {
 	}
 }
 
-// sidebarFooter is the sidebar's foot: the buttons for projects, the
-// palette and Settings; then, at the right, what across the sessions
-// wants a look, each a button going to the next session of it, and
-// nothing while nothing does, or the connection to kerod while there is
-// none.
+// sidebarFooterNarrow is where the sidebar footer stops showing every
+// control and moves the lower-priority ones into its overflow menu.
+const sidebarFooterNarrow = 240
+
+// sidebarHidden is what the footer's overflow menu holds, by kind.
+type sidebarHidden struct {
+	project, search        bool
+	waiting, working, done int
+}
+
+// sidebarFooter is the sidebar's foot: the controls for projects, search,
+// Usage and Settings; then, at the right, the connection and what across
+// the sessions wants a look, each a button going to the next session of it.
+// The widths are reserved before the status chips are placed; a control that
+// does not fit moves, labelled, into the Sidebar Actions menu. This keeps
+// Usage, Settings, attention and the connection reachable at the minimum
+// sidebar width, in either sidebar.
 func (a *App) sidebarFooter(c *ui.Context, pal *palette) {
-	ui.Row(c).Height(36).Shrink(0).Padding(0, 12, 4, 12).Gap(2).AlignItems(ui.Center).DragWindow().Children(func() {
-		iconButton(c, "open-project", folderIcon, a.tip(locales.ActionOpenProject(), "project.open"), pal, a.openProject)
-		iconButton(c, "palette", searchIcon, a.tip(locales.ActionGoToSession(), "palette.open"), pal, a.openPalette)
+	width := a.prefs.SidebarWidth
+	pad := float32(12)
+	if width < sidebarFooterNarrow {
+		pad = 6
+	}
+	const gap, icon = float32(2), float32(28)
+	content := width - 2*pad
+	waiting, working, done := a.statusCounts()
+	badConn := a.conn != connReady || a.daemonStale()
+	showProject := width >= sidebarFooterNarrow
+	showSearch := showProject
+
+	// The widths include the row's gap before each item. usage, settings and
+	// the spacer between them and the status cluster are always there.
+	used := 2*icon + 2*gap
+	if badConn {
+		used += gap + icon
+	}
+	total := used
+	if showProject {
+		total += gap + icon
+	}
+	if showSearch {
+		total += gap + icon
+	}
+	chipW := func(n int) float32 { return gap + sidebarChipWidth(n) }
+	if waiting > 0 {
+		total += chipW(waiting)
+	}
+	if working > 0 {
+		total += chipW(working)
+	}
+	if done > 0 {
+		total += chipW(done)
+	}
+	needOverflow := !showProject || total > content
+	if needOverflow {
+		used += gap + icon
+	}
+	projectShown, searchShown := showProject, showSearch
+	waitingShown, workingShown, doneShown := waiting > 0, working > 0, done > 0
+	if needOverflow {
+		projectShown, searchShown = false, false
+		waitingShown, workingShown, doneShown = false, false, false
+		// Attention is required; project, search, working and done are
+		// optional and move to the overflow first.
+		if waiting > 0 && used+chipW(waiting) <= content {
+			waitingShown, used = true, used+chipW(waiting)
+		}
+		if showProject && used+gap+icon <= content {
+			projectShown, used = true, used+gap+icon
+		}
+		if showSearch && used+gap+icon <= content {
+			searchShown, used = true, used+gap+icon
+		}
+		if working > 0 && used+chipW(working) <= content {
+			workingShown, used = true, used+chipW(working)
+		}
+		if done > 0 && used+chipW(done) <= content {
+			doneShown, used = true, used+chipW(done)
+		}
+	}
+	hidden := sidebarHidden{
+		project: !projectShown,
+		search:  !searchShown,
+	}
+	if !waitingShown {
+		hidden.waiting = waiting
+	}
+	if !workingShown {
+		hidden.working = working
+	}
+	if !doneShown {
+		hidden.done = done
+	}
+
+	workingJump := func() {
+		a.jumpTo(func(s *proto.Session) bool { return s.Status == proto.Working })
+	}
+	doneJump := func() {
+		a.jumpTo(func(s *proto.Session) bool { return s.Status == proto.Idle && s.Unread })
+	}
+
+	ui.Row(c).Height(36).Shrink(0).Padding(0, pad, 4, pad).Gap(gap).AlignItems(ui.Center).DragWindow().Children(func() {
+		if projectShown {
+			iconButton(c, "open-project", folderIcon, a.tip(locales.ActionOpenProject(), "project.open"), pal, a.openProject)
+		}
+		if searchShown {
+			iconButton(c, "palette", searchIcon, a.tip(locales.ActionGoToSession(), "palette.open"), pal, a.openPalette)
+		}
+		a.usageNavButton(c, pal)
 		iconButton(c, "settings", gearIcon, a.tip(locales.SettingsTitle(), "settings.open"), pal, func() { a.openSettings("") })
 		ui.Spacer(c)
-		switch a.conn {
-		case connReady:
-			if a.daemonStale() {
-				a.restartChip(c, pal)
-			}
-			waiting := func(s *proto.Session) bool { return s.Status == proto.Waiting }
-			working := func(s *proto.Session) bool { return s.Status == proto.Working }
-			done := func(s *proto.Session) bool { return s.Status == proto.Idle && s.Unread }
-			a.footerChip(c, pal, proto.Waiting, false, waiting, pal.attention, locales.FooterNeedsYou, a.tip(locales.FooterGoToIt(), "session.attention"), a.jumpToAttention)
-			a.footerChip(c, pal, proto.Working, false, working, pal.textMuted, locales.FooterWorking, locales.FooterGoToIt(), nil)
-			a.footerChip(c, pal, proto.Idle, true, done, pal.textMuted, locales.FooterDone, locales.FooterGoToIt(), nil)
-		case connConnecting:
-			a.footerNote(c, pal, pal.textFaint, locales.StatusConnecting())
-		default:
-			a.footerNote(c, pal, pal.danger, locales.StatusDisconnected())
+		if badConn {
+			a.navConnection(c, pal)
+		}
+		if waitingShown {
+			a.footerChip(c, pal, proto.Waiting, false, waiting, pal.attention, locales.FooterNeedsYou,
+				a.tip(locales.FooterGoToIt(), "session.attention"), a.jumpToAttention)
+		}
+		if workingShown {
+			a.footerChip(c, pal, proto.Working, false, working, pal.textMuted, locales.FooterWorking,
+				locales.FooterGoToIt(), workingJump)
+		}
+		if doneShown {
+			a.footerChip(c, pal, proto.Idle, true, done, pal.textMuted, locales.FooterDone,
+				locales.FooterGoToIt(), doneJump)
+		}
+		if needOverflow {
+			a.sidebarOverflow(c, pal, hidden)
 		}
 	})
 }
 
-// footerChip counts the sessions that are, by is, as their rows' status
-// icon and the count, in fg; a click goes to the next of them, by jump,
-// or else after the one shown. one and many word its label and tooltip,
-// as "%d session needs you". It shows nothing while none is.
-func (a *App) footerChip(c *ui.Context, pal *palette, st proto.Status, unread bool, is func(*proto.Session) bool, fg ui.Color, say func(int) string, hint string, jump func()) {
-	n := 0
+// statusCounts is how many sessions are waiting, working, or done unseen.
+func (a *App) statusCounts() (waiting, working, done int) {
 	for i := range a.st.Sessions {
-		if is(&a.st.Sessions[i]) {
-			n++
+		s := &a.st.Sessions[i]
+		switch {
+		case s.Status == proto.Waiting:
+			waiting++
+		case s.Status == proto.Working:
+			working++
+		case s.Status == proto.Idle && s.Unread:
+			done++
 		}
 	}
+	return waiting, working, done
+}
+
+// sidebarChipWidth is the room a footer count takes. The count is one or two
+// digits in practice; three digits get a wider chip rather than clipping.
+func sidebarChipWidth(n int) float32 {
+	switch {
+	case n >= 100:
+		return 38
+	case n >= 10:
+		return 34
+	}
+	return 30
+}
+
+// footerChip counts n sessions as their rows' status icon and the count, in
+// fg. A click goes to the next of them, by jump. one and many word its label
+// and tooltip, as "%d session needs you".
+func (a *App) footerChip(c *ui.Context, pal *palette, st proto.Status, unread bool, n int, fg ui.Color, say func(int) string, hint string, jump func()) {
 	if n == 0 {
 		return
 	}
 	words := say(n)
-	b := ui.ButtonBase(c.Key("chip-"+string(st))).Height(24).Padding(0, 8, 0, 6).Gap(5).Radius(12).AlignItems(ui.Center).
+	b := ui.ButtonBase(c.Key("chip-" + string(st))).Width(sidebarChipWidth(n)).Height(24).Gap(2).Radius(12).Center().
 		Label(words).Tooltip(words + " · " + hint)
 	if b.Hovered() {
 		b.Background(pal.rowHover)
 	}
 	b.Children(func() {
-		statusIcon(c, pal, st, unread, 12)
-		ui.Textf(c, "%d", n).FontSize(12).FontWeight(500).TextColor(fg).FontFeatures("tnum")
+		statusIconP(c, pal, st, unread, -1, 0, 11)
+		ui.Textf(c, "%d", n).FontSize(11.5).FontWeight(500).TextColor(fg).FontFeatures("tnum")
 	})
-	if b.Clicked() {
-		if jump == nil {
-			jump = func() { a.jumpTo(is) }
-		}
+	if b.Clicked() && jump != nil {
 		jump()
 	}
 }
 
-// restartChip offers to restart kerod into this version of Kero, while it
-// runs another.
-func (a *App) restartChip(c *ui.Context, pal *palette) {
-	b := ui.ButtonBase(c.Key("chip-restart")).Height(24).Padding(0, 8, 0, 8).Gap(6).Radius(12).AlignItems(ui.Center).
-		Label(locales.CommonRestartService()).Tooltip(locales.UpdateRestartTip())
-	if b.Hovered() {
-		b.Background(pal.rowHover)
-	}
-	b.Children(func() {
-		ui.Box(c).Size(6, 6).Radius(3).Background(pal.attention)
-		ui.Text(c, locales.CommonRestartService()).FontSize(12).FontWeight(500).TextColor(pal.attention).SingleLine()
-	})
-	if b.Clicked() {
-		a.offerRestart()
-	}
-}
-
-// footerNote says how the connection to kerod is, by a dot.
-func (a *App) footerNote(c *ui.Context, pal *palette, dot ui.Color, label string) {
-	ui.Row(c).Gap(7).Padding(0, 6).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Size(6, 6).Radius(3).Background(dot)
-		ui.Text(c, label).FontSize(12).TextColor(pal.textFaint).SingleLine().
-			Tooltip(locales.FooterServiceTip())
+// sidebarOverflow is the Sidebar Actions menu: the controls the footer could
+// not show, labelled by what they do. It replaces neither Usage nor Settings;
+// those stay in the footer at every width.
+func (a *App) sidebarOverflow(c *ui.Context, pal *palette, hidden sidebarHidden) {
+	b := navIconButton(c, "sidebar-overflow", "ellipsis", nil, locales.SidebarMore(), locales.SidebarMoreTip(), pal)
+	b.Menu(func(m *ui.Menu) {
+		actions := hidden.project || hidden.search
+		if hidden.project {
+			if m.Item(locales.ActionOpenProject()).Chosen() {
+				a.defer_(a.openProject)
+			}
+		}
+		if hidden.search {
+			if m.Item(locales.ActionGoToSession()).Chosen() {
+				a.defer_(a.openPalette)
+			}
+		}
+		if hidden.waiting > 0 || hidden.working > 0 || hidden.done > 0 {
+			if actions {
+				m.Separator()
+			}
+			if hidden.waiting > 0 {
+				if m.Item(locales.FooterNeedsYou(hidden.waiting)).Chosen() {
+					a.defer_(a.jumpToAttention)
+				}
+			}
+			if hidden.working > 0 {
+				if m.Item(locales.FooterWorking(hidden.working)).Chosen() {
+					a.defer_(func() {
+						a.jumpTo(func(s *proto.Session) bool { return s.Status == proto.Working })
+					})
+				}
+			}
+			if hidden.done > 0 {
+				if m.Item(locales.FooterDone(hidden.done)).Chosen() {
+					a.defer_(func() {
+						a.jumpTo(func(s *proto.Session) bool { return s.Status == proto.Idle && s.Unread })
+					})
+				}
+			}
+		}
 	})
 }
 
@@ -898,7 +1110,7 @@ func (a *App) card(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32) 
 		ui.Row(c).Height(headerH).Shrink(0).AlignItems(ui.Center).Padding(0, 10, 0, left).DragWindow().Children(func() {
 			if shown < 0.5 {
 				a.headerButtons(c, bar, shown).Children(func() {
-					iconButton(c, "show-sidebar", sidebarIcon, a.tip(locales.SidebarShow(), "sidebar.toggle"), pal, a.toggleSidebar)
+					a.navRevealButton(c, pal)
 					iconButton(c, "new-session-2", plusIcon, a.tip(locales.ActionNewSession(), "session.new"), pal, func() { a.newSession("") })
 				})
 			}

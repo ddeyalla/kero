@@ -166,8 +166,9 @@ func TestPluginWidgetsComeFromTheRegistry(t *testing.T) {
 // a pane opened with, whether the pane shows, and the commands it ran. With a mark file, its
 // first start crashes on the first open, and the next start lives.
 const (
-	appFakeEnv  = "KERO_APP_FAKE_PLUGIN"
-	appFakeMark = "KERO_APP_FAKE_MARK"
+	appFakeEnv    = "KERO_APP_FAKE_PLUGIN"
+	appFakeMark   = "KERO_APP_FAKE_MARK"
+	appFakeScroll = "KERO_APP_FAKE_SCROLL"
 )
 
 func TestAppFakePluginHelper(t *testing.T) {
@@ -184,6 +185,14 @@ func TestAppFakePluginHelper(t *testing.T) {
 		heard[pane] = append(heard[pane], what)
 		line := strings.Join(heard[pane], " ")
 		mu.Unlock()
+		if os.Getenv(appFakeScroll) == "1" {
+			root := &protocol.Node{Type: "column", ID: "fake-scroll"}
+			for i := 0; i < 80; i++ {
+				root.Children = append(root.Children, &protocol.Node{Type: "text", ID: fmt.Sprintf("fake-row-%02d", i), Text: fmt.Sprintf("row %02d", i), Role: "body"})
+			}
+			_ = c.Render(pane, protocol.Tree{Root: root, Scroll: true})
+			return
+		}
 		_ = c.Render(pane, protocol.Tree{Root: &protocol.Node{Type: "text", ID: "fake-text", Text: line, Role: "body"}})
 	}
 	err := sdk.Run(sdk.Handlers{
@@ -415,12 +424,37 @@ func TestPluginNotificationFocusesItsPane(t *testing.T) {
 		},
 		Focus: "c",
 	})
+	// The notification is for a session whose project is folded, in the
+	// tabs: the explicit click opens it and asks the tab row to reveal it.
+	a.setNavPlacement(navTop)
+	a.prefs.Collapsed = map[string]bool{"p1": true}
+	a.selected = "s1"
+
 	a.focusPluginPane("fake")
 	if a.selected != "s2" {
 		t.Fatalf("selected = %q, want s2", a.selected)
 	}
+	if a.prefs.Collapsed["p1"] {
+		t.Fatal("the plugin notification left the project folded")
+	}
+	if a.session("s2").Project != "p1" {
+		t.Fatalf("the session's project changed to %q", a.session("s2").Project)
+	}
+	if a.nav.reveal != "s2" {
+		t.Fatalf("the notification asked to reveal %q, want s2", a.nav.reveal)
+	}
 	if got := a.focusOf(a.session("s2")); got != "d" {
 		t.Fatalf("focus = %q, want d", got)
+	}
+
+	// The next frame shows the opened project's tab and consumes the reveal.
+	tt := ui.NewTester(a.view, 1280, 700)
+	tt.Frame()
+	if _, ok := tt.Find(locales.NavSessionTab("other")); !ok {
+		t.Fatalf("the revealed session has no tab: %q", tt.Texts())
+	}
+	if a.nav.reveal != "" {
+		t.Fatalf("the reveal request stayed pending: %q", a.nav.reveal)
 	}
 }
 

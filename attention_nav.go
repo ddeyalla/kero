@@ -86,13 +86,15 @@ func (a *App) focusAttention(session, pane string) bool {
 	if s.PaneByID(pane) == nil {
 		pane = ""
 	}
-	// The session's row shows in the sidebar, as it does when jumped to.
-	if _, ok := a.prefs.Collapsed[s.Project]; ok {
-		delete(a.prefs.Collapsed, s.Project)
-		a.savePrefs()
-	}
-	if a.show != "session" || a.selected != s.ID {
-		a.selectSession(s.ID)
+	// An explicit attention jump always asks navigation to show the
+	// session's tab, even when the session is already selected and its
+	// project is expanded: its tab may be scrolled out of sight.
+	a.requestReveal(s.ID)
+	// The row or tab also comes into view when another session or page
+	// shows, or when the project is folded. Those need the selection, which
+	// a reveal alone does not change.
+	if a.show != "session" || a.selected != s.ID || a.prefs.Collapsed[a.displayedGroup(s.Project)] {
+		a.selectRevealing(s.ID)
 	}
 	if pane == "" {
 		pane = a.focusOf(s)

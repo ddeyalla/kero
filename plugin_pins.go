@@ -145,7 +145,7 @@ func (a *App) openPin(ref pinRef) {
 		return
 	}
 	if p := pinPaneOf(s, ref); p != nil {
-		a.selectSession(s.ID)
+		a.selectRevealing(s.ID)
 		if s = a.session(s.ID); s != nil {
 			a.setFocus(s, p.ID)
 		}

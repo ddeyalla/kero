@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"runtime"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -165,28 +164,6 @@ func memoryLabel(s resources.Sample, total bool) string {
 		return fmt.Sprintf("RAM %.1f / %.0f GiB", float64(s.MemoryUsed)/gib, float64(s.MemoryTotal)/gib)
 	}
 	return fmt.Sprintf("RAM %.1f GiB", float64(s.MemoryUsed)/gib)
-}
-
-func (a *App) resourceSidebar(c *ui.Context, pal *palette) {
-	s := a.resources.sample
-	button := ui.ButtonBase(c.Key("system-resources")).Height(48).Shrink(0).Margin(4, 12, 7, 12).Padding(8).Radius(5).
-		Label("System resources").Tooltip("This Mac · " + cpuLabel(s) + " · " + memoryLabel(s, true) + ". Across all apps; click for details.")
-	if button.Hovered() {
-		button.Background(pal.rowHover)
-	}
-	button.Children(func() {
-		if a.resources.err != "" {
-			ui.Text(c, "System stats unavailable").FontSize(10.5).TextColor(pal.textFaint)
-			return
-		}
-		ui.Row(c).Fill().Gap(16).Children(func() {
-			resourceMeter(c.Key("cpu"), pal, "CPU", strings.TrimPrefix(cpuLabel(s), "CPU "), cpuPercent(s), s.CPU != nil)
-			resourceMeter(c.Key("memory"), pal, "RAM", strings.TrimPrefix(memoryLabel(s, false), "RAM "), memoryPercent(s), s.MemoryTotal > 0)
-		})
-	})
-	if button.Clicked() {
-		a.openUsage()
-	}
 }
 
 func resourceMeter(c *ui.Context, pal *palette, name, value string, percent float64, available bool) {

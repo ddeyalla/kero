@@ -455,7 +455,7 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 	h.Children(func() {
 		if top && left && shown < 0.5 {
 			a.headerButtons(c, bar, shown).Children(func() {
-				iconButton(c, "show-sidebar", sidebarIcon, a.tip(locales.SidebarShow(), "sidebar.toggle"), pal, a.toggleSidebar)
+				a.navRevealButton(c, pal)
 				iconButton(c, "new-session-2", plusIcon, a.tip(locales.ActionNewSession(), "session.new"), pal, func() { a.newSession("") })
 			})
 		}

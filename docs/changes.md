@@ -3,6 +3,119 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Navigation placements, tabs and the usage popover
+
+`navigation.go` owns the one saved placement. `prefs.NavPlacement` is
+`left`, `right`, `top` or `bottom`; a missing or unknown value reads as
+`left`. `setNavPlacement` saves the value and closes the usage popover only
+when the placement actually changes; an unchanged request returns first. It
+never changes the selected session, its panes, their terminals, the focused
+pane or a zoom. The four actions `nav.placement.left`, `nav.placement.right`,
+`nav.placement.top` and `nav.placement.bottom` are in `internal/actions`, so
+the View menu (with its radio check), the command palette, Settings ›
+Keyboard and `kero do` all reach the same setter. Settings › General draws one segmented
+control through `segmentedOnChange`, because a preference saves as it
+changes rather than with the settings page. `Cmd+B` keeps the
+`sidebar.toggle` action and the saved `sidebarHidden` value; it now hides
+the surface in use, tabs included.
+
+`view.go` composes two shells around the unchanged pane tree.
+
+- `verticalShell` draws the sidebar on the left or the right of the panes.
+  `navChrome` keeps the left sidebar's existing geometry and mirrors the
+  right one: the panes own the left edge and the traffic lights, so their
+  header reserves the lights' lead, and the right divider drag subtracts its
+  `dx` because its edge runs the other way.
+- `horizontalShell` draws a tab row over the panes or under them and lets the
+  panes take the window's width. Top tabs take the compact title bar's line
+  and its traffic lights; bottom tabs leave that line to the panes. When
+  navigation hides, the pane header brings the reveal and new-session buttons
+  up after the lights, and its title pad grows so the title never draws over
+  them.
+
+The sidebar footer reserves room by width before it places controls.
+Usage, Settings, the connection/restart icon and the attention count keep
+their places; project open and search are eligible when the sidebar is at
+least `sidebarFooterNarrow` (240 points), but the width budget still decides
+whether they show, and they move into a labelled Sidebar Actions menu when
+they do not. When the footer must overflow, it reserves the
+required controls first and then places attention before the optional
+project, search, working and done controls; widening across the 240-point
+threshold cannot hide the attention chip. Status chips are compact
+icon-and-count buttons; the footer places waiting, then project, search,
+working and done while they fit, and the ones that do not fit move into the
+same menu. `statusCounts` is the single count the layout and chips share;
+`sidebarOverflow` builds the labelled menu from the controls that were
+hidden. This keeps every required control usable at
+the 200-point minimum, in either sidebar, including a stale service,
+connecting and disconnected states. The connection and restart control is
+the same icon-only `navConnection` the tab row uses.
+
+`navigation_tabs.go` draws the row. `groups()` stays the source of truth for
+project order, pinned-session order and the synthetic Other group. Project
+header widths are measured first, then the fixed utility cluster; session
+tabs share the rest at 120–220 DIPs. Below 120 the row stops shrinking and
+uses `ui.ScrollHorizontal`, and the overflow button lists the sessions by
+project plus the plugin shortcuts that did not fit. Every tab has the same
+width; no row wraps. A project header folds its sessions on click, keeps the
+selected session's panes in view and marks itself when it is folded over the
+active session. Tabs reuse `sessionMenu`, the rename and drag helpers, and
+the pin and project ordering operations. Session drag uses a vertical
+insertion rule; project headers drag whole groups.
+
+Selection by name goes through `selectRevealing` instead of `selectSession`.
+The palette, overflow menu, number and next/previous shortcuts, attention
+jumps, remote `kero focus`, a new session and a plugin notification's click
+(`focusPluginPane`) expand a folded project and set `nav.reveal`; the
+selected tab calls `ScrollIntoView` once. `selectRevealing` resolves the
+session's displayed group with `knownProjects`, `groupOfProject` and
+`displayedGroup`, the same rule `groups()` uses: an empty or unknown project
+ID selects the synthetic Other group and expands Other's `""` collapse key,
+while the session's own `Project` stays as it was. `requestReveal` is the
+shared reveal request: it changes only `nav.reveal`, never the selection or
+the page. An attention jump always calls it, even when the session is already
+selected and its group is open, because the tab may be scrolled out of sight;
+the jump then selects and expands only when the page, session or displayed
+group needs it. Startup reconciliation and `toggleProject` still call
+`selectSession` or nothing, so a fold survives a restart and never becomes a
+selection change.
+
+`nav_usage.go` hosts the usage popover on the shared plugin host.
+`@nav/usage` is a transient surface id, not a daemon pane: `pluginPane.go`'s
+`pluginSurfaceState`, `preparePluginSurface` and `syncPluginTheme` give it
+the same open, resize, visibility, theme and tree rendering as a pane, while
+`navUsageWidget` draws the Usage plugin's large list and the app's existing
+CPU/RAM sampler adds the meters. The popover is a `ui.PopoverBase` anchored
+to the usage icon: hover opens it, `hoverIntent`'s 80 ms grace lets the
+pointer cross into it, a click pins it, and an outside click or Escape
+closes it. An unpinned card the keyboard has entered stays open after the
+pointer leaves: `hadFocus`, read from the panel's focus, holds it while the
+keyboard is inside, and the pointer rule resumes when that focus leaves.
+Escape is scoped to the popover's own focus so a passive hover never takes
+the terminal's Escape; opening by keyboard focuses the card, and a keyboard
+dismissal returns focus to the icon. `armed` and the cleared hover timers
+keep a dismissal from reopening immediately.
+The card sizes itself from the room its anchor leaves. In top and bottom tab
+placements it subtracts the anchor gap and the toolkit's four-point window
+margin before setting the panel height, so the footer keeps its full
+30-point control and ten-point bottom padding; the plugin list gets the rest
+and its own scroll. Left and right placements use the normal capped height,
+`min(560, winH - 24)`.
+`Open in Pane` calls the normal `openPluginPane`. Closing runs `host.Close`
+for `@nav/usage` alone: a visible real Usage pane keeps its subscription,
+and the usage plugin stops its loop only when its last visible pane is gone.
+The app's old sidebar list, row and hover card were removed; the Usage modal
+and its reader remain on `Cmd+Shift+U`, and the Usage pane remains a normal
+plugin pane.
+
+The navigation tests in `navigation_test.go` cover the four shells, saved
+and invalid placements, unchanged pane identity, focus, zoom and terminal
+attachment, folding the active project, the 120/220 width bounds, overflow
+selection and reveal, pins and Other order, drag without selection, close and
+menus, Cmd+B geometry, Settings and palette actions, and the transient usage
+surface's hover, pin, outside click, keyboard Escape, coexistence with a real
+Usage pane, missing plugin and crash/restart.
+
 ## Glass control boundaries
 
 `toolbarGroup` in `glass_ui.go`, the Browser address in `browser_pane.go`,
@@ -795,31 +908,46 @@ the background every two minutes, preserve the last successful observation
 after errors, and respect rate-limit backoff. Explicit provider-key overrides
 are atomically stored with mode `0600` in the personal data directory.
 
-The sidebar footer is a list of Claude, Codex, OpenCode Go and DeepSeek.
-Every supported provider keeps its row, including providers not installed or
-connected. The Usage header shows its shortcut; each row shows the provider
-name and its primary allowance percentage or USD balance. No circular meters
-remain. Hovering shows every allowance and reset time, the plan, the full
-balance, and disconnected or stale details. Clicking the header or a row, or
-`Cmd+Shift+U`, opens account details. CPU and RAM meters remain below the list.
+The navigation's usage icon opens the Usage plugin's large list in a
+transient popover: Claude, Codex, OpenCode Go and DeepSeek, with every
+allowance window, its percentage or the provider's balance, its reset time,
+the plan, the cost ranges and the app's CPU and RAM. No circular meters
+remain. Hover opens the card, a click pins it, the icon again or a click
+outside dismisses it, and Escape closes it while it has the keyboard. The
+pointer may cross the gap into the card, and the trigger takes the keyboard
+back after a keyboard dismissal. The card flips and clamps at the window's
+edges and scrolls in a short window; it always draws the large list rather
+than the pane's compact form. `Open in Pane` opens a normal Usage pane.
 
-`usageSidebar` and `usageRow` in [`usage.go`](../usage.go) own the list;
-`usageFooterSummary` selects its compact value, while `usageHover` preserves
-all windows. `usageColor` warns when **any** allowance reaches 90%, even if
-only the primary allowance is displayed. Failed refreshes retain their last
-observation with faint text and a stale marker. The details card keeps aligned
-percentage and reset columns at the minimum sidebar width. Tests in
-`usage_test.go` cover light/dark layouts, narrow widths, hover transfer, three
-windows, disconnected/stale states and secondary-window warning thresholds.
+`nav_usage.go` owns the popover and its transient plugin surface; the shared
+host lifecycle is described under
+[Navigation placements](#navigation-placements-tabs-and-the-usage-popover).
+Closing the popover sends `close` for `@nav/usage` only, so a visible Usage
+pane keeps its own refresh. The plugin's refresh button and
+`kero do usage.refresh` reach its own loop. A failed reading keeps the last
+successful observation, and the plugin's tree draws stale, disconnected and
+missing-provider states; a plugin that stops shows its reason and Restart,
+through the same view a pane uses. The transient surface never writes a
+daemon pane target.
+
+The sidebar's older list, row and hover card were removed with the popover's
+arrival; `usage_test.go` now covers the modal and the app reader, while
+`internal/plugin/builtin/usage/tree_test.go` covers the list's large and
+compact forms, allowance states, costs and reset labels. `navigation_test.go`
+covers the host transfer, pinning, outside click, Escape, missing plugin,
+crash/restart, coexistence with a real Usage pane and the transient state
+path.
 
 The modal shows allowance windows, reset times, refresh and provider
 configuration, and its own error and connection states. `Cmd+Shift+U` opens
 it; `Cmd+R` refreshes while open; Esc/Cmd+W closes it. There is no extra tab
-or window.
+or window. The app's reader remains in `usage.go` for this modal; the popover
+uses the plugin's reader instead of a second renderer.
 
-Code: [`usage.go`](../usage.go), [`internal/usage/`](../internal/usage/).
+Code: [`usage.go`](../usage.go), [`nav_usage.go`](../nav_usage.go),
+[`internal/usage/`](../internal/usage/).
 Automation: `kero usage --json` and `kero do usage.open`.
-Tests: `usage_test.go`, `internal/usage/usage_test.go`.
+Tests: `usage_test.go`, `navigation_test.go`, `internal/usage/usage_test.go`.
 
 ## Settings in the window
 

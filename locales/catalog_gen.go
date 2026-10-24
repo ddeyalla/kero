@@ -404,14 +404,234 @@ func (msgs Messages) ActionPaneBelow() string {
 	return Catalog.Format(msgs.locale, "actionPaneBelow", nil)
 }
 
-// ActionToggleSidebar says "Toggle Sidebar"
+// ActionToggleSidebar says "Toggle Navigation"
 // in the language the app shows.
 func ActionToggleSidebar() string { return In(i18n.Locale()).ActionToggleSidebar() }
 
-// ActionToggleSidebar says "Toggle Sidebar"
+// ActionToggleSidebar says "Toggle Navigation"
 // in the language of msgs.
 func (msgs Messages) ActionToggleSidebar() string {
 	return Catalog.Format(msgs.locale, "actionToggleSidebar", nil)
+}
+
+// NavPlacementLeft says "Left Sidebar"
+// in the language the app shows.
+func NavPlacementLeft() string { return In(i18n.Locale()).NavPlacementLeft() }
+
+// NavPlacementLeft says "Left Sidebar"
+// in the language of msgs.
+func (msgs Messages) NavPlacementLeft() string {
+	return Catalog.Format(msgs.locale, "navPlacementLeft", nil)
+}
+
+// NavPlacementRight says "Right Sidebar"
+// in the language the app shows.
+func NavPlacementRight() string { return In(i18n.Locale()).NavPlacementRight() }
+
+// NavPlacementRight says "Right Sidebar"
+// in the language of msgs.
+func (msgs Messages) NavPlacementRight() string {
+	return Catalog.Format(msgs.locale, "navPlacementRight", nil)
+}
+
+// NavPlacementTop says "Top Tabs"
+// in the language the app shows.
+func NavPlacementTop() string { return In(i18n.Locale()).NavPlacementTop() }
+
+// NavPlacementTop says "Top Tabs"
+// in the language of msgs.
+func (msgs Messages) NavPlacementTop() string {
+	return Catalog.Format(msgs.locale, "navPlacementTop", nil)
+}
+
+// NavPlacementBottom says "Bottom Tabs"
+// in the language the app shows.
+func NavPlacementBottom() string { return In(i18n.Locale()).NavPlacementBottom() }
+
+// NavPlacementBottom says "Bottom Tabs"
+// in the language of msgs.
+func (msgs Messages) NavPlacementBottom() string {
+	return Catalog.Format(msgs.locale, "navPlacementBottom", nil)
+}
+
+// NavPlacementLeftAction says "Navigation in Left Sidebar"
+// in the language the app shows.
+func NavPlacementLeftAction() string { return In(i18n.Locale()).NavPlacementLeftAction() }
+
+// NavPlacementLeftAction says "Navigation in Left Sidebar"
+// in the language of msgs.
+func (msgs Messages) NavPlacementLeftAction() string {
+	return Catalog.Format(msgs.locale, "navPlacementLeftAction", nil)
+}
+
+// NavPlacementRightAction says "Navigation in Right Sidebar"
+// in the language the app shows.
+func NavPlacementRightAction() string { return In(i18n.Locale()).NavPlacementRightAction() }
+
+// NavPlacementRightAction says "Navigation in Right Sidebar"
+// in the language of msgs.
+func (msgs Messages) NavPlacementRightAction() string {
+	return Catalog.Format(msgs.locale, "navPlacementRightAction", nil)
+}
+
+// NavPlacementTopAction says "Navigation in Tabs Across the Top"
+// in the language the app shows.
+func NavPlacementTopAction() string { return In(i18n.Locale()).NavPlacementTopAction() }
+
+// NavPlacementTopAction says "Navigation in Tabs Across the Top"
+// in the language of msgs.
+func (msgs Messages) NavPlacementTopAction() string {
+	return Catalog.Format(msgs.locale, "navPlacementTopAction", nil)
+}
+
+// NavPlacementBottomAction says "Navigation in Tabs Across the Bottom"
+// in the language the app shows.
+func NavPlacementBottomAction() string { return In(i18n.Locale()).NavPlacementBottomAction() }
+
+// NavPlacementBottomAction says "Navigation in Tabs Across the Bottom"
+// in the language of msgs.
+func (msgs Messages) NavPlacementBottomAction() string {
+	return Catalog.Format(msgs.locale, "navPlacementBottomAction", nil)
+}
+
+// SetNavigation says "Navigation"
+// in the language the app shows.
+func SetNavigation() string { return In(i18n.Locale()).SetNavigation() }
+
+// SetNavigation says "Navigation"
+// in the language of msgs.
+func (msgs Messages) SetNavigation() string {
+	return Catalog.Format(msgs.locale, "setNavigation", nil)
+}
+
+// SetNavigationDetail says "Where sessions and projects live. Top and bottom tabs replace the sidebar."
+// in the language the app shows.
+func SetNavigationDetail() string { return In(i18n.Locale()).SetNavigationDetail() }
+
+// SetNavigationDetail says "Where sessions and projects live. Top and bottom tabs replace the sidebar."
+// in the language of msgs.
+func (msgs Messages) SetNavigationDetail() string {
+	return Catalog.Format(msgs.locale, "setNavigationDetail", nil)
+}
+
+// SetNavigationPlacement says "Placement"
+// in the language the app shows.
+func SetNavigationPlacement() string { return In(i18n.Locale()).SetNavigationPlacement() }
+
+// SetNavigationPlacement says "Placement"
+// in the language of msgs.
+func (msgs Messages) SetNavigationPlacement() string {
+	return Catalog.Format(msgs.locale, "setNavigationPlacement", nil)
+}
+
+// SetNavigationPlacementDetail says "Choose a sidebar, or a row of session tabs."
+// in the language the app shows.
+func SetNavigationPlacementDetail() string { return In(i18n.Locale()).SetNavigationPlacementDetail() }
+
+// SetNavigationPlacementDetail says "Choose a sidebar, or a row of session tabs."
+// in the language of msgs.
+func (msgs Messages) SetNavigationPlacementDetail() string {
+	return Catalog.Format(msgs.locale, "setNavigationPlacementDetail", nil)
+}
+
+// NavShowTabs says "Show Tabs"
+// in the language the app shows.
+func NavShowTabs() string { return In(i18n.Locale()).NavShowTabs() }
+
+// NavShowTabs says "Show Tabs"
+// in the language of msgs.
+func (msgs Messages) NavShowTabs() string {
+	return Catalog.Format(msgs.locale, "navShowTabs", nil)
+}
+
+// NavHideTabs says "Hide Tabs"
+// in the language the app shows.
+func NavHideTabs() string { return In(i18n.Locale()).NavHideTabs() }
+
+// NavHideTabs says "Hide Tabs"
+// in the language of msgs.
+func (msgs Messages) NavHideTabs() string {
+	return Catalog.Format(msgs.locale, "navHideTabs", nil)
+}
+
+// NavSessionTab says "{title} tab"
+// in the language the app shows.
+func NavSessionTab(title string) string { return In(i18n.Locale()).NavSessionTab(title) }
+
+// NavSessionTab says "{title} tab"
+// in the language of msgs.
+func (msgs Messages) NavSessionTab(title string) string {
+	return Catalog.Format(msgs.locale, "navSessionTab", map[string]any{"title": title})
+}
+
+// NavOverflow says "All Sessions"
+// in the language the app shows.
+func NavOverflow() string { return In(i18n.Locale()).NavOverflow() }
+
+// NavOverflow says "All Sessions"
+// in the language of msgs.
+func (msgs Messages) NavOverflow() string {
+	return Catalog.Format(msgs.locale, "navOverflow", nil)
+}
+
+// NavOverflowTip says "Sessions by project, and more"
+// in the language the app shows.
+func NavOverflowTip() string { return In(i18n.Locale()).NavOverflowTip() }
+
+// NavOverflowTip says "Sessions by project, and more"
+// in the language of msgs.
+func (msgs Messages) NavOverflowTip() string {
+	return Catalog.Format(msgs.locale, "navOverflowTip", nil)
+}
+
+// NavUsagePopover says "Usage details"
+// in the language the app shows.
+func NavUsagePopover() string { return In(i18n.Locale()).NavUsagePopover() }
+
+// NavUsagePopover says "Usage details"
+// in the language of msgs.
+func (msgs Messages) NavUsagePopover() string {
+	return Catalog.Format(msgs.locale, "navUsagePopover", nil)
+}
+
+// NavUsageTip says "Usage and system resources. Click to pin; Escape closes."
+// in the language the app shows.
+func NavUsageTip() string { return In(i18n.Locale()).NavUsageTip() }
+
+// NavUsageTip says "Usage and system resources. Click to pin; Escape closes."
+// in the language of msgs.
+func (msgs Messages) NavUsageTip() string {
+	return Catalog.Format(msgs.locale, "navUsageTip", nil)
+}
+
+// NavUsageClose says "Close Usage"
+// in the language the app shows.
+func NavUsageClose() string { return In(i18n.Locale()).NavUsageClose() }
+
+// NavUsageClose says "Close Usage"
+// in the language of msgs.
+func (msgs Messages) NavUsageClose() string {
+	return Catalog.Format(msgs.locale, "navUsageClose", nil)
+}
+
+// NavUsageOpenPane says "Open in Pane"
+// in the language the app shows.
+func NavUsageOpenPane() string { return In(i18n.Locale()).NavUsageOpenPane() }
+
+// NavUsageOpenPane says "Open in Pane"
+// in the language of msgs.
+func (msgs Messages) NavUsageOpenPane() string {
+	return Catalog.Format(msgs.locale, "navUsageOpenPane", nil)
+}
+
+// NavUsageResourcesUnavailable says "System resources unavailable"
+// in the language the app shows.
+func NavUsageResourcesUnavailable() string { return In(i18n.Locale()).NavUsageResourcesUnavailable() }
+
+// NavUsageResourcesUnavailable says "System resources unavailable"
+// in the language of msgs.
+func (msgs Messages) NavUsageResourcesUnavailable() string {
+	return Catalog.Format(msgs.locale, "navUsageResourcesUnavailable", nil)
 }
 
 // ActionBigger says "Bigger"
@@ -1106,6 +1326,26 @@ func (msgs Messages) SidebarHide() string {
 	return Catalog.Format(msgs.locale, "sidebarHide", nil)
 }
 
+// SidebarMore says "Sidebar Actions"
+// in the language the app shows.
+func SidebarMore() string { return In(i18n.Locale()).SidebarMore() }
+
+// SidebarMore says "Sidebar Actions"
+// in the language of msgs.
+func (msgs Messages) SidebarMore() string {
+	return Catalog.Format(msgs.locale, "sidebarMore", nil)
+}
+
+// SidebarMoreTip says "Project, search and status actions that do not fit"
+// in the language the app shows.
+func SidebarMoreTip() string { return In(i18n.Locale()).SidebarMoreTip() }
+
+// SidebarMoreTip says "Project, search and status actions that do not fit"
+// in the language of msgs.
+func (msgs Messages) SidebarMoreTip() string {
+	return Catalog.Format(msgs.locale, "sidebarMoreTip", nil)
+}
+
 // SidebarShow says "Show Sidebar"
 // in the language the app shows.
 func SidebarShow() string { return In(i18n.Locale()).SidebarShow() }
@@ -1324,16 +1564,6 @@ func FooterGoToIt() string { return In(i18n.Locale()).FooterGoToIt() }
 // in the language of msgs.
 func (msgs Messages) FooterGoToIt() string {
 	return Catalog.Format(msgs.locale, "footerGoToIt", nil)
-}
-
-// FooterServiceTip says "Sessions run in kerod, in the background: they keep running when you quit kero."
-// in the language the app shows.
-func FooterServiceTip() string { return In(i18n.Locale()).FooterServiceTip() }
-
-// FooterServiceTip says "Sessions run in kerod, in the background: they keep running when you quit kero."
-// in the language of msgs.
-func (msgs Messages) FooterServiceTip() string {
-	return Catalog.Format(msgs.locale, "footerServiceTip", nil)
 }
 
 // StatusConnecting says "Connecting…"
@@ -6224,16 +6454,6 @@ func (msgs Messages) FilesFinding() string {
 	return Catalog.Format(msgs.locale, "filesFinding", nil)
 }
 
-// UsageStale says "Last known usage; refresh failed"
-// in the language the app shows.
-func UsageStale() string { return In(i18n.Locale()).UsageStale() }
-
-// UsageStale says "Last known usage; refresh failed"
-// in the language of msgs.
-func (msgs Messages) UsageStale() string {
-	return Catalog.Format(msgs.locale, "usageStale", nil)
-}
-
 // UsagePluginTitle says "Usage"
 // in the language the app shows.
 func UsagePluginTitle() string { return In(i18n.Locale()).UsagePluginTitle() }
@@ -7122,16 +7342,6 @@ func UsageAccountTitle() string { return In(i18n.Locale()).UsageAccountTitle() }
 // in the language of msgs.
 func (msgs Messages) UsageAccountTitle() string {
 	return Catalog.Format(msgs.locale, "usageAccountTitle", nil)
-}
-
-// UsageDetailsHint says "Account allowances and reset times"
-// in the language the app shows.
-func UsageDetailsHint() string { return In(i18n.Locale()).UsageDetailsHint() }
-
-// UsageDetailsHint says "Account allowances and reset times"
-// in the language of msgs.
-func (msgs Messages) UsageDetailsHint() string {
-	return Catalog.Format(msgs.locale, "usageDetailsHint", nil)
 }
 
 // UsagePercentUsed says "{percent}% used"

@@ -34,7 +34,7 @@ On Windows and Linux, <kbd>Ctrl</kbd> with a letter belongs to the shell (<kbd>C
 | Close                       | <kbd>⌘</kbd> <kbd>W</kbd>              | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>W</kbd> | `pane.close`             |
 | Close Session               | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>W</kbd> | –                                             | `session.close`          |
 
-<kbd>⌘</kbd> <kbd>1</kbd>–<kbd>9</kbd> (<kbd>Ctrl</kbd> <kbd>1</kbd>–<kbd>9</kbd> on Windows and Linux) go to the sidebar's sessions, and <kbd>Ctrl</kbd> <kbd>Tab</kbd> to the next one.
+<kbd>⌘</kbd> <kbd>1</kbd>–<kbd>9</kbd> (<kbd>Ctrl</kbd> <kbd>1</kbd>–<kbd>9</kbd> on Windows and Linux) go to the sessions in the navigation order, in a sidebar or the tabs. Use the platform-specific **Next Session** shortcut above to move to the next one. Choosing a session whose tab is scrolled out of sight, or whose project is folded, brings it back into view.
 
 ## Pane
 
@@ -59,9 +59,15 @@ On Windows and Linux, <kbd>Ctrl</kbd> with a letter belongs to the shell (<kbd>C
 
 ## View
 
-| Action         | macOS                     | Windows & Linux                               | Action id        |
-| -------------- | ------------------------- | --------------------------------------------- | ---------------- |
-| Toggle Sidebar | <kbd>⌘</kbd> <kbd>B</kbd> | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>B</kbd> | `sidebar.toggle` |
-| Bigger         | <kbd>⌘</kbd> <kbd>=</kbd> | <kbd>Ctrl</kbd> <kbd>=</kbd>                  | `text.bigger`    |
-| Smaller        | <kbd>⌘</kbd> <kbd>-</kbd> | <kbd>Ctrl</kbd> <kbd>-</kbd>                  | `text.smaller`   |
-| Actual Size    | <kbd>⌘</kbd> <kbd>0</kbd> | <kbd>Ctrl</kbd> <kbd>0</kbd>                  | `text.reset`     |
+| Action                       | macOS                     | Windows & Linux                               | Action id             |
+| ---------------------------- | ------------------------- | --------------------------------------------- | --------------------- |
+| Toggle Navigation            | <kbd>⌘</kbd> <kbd>B</kbd> | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>B</kbd> | `sidebar.toggle`      |
+| Navigation in Left Sidebar   | –                         | –                                             | `nav.placement.left`  |
+| Navigation in Right Sidebar  | –                         | –                                             | `nav.placement.right` |
+| Navigation in Tabs Across the Top    | –                         | –                                             | `nav.placement.top`   |
+| Navigation in Tabs Across the Bottom | –                         | –                                             | `nav.placement.bottom` |
+| Bigger                       | <kbd>⌘</kbd> <kbd>=</kbd> | <kbd>Ctrl</kbd> <kbd>=</kbd>                  | `text.bigger`         |
+| Smaller                      | <kbd>⌘</kbd> <kbd>-</kbd> | <kbd>Ctrl</kbd> <kbd>-</kbd>                  | `text.smaller`        |
+| Actual Size                  | <kbd>⌘</kbd> <kbd>0</kbd> | <kbd>Ctrl</kbd> <kbd>0</kbd>                  | `text.reset`          |
+
+The placement actions have no default shortcut; assign one in Settings › Keyboard if you want it.

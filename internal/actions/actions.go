@@ -69,7 +69,11 @@ var All = []Action{
 	{ID: "pane.up", Title: "Pane Above", Menu: "Pane", Keys: "CmdOrCtrl+Alt+Up", Remote: true},
 	{ID: "pane.down", Title: "Pane Below", Menu: "Pane", Keys: "CmdOrCtrl+Alt+Down", Remote: true},
 
-	{ID: "sidebar.toggle", Title: "Toggle Sidebar", Menu: "View", Keys: "CmdOrCtrl+B", Remote: true},
+	{ID: "sidebar.toggle", Title: "Toggle Navigation", Menu: "View", Keys: "CmdOrCtrl+B", Remote: true},
+	{ID: "nav.placement.left", Title: "Navigation in Left Sidebar", Menu: "View", Remote: true},
+	{ID: "nav.placement.right", Title: "Navigation in Right Sidebar", Menu: "View", Remote: true},
+	{ID: "nav.placement.top", Title: "Navigation in Tabs Across the Top", Menu: "View", Remote: true},
+	{ID: "nav.placement.bottom", Title: "Navigation in Tabs Across the Bottom", Menu: "View", Remote: true},
 	{ID: "linear.refresh", Title: "Refresh Linear", Menu: "View", Remote: true},
 	{ID: "usage.open", Title: "Account Usage…", Menu: "View", Keys: "CmdOrCtrl+Shift+U", Remote: true},
 	{ID: "usage.refresh", Title: "Refresh Account Usage", Menu: "View", Remote: true},

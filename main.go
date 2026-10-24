@@ -179,7 +179,7 @@ func (a *App) newSessionIn(dir string) {
 				return
 			}
 			a.addPending(s)
-			a.selectSession(s.ID)
+			a.selectRevealing(s.ID)
 		})
 	}()
 }

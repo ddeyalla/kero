@@ -42,12 +42,16 @@ const (
 // prefs are what the app remembers between runs; the sessions themselves
 // are kerod's.
 type prefs struct {
-	Selected      string          `json:"selected,omitempty"`
-	SidebarWidth  float32         `json:"sidebarWidth,omitempty"`
-	SidebarHidden bool            `json:"sidebarHidden,omitempty"`
-	Collapsed     map[string]bool `json:"collapsed,omitempty"`
-	SessionPins   map[string]bool `json:"sessionPins,omitempty"`
-	FontSize      float32         `json:"fontSize,omitempty"`
+	Selected      string  `json:"selected,omitempty"`
+	SidebarWidth  float32 `json:"sidebarWidth,omitempty"`
+	SidebarHidden bool    `json:"sidebarHidden,omitempty"`
+	// NavPlacement is where sessions and projects live: the left or right
+	// sidebar, or the tabs across the top or bottom. A missing or unknown
+	// value is the left sidebar.
+	NavPlacement string          `json:"navPlacement,omitempty"`
+	Collapsed    map[string]bool `json:"collapsed,omitempty"`
+	SessionPins  map[string]bool `json:"sessionPins,omitempty"`
+	FontSize     float32         `json:"fontSize,omitempty"`
 	// Show is what the main card showed last. It was "linear" for the
 	// built-in Linear screen, which is gone: any saved value now falls back
 	// to the selected session.
@@ -152,6 +156,8 @@ type App struct {
 	pal          paletteState
 	chooser      chooserState
 	find         findState
+	nav          navState      // the horizontal tabs' scrolling and reveal
+	navUsage     navUsageState // the usage icon's transient widget
 	confirm      *confirmation
 	sideDrag     float32 // the width as a drag of the sidebar's edge began
 	pendingToast string
@@ -251,6 +257,7 @@ func (a *App) loadPrefs() {
 	if a.prefs.FontSize == 0 {
 		a.prefs.FontSize = defaultFont
 	}
+	a.prefs.NavPlacement = string(validNavPlacement(a.prefs.NavPlacement))
 	if a.prefs.Collapsed == nil {
 		a.prefs.Collapsed = map[string]bool{}
 	}
@@ -412,7 +419,7 @@ func (a *App) event(cl *client.Client, m proto.Message) {
 		if !a.set.RemoteControl {
 			return
 		}
-		a.selectSession(m.Select)
+		a.selectRevealing(m.Select)
 		if a.win != nil {
 			a.win.Show()
 			a.win.Focus()
@@ -734,12 +741,11 @@ type group struct {
 
 func (a *App) groups() []group {
 	var gs []group
-	known := map[string]bool{}
+	known := a.knownProjects()
 	for _, p := range a.st.Projects {
-		known[p.ID] = true
 		g := group{project: p}
 		for i := range a.st.Sessions {
-			if a.st.Sessions[i].Project == p.ID {
+			if groupOfProject(known, a.st.Sessions[i].Project) == p.ID {
 				g.sessions = append(g.sessions, &a.st.Sessions[i])
 			}
 		}
@@ -748,7 +754,7 @@ func (a *App) groups() []group {
 	}
 	other := group{project: proto.Project{ID: "", Name: locales.SidebarOtherProject()}}
 	for i := range a.st.Sessions {
-		if !known[a.st.Sessions[i].Project] {
+		if groupOfProject(known, a.st.Sessions[i].Project) == "" {
 			other.sessions = append(other.sessions, &a.st.Sessions[i])
 		}
 	}
@@ -757,6 +763,32 @@ func (a *App) groups() []group {
 		gs = append(gs, other)
 	}
 	return gs
+}
+
+// knownProjects is the IDs of the projects the daemon holds. A session whose
+// project is not one of them is shown in the synthetic Other group.
+func (a *App) knownProjects() map[string]bool {
+	known := make(map[string]bool, len(a.st.Projects))
+	for i := range a.st.Projects {
+		known[a.st.Projects[i].ID] = true
+	}
+	return known
+}
+
+// groupOfProject is the group a session's Project is shown under: the
+// project's ID when known, else Other's empty ID. It never changes the
+// session's own Project.
+func groupOfProject(known map[string]bool, project string) string {
+	if project == "" || !known[project] {
+		return ""
+	}
+	return project
+}
+
+// displayedGroup is groupOfProject for one session, with the projects as
+// they are now.
+func (a *App) displayedGroup(project string) string {
+	return groupOfProject(a.knownProjects(), project)
 }
 
 // visibleOrder returns the sessions in the sidebar's order, those of
@@ -1304,7 +1336,7 @@ func (a *App) newSession(projectID string) {
 			}
 			// The state with it may come after the answer.
 			a.addPending(s)
-			a.selectSession(s.ID)
+			a.selectRevealing(s.ID)
 		})
 	}()
 }
@@ -1353,7 +1385,7 @@ func (a *App) openProject() {
 			}
 			delete(a.prefs.Collapsed, p.ID)
 			a.addPending(s)
-			a.selectSession(s.ID)
+			a.selectRevealing(s.ID)
 		})
 	}()
 }
@@ -1393,7 +1425,7 @@ func (a *App) closeSession(id string, ask bool) {
 		}
 		a.selected = next
 		if next != "" {
-			a.selectSession(next)
+			a.selectRevealing(next)
 		}
 	}
 	for _, p := range s.Panes {
@@ -1489,7 +1521,7 @@ func (a *App) selectOffset(d int) {
 	} else {
 		i = (i + d + len(ids)) % len(ids)
 	}
-	a.selectSession(ids[i])
+	a.selectRevealing(ids[i])
 }
 
 // jumpToAttention goes to the next session that needs the user, after the
@@ -1508,12 +1540,7 @@ func (a *App) jumpTo(want func(*proto.Session) bool) bool {
 	for k := 1; k <= len(ids); k++ {
 		id := ids[(i+k+len(ids))%len(ids)]
 		if s := a.session(id); s != nil && id != a.selected && want(s) {
-			if _, ok := a.prefs.Collapsed[s.Project]; ok {
-				// The row shows; selectSession saves only a change of session.
-				delete(a.prefs.Collapsed, s.Project)
-				a.savePrefs()
-			}
-			a.selectSession(id)
+			a.selectRevealing(id)
 			return true
 		}
 	}
@@ -1529,8 +1556,10 @@ func (a *App) jumpToAttention() {
 }
 
 func (a *App) toggleSidebar() {
+	a.dismissNavUsage(false)
 	a.prefs.SidebarHidden = !a.prefs.SidebarHidden
 	a.savePrefs()
+	a.invalidateMain()
 }
 
 func (a *App) toggleProject(id string) {

@@ -51,7 +51,7 @@ func (a *App) paletteItems() []paletteItem {
 				detail += " · " + s.Process
 			}
 			items = append(items, paletteItem{session: s, title: s.DisplayName(a.set.SessionName), detail: detail + " · " + proto.ShortDir(s.WorkDir()),
-				run: func() { delete(a.prefs.Collapsed, s.Project); a.selectSession(id) }})
+				run: func() { a.selectRevealing(id) }})
 		}
 	}
 	var cmds []paletteItem
@@ -262,7 +262,7 @@ func (a *App) shortcuts(c *ui.Context) {
 		if c.Shortcut(ui.Cmd, k) {
 			ids := a.visibleOrder()
 			if i < len(ids) {
-				a.selectSession(ids[i])
+				a.selectRevealing(ids[i])
 			}
 		}
 	}

@@ -75,10 +75,12 @@ type pluginState struct {
 // pluginPaneState is one pane of a plugin: the view that draws its tree,
 // and what the app has told the plugin about it.
 type pluginPaneState struct {
-	plugin string
-	widget string
-	state  json.RawMessage
-	target string
+	id        string
+	transient bool
+	plugin    string
+	widget    string
+	state     json.RawMessage
+	target    string
 
 	view  *pluginView
 	tree  *protocol.Tree
@@ -303,7 +305,7 @@ func (a *App) pluginPaneState(p *proto.Pane) *pluginPaneState {
 	}
 	st := a.plugins.panes[p.ID]
 	if st == nil {
-		st = &pluginPaneState{view: newPluginView()}
+		st = &pluginPaneState{id: p.ID, view: newPluginView()}
 		a.plugins.panes[p.ID] = st
 	}
 	if p.Target != st.target {
@@ -338,6 +340,12 @@ func (a *App) pluginStateSaved(plugin, pane string, state json.RawMessage) {
 	}
 	st.state = state
 	if len(state) == 0 || string(state) == string(st.saved) {
+		return
+	}
+	if st.transient {
+		// A transient surface has no daemon pane to save into: its choices
+		// live as long as the surface, and the plugin asks again next time.
+		st.saved = state
 		return
 	}
 	target, err := protocol.EncodeTarget(protocol.Target{Plugin: plugin, Widget: st.widget, State: state})
@@ -394,25 +402,8 @@ func (a *App) pluginPane(c *ui.Context, pal *palette, s *proto.Session, p *proto
 		return
 	}
 
-	// The plugin hears how the app looks, once for every plugin.
-	theme := host.Theme{Dark: pal.dark, Accent: a.set.Accent}
-	if !a.plugins.themeSet || a.plugins.theme != theme {
-		a.plugins.theme, a.plugins.themeSet = theme, true
-		a.pluginHost().SetTheme(theme)
-	}
-
-	size := a.pluginPaneSize(p.ID)
-	h := a.pluginHost()
-	if !st.opened {
-		a.openOnHost(p.ID, st, size)
-	} else if st.size != size {
-		h.Resize(p.ID, size)
-	}
-	st.size = size
-	if !st.visible {
-		h.Visible(p.ID, true)
-		st.visible = true
-	}
+	a.syncPluginTheme(pal)
+	a.preparePluginSurface(st, a.pluginPaneSize(p.ID))
 
 	if st.tree == nil {
 		paneNothing(c, pal, projectIcon, locales.PluginStarting(plugin.Manifest.Name), locales.PluginStartingDetail())
@@ -432,6 +423,49 @@ func (a *App) pluginPane(c *ui.Context, pal *palette, s *proto.Session, p *proto
 		a.pluginHost().Event(p.ID, ev.Node, ev.Kind, ev.Value)
 	})
 	lent = st.view
+}
+
+// syncPluginTheme tells every plugin how the app looks, once for a change.
+func (a *App) syncPluginTheme(pal *palette) {
+	theme := host.Theme{Dark: pal.dark, Accent: a.set.Accent}
+	if a.plugins.themeSet && a.plugins.theme == theme {
+		return
+	}
+	a.plugins.theme, a.plugins.themeSet = theme, true
+	a.pluginHost().SetTheme(theme)
+}
+
+// preparePluginSurface opens a plugin surface on its process, sizes it, and
+// tells the plugin it is shown. A surface is a pane of a session, or a
+// transient widget such as the usage popover: the host owns both by id.
+func (a *App) preparePluginSurface(st *pluginPaneState, size protocol.Size) {
+	h := a.pluginHost()
+	if !st.opened {
+		a.openOnHost(st.id, st, size)
+	} else if st.size != size {
+		h.Resize(st.id, size)
+	}
+	st.size = size
+	if !st.visible {
+		h.Visible(st.id, true)
+		st.visible = true
+	}
+}
+
+// pluginSurfaceState is the state of a surface that is not a daemon pane,
+// made on its first draw. It keeps its own id, so a transient widget and a
+// real pane of the same plugin run side by side.
+func (a *App) pluginSurfaceState(id, plugin, widget string) *pluginPaneState {
+	if a.plugins.panes == nil {
+		a.plugins.panes = map[string]*pluginPaneState{}
+	}
+	st := a.plugins.panes[id]
+	if st == nil {
+		st = &pluginPaneState{id: id, transient: true, view: newPluginView()}
+		a.plugins.panes[id] = st
+	}
+	st.plugin, st.widget = plugin, widget
+	return st
 }
 
 // pluginPaneSize is the size the app gives a plugin pane: its card's, at
@@ -786,7 +820,7 @@ func (a *App) focusPluginPane(plugin string) {
 	if s == nil {
 		return
 	}
-	a.selectSession(s.ID)
+	a.selectRevealing(s.ID)
 	if s = a.session(s.ID); s != nil {
 		a.setFocus(s, p.ID)
 	}
