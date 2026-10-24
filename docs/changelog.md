@@ -43,7 +43,8 @@ builds only. What each feature is and where it stands is tracked in the
 ### Fixed
 
 - A sidebar on the right resizes toward the pointer: dragging its edge toward
-  the window edge makes it wider, as a left sidebar does.
+  the window center makes it wider; toward the right window edge makes it
+  narrower.
 - Selecting a session from a plugin notification now opens its folded project
   and reveals its tab, then focuses the plugin pane, instead of selecting a
   session that stays hidden. External selection also expands the synthetic

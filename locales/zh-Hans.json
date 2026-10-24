@@ -115,7 +115,7 @@
   "sidebarOtherProject": "其他",
   "sidebarHide": "隐藏边栏",
   "sidebarMore": "边栏操作",
-  "sidebarMoreTip": "未能显示的项目、搜索和状态操作",
+  "sidebarMoreTip": "因空间不足而隐藏的项目、搜索和状态操作",
   "sidebarShow": "显示边栏",
   "sidebarNoSessions": "没有会话",
   "sidebarCollapse": "折叠",

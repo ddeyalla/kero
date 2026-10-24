@@ -34,7 +34,7 @@ On Windows and Linux, <kbd>Ctrl</kbd> with a letter belongs to the shell (<kbd>C
 | Close                       | <kbd>⌘</kbd> <kbd>W</kbd>              | <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>W</kbd> | `pane.close`             |
 | Close Session               | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>W</kbd> | –                                             | `session.close`          |
 
-<kbd>⌘</kbd> <kbd>1</kbd>–<kbd>9</kbd> (<kbd>Ctrl</kbd> <kbd>1</kbd>–<kbd>9</kbd> on Windows and Linux) go to the sessions in the navigation order, in a sidebar or the tabs, and <kbd>Ctrl</kbd> <kbd>Tab</kbd> to the next one. Choosing a session whose tab is scrolled out of sight, or whose project is folded, brings it back into view.
+<kbd>⌘</kbd> <kbd>1</kbd>–<kbd>9</kbd> (<kbd>Ctrl</kbd> <kbd>1</kbd>–<kbd>9</kbd> on Windows and Linux) go to the sessions in the navigation order, in a sidebar or the tabs. Use the platform-specific **Next Session** shortcut above to move to the next one. Choosing a session whose tab is scrolled out of sight, or whose project is folded, brings it back into view.
 
 ## Pane
 

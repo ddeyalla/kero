@@ -525,6 +525,15 @@ func TestPluginShortcutsMoveIntoTheOverflow(t *testing.T) {
 	if _, ok := wide.Find("Fake"); !ok {
 		t.Fatalf("the plugin shortcut does not show when there is room: %q", wide.Texts())
 	}
+	if err := wide.Click(locales.NavOverflow()); err != nil {
+		t.Fatal(err)
+	}
+	wide.Frame()
+	for _, label := range wide.Menu() {
+		if label == locales.PagePlugins() {
+			t.Fatalf("the overflow duplicates a visible plugin shortcut: %q", wide.Menu())
+		}
+	}
 }
 
 func TestTabsWithNoSessions(t *testing.T) {

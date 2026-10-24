@@ -7,12 +7,13 @@ and credential configuration see the [local edition guide](local-fork.md).
 
 `navigation.go` owns the one saved placement. `prefs.NavPlacement` is
 `left`, `right`, `top` or `bottom`; a missing or unknown value reads as
-`left`. `setNavPlacement` saves the value, closes the usage popover and
-returns: it never changes the selected session, its panes, their terminals,
-the focused pane or a zoom. The four actions
-`nav.placement.left|right|top|bottom` are in `internal/actions`, so the View
-menu (with its radio check), the command palette, Settings › Keyboard and
-`kero do` all reach the same setter. Settings › General draws one segmented
+`left`. `setNavPlacement` saves the value and closes the usage popover only
+when the placement actually changes; an unchanged request returns first. It
+never changes the selected session, its panes, their terminals, the focused
+pane or a zoom. The four actions `nav.placement.left`, `nav.placement.right`,
+`nav.placement.top` and `nav.placement.bottom` are in `internal/actions`, so
+the View menu (with its radio check), the command palette, Settings ›
+Keyboard and `kero do` all reach the same setter. Settings › General draws one segmented
 control through `segmentedOnChange`, because a preference saves as it
 changes rather than with the settings page. `Cmd+B` keeps the
 `sidebar.toggle` action and the saved `sidebarHidden` value; it now hides
@@ -34,9 +35,10 @@ the surface in use, tabs included.
 
 The sidebar footer reserves room by width before it places controls.
 Usage, Settings, the connection/restart icon and the attention count keep
-their places; project open and search are shown when the sidebar is at least
-`sidebarFooterNarrow` (240 points) and otherwise move into a labelled
-Sidebar Actions menu. When the footer must overflow, it reserves the
+their places; project open and search are eligible when the sidebar is at
+least `sidebarFooterNarrow` (240 points), but the width budget still decides
+whether they show, and they move into a labelled Sidebar Actions menu when
+they do not. When the footer must overflow, it reserves the
 required controls first and then places attention before the optional
 project, search, working and done controls; widening across the 240-point
 threshold cannot hide the attention chip. Status chips are compact
@@ -97,7 +99,8 @@ The card sizes itself from the room its anchor leaves. In top and bottom tab
 placements it subtracts the anchor gap and the toolkit's four-point window
 margin before setting the panel height, so the footer keeps its full
 30-point control and ten-point bottom padding; the plugin list gets the rest
-and its own scroll. Left and right placements keep the full window height.
+and its own scroll. Left and right placements use the normal capped height,
+`min(560, winH - 24)`.
 `Open in Pane` calls the normal `openPluginPane`. Closing runs `host.Close`
 for `@nav/usage` alone: a visible real Usage pane keeps its subscription,
 and the usage plugin stops its loop only when its last visible pane is gone.

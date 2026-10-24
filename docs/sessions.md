@@ -71,8 +71,9 @@ a connected terminal service; pinning is saved in the app's preferences.
 Sessions and their projects live in one of four saved places: the left sidebar
 (the default), a right sidebar, tabs across the top, or tabs across the bottom.
 Horizontal tabs replace the sidebar. Choose a placement in **Settings ›
-General › Placement**, the **View** menu or the command palette, or run
-`kero do nav.placement.left|right|top|bottom`. None has a default shortcut;
+General › Placement**, the **View** menu or the command palette, or run `kero do nav.placement.left`, `kero do nav.placement.right`,
+`kero do nav.placement.top` or `kero do nav.placement.bottom`. None has a
+default shortcut;
 you can bind one in Settings › Keyboard. The placement survives a restart.
 
 In the tabs, projects run from the left in their saved order, with pinned

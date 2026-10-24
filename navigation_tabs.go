@@ -196,7 +196,13 @@ func (a *App) navUtilities(c *ui.Context, pal *palette, pins []pinRow, showPins 
 		a.openSettings("")
 	}
 	overflow := navIconButton(c, "nav-overflow", "ellipsis", nil, locales.NavOverflow(), locales.NavOverflowTip(), pal)
-	overflow.Menu(func(m *ui.Menu) { a.navOverflowMenu(m, pins) })
+	menuPins := pins
+	if showPins {
+		// Visible shortcuts stay in the row; the overflow represents the
+		// controls that had to move out of it.
+		menuPins = nil
+	}
+	overflow.Menu(func(m *ui.Menu) { a.navOverflowMenu(m, menuPins) })
 }
 
 // navProjectWidth is the room a project header takes: its name, its session
