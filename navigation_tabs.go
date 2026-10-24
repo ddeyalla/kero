@@ -90,7 +90,7 @@ func (a *App) navBarContent(c *ui.Context, pal *palette, bar ui.TitleBar, top bo
 	}
 	groupPads := float32(len(groups)) * 2 * navGroupPad
 
-	preferredW := a.navPreferredSessionWidths(c, groups)
+	preferredW := a.navPreferredSessionWidths(c, pal, groups)
 	var floorTotal float32
 	for _, preferred := range preferredW {
 		floorTotal += navSessionFloor(preferred)
@@ -132,14 +132,14 @@ func (a *App) navBarContent(c *ui.Context, pal *palette, bar ui.TitleBar, top bo
 
 // navPreferredSessionWidths measures the tabs once for both pin eligibility
 // and allocation, so those decisions share the same titles and compact floors.
-func (a *App) navPreferredSessionWidths(c *ui.Context, groups []group) map[string]float32 {
+func (a *App) navPreferredSessionWidths(c *ui.Context, pal *palette, groups []group) map[string]float32 {
 	widths := make(map[string]float32)
 	for _, g := range groups {
 		if a.prefs.Collapsed[g.project.ID] {
 			continue
 		}
 		for _, s := range g.sessions {
-			widths[s.ID] = a.navSessionWidth(c, s)
+			widths[s.ID] = a.navSessionWidth(c, pal, s)
 		}
 	}
 	return widths
@@ -181,17 +181,20 @@ func navFitSessionWidths(preferredW map[string]float32, room float32) map[string
 	return widths
 }
 
-// navSessionWidth is a tab's preferred width: its full title, status, pin and
-// the close button's reserved space, capped at the usual maximum.
-func (a *App) navSessionWidth(c *ui.Context, s *proto.Session) float32 {
+// navSessionWidth is a tab's preferred width: its full title, status, actual
+// chrome and the close button's reserved space, capped at the usual maximum.
+func (a *App) navSessionWidth(c *ui.Context, pal *palette, s *proto.Session) float32 {
 	title := s.DisplayName(a.set.SessionName)
 	weight := 400
 	if s.Unread {
 		weight = 650
 	}
 	titleW, _ := c.MeasureText(0, ui.Span{Text: title, Size: 13, Weight: weight})
-	fixed := float32(16 /* padding */ + 13 /* status */ + 16 /* close */ + 12 /* gaps */ + 2 /* dark border */)
-	if a.prefs.SessionPins[s.ID] {
+	fixed := float32(16 /* padding */ + 13 /* status */ + 16 /* close */ + 12 /* gaps */)
+	if pal.dark {
+		fixed += 2 // the border navSession draws only in the dark
+	}
+	if a.prefs.SessionPins[s.ID] && symbolImage("pin.fill", 10, pal.dark) != nil {
 		fixed += 10 + 6
 	}
 	return min(max(float32(math.Ceil(float64(titleW+fixed))), navTabMin), navTabMax)

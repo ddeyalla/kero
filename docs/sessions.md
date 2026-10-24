@@ -82,9 +82,11 @@ sessions have a distinct glass capsule: two points of padding and internal
 spacing, with six points between project capsules. Reduce Transparency gives
 the capsules an opaque control surface.
 
-A tab measures its status, optional pin, title and reserved close control
-instead of taking the same width as every other tab. Its preferred width is
-capped at 220 points. Compact titles whose preferred tab width is at most 120
+A tab measures its status, title and reserved close control instead of taking
+the same width as every other tab. It counts the two-point border only in dark
+appearance and reserves 16 points for a pin only when the cached SF Symbol is
+available, so a missing symbol leaves no blank pin space. Its preferred width
+is capped at 220 points. Compact titles whose preferred tab width is at most 120
 points stay whole; longer tabs shrink proportionally toward 80 points when
 room is short. Compact tabs do not shrink to make room. When these floors
 exceed the available width, the row scrolls. The button at the right lists

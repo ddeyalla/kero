@@ -60,11 +60,16 @@ control surface under Reduce Transparency; the capsule nesting does not
 replace the project's or session's own controls.
 
 Project header widths and the required utility cluster come out of the
-available width first. `navSessionWidth` measures each session's full title at
-its actual font weight, status, optional pin, reserved close control, padding,
-gaps and border. `navPreferredSessionWidths` measures the visible tabs once
-for both optional plugin-pin eligibility and allocation. Pin visibility
-reserves the sum of `navSessionFloor`, the same compact-title floors the
+available width first. `navSessionWidth` receives the current palette and
+measures each session's full title at its actual font weight, status, reserved
+close control, padding and gaps. It adds the two-point border only when
+`navSession` draws it in dark appearance. For a pinned session it calls the
+same cached `symbolImage("pin.fill", 10, pal.dark)` path as `symbolMark`,
+reserving the pin's ten points and six-point gap only when that symbol exists;
+a missing symbol leaves no blank allocation. `navPreferredSessionWidths`
+measures the visible tabs once for both optional plugin-pin eligibility and
+allocation. Pin visibility reserves the sum of `navSessionFloor`, the same
+compact-title floors the
 allocator protects, so an optional pin moves into the labeled plugin overflow
 rather than causing otherwise avoidable scrolling. Visible pins do not also
 appear in that menu.
