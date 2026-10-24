@@ -499,3 +499,165 @@ func TestPlayFromSendsTheOffsetAndItsDoubleClickIsDropped(t *testing.T) {
 		}
 	}
 }
+
+// A command whose context is already over is not admitted: the page never
+// sees it.
+func TestCancelledCommandsAreNotAdmitted(t *testing.T) {
+	h := start(t)
+	h.post(t, `{"type":"ready"}`)
+	h.snap(t)
+	cmds := h.commands(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for name, fn := range map[string]func() error{
+		"play":      func() error { return h.e.Play(ctx, "spotify:track:t1") },
+		"play-from": func() error { return h.e.PlayFrom(ctx, "spotify:album:a1", "spotify:track:t1") },
+		"toggle":    func() error { return h.e.PlayPause(ctx) },
+	} {
+		if err := fn(); !errors.Is(err, context.Canceled) {
+			t.Errorf("%s = %v, want context.Canceled", name, err)
+		}
+	}
+	select {
+	case got := <-cmds:
+		t.Fatalf("the page received %q from cancelled commands", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// admissionProbe tells when its context was first consulted, so a test can
+// cancel while a command waits for the engine's state lock.
+type admissionProbe struct {
+	context.Context
+	once    sync.Once
+	checked chan struct{}
+}
+
+func (c *admissionProbe) Err() error {
+	err := c.Context.Err()
+	c.once.Do(func() { close(c.checked) })
+	return err
+}
+
+// A command cancelled while it waits for the engine's state lock must not
+// be queued when the lock is released.
+func TestCancelledWhileWaitingForAdmissionQueuesNothing(t *testing.T) {
+	inner, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx := &admissionProbe{Context: inner, checked: make(chan struct{})}
+	e := New(Config{Now: time.Now})
+	e.mu.Lock()
+	e.ready = true
+	done := make(chan error, 1)
+	go func() { done <- e.Play(ctx, "spotify:track:review") }()
+	<-ctx.checked
+	cancel()
+	e.mu.Unlock()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Errorf("play admitted after cancellation while waiting for the lock: %v", err)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.queue) != 0 {
+		t.Errorf("cancelled call queued %d commands", len(e.queue))
+	}
+}
+
+// A command admitted before the caller cancels still reaches the page: the
+// plugin's action defers cancel as soon as Play returns. The stream opens
+// only after the cancel, so delivery cannot happen first.
+func TestAcceptedCommandSurvivesCallerCancellation(t *testing.T) {
+	h := start(t)
+	h.post(t, `{"type":"ready"}`)
+	h.snap(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := h.e.Play(ctx, "spotify:track:kept"); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	cancel()
+	cmds := h.commands(t)
+	wantCommand(t, cmds, `{"cmd":"play","uri":"spotify:track:kept"}`)
+}
+
+// The engine carries a play's request identity into the page and back on
+// its error, so the plugin can tell which accepted play failed.
+func TestAPlayRequestCarriesItsIdentityIntoItsError(t *testing.T) {
+	h := start(t)
+	h.post(t, `{"type":"ready"}`)
+	h.snap(t)
+	cmds := h.commands(t)
+	if err := h.e.PlayRequest(context.Background(), "spotify:album:a1", "42"); err != nil {
+		t.Fatal(err)
+	}
+	wantCommand(t, cmds, `{"cmd":"play","request":"42","uri":"spotify:album:a1"}`)
+
+	h.post(t, `{"type":"error","kind":"command","message":"old A failed","command":"play","request":"42"}`)
+	select {
+	case err := <-h.errs:
+		var pe *PlaybackError
+		if !errors.As(err, &pe) || pe.Command != "play" || pe.Request != "42" || pe.Message != "old A failed" {
+			t.Fatalf("error = %#v, want the play request identity", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no error was reported")
+	}
+}
+
+func TestAPlayFromRequestCarriesItsIdentity(t *testing.T) {
+	h := start(t)
+	h.post(t, `{"type":"ready"}`)
+	h.snap(t)
+	cmds := h.commands(t)
+	if err := h.e.PlayFromRequest(context.Background(), "spotify:album:a1", "spotify:track:t1", "7"); err != nil {
+		t.Fatal(err)
+	}
+	wantCommand(t, cmds, `{"cmd":"play","offset":"spotify:track:t1","request":"7","uri":"spotify:album:a1"}`)
+}
+
+// An identical play inside the double-click window is not sent again, and
+// the engine tells the caller which accepted play it joined.
+func TestACoalescedPlayKeepsTheAcceptedRequest(t *testing.T) {
+	h := start(t)
+	h.post(t, `{"type":"ready"}`)
+	h.snap(t)
+	cmds := h.commands(t)
+	if err := h.e.PlayRequest(context.Background(), "spotify:album:a1", "1"); err != nil {
+		t.Fatal(err)
+	}
+	wantCommand(t, cmds, `{"cmd":"play","request":"1","uri":"spotify:album:a1"}`)
+
+	err := h.e.PlayRequest(context.Background(), "spotify:album:a1", "2")
+	var coalesced *CoalescedError
+	if !errors.As(err, &coalesced) || coalesced.Request != "1" {
+		t.Fatalf("second play = %v, want the accepted request 1", err)
+	}
+	select {
+	case got := <-cmds:
+		t.Fatalf("coalesced play sent another command: %s", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// A play that failed for good is not a double click: the same row can be
+// tried again at once, and the retry reaches the page.
+func TestAPlayFailureClearsTheDoubleClickWindow(t *testing.T) {
+	h := start(t)
+	h.post(t, `{"type":"ready"}`)
+	h.snap(t)
+	cmds := h.commands(t)
+	if err := h.e.PlayRequest(context.Background(), "spotify:track:t1", "1"); err != nil {
+		t.Fatal(err)
+	}
+	wantCommand(t, cmds, `{"cmd":"play","request":"1","uri":"spotify:track:t1"}`)
+
+	h.post(t, `{"type":"error","kind":"command","command":"play","request":"1","message":"current play failed"}`)
+	select {
+	case <-h.errs:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the failure was not reported")
+	}
+	if err := h.e.PlayRequest(context.Background(), "spotify:track:t1", "2"); err != nil {
+		t.Fatalf("retry after a failure: %v", err)
+	}
+	wantCommand(t, cmds, `{"cmd":"play","request":"2","uri":"spotify:track:t1"}`)
+}

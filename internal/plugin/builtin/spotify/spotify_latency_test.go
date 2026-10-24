@@ -13,6 +13,7 @@ import (
 	"kero/internal/plugin/builtin/spotify/engine"
 	"kero/internal/plugin/builtin/spotify/transport"
 	"kero/internal/plugin/protocol"
+	"kero/locales"
 )
 
 // gatedEngine is an engine whose Play waits for the test, to see a press
@@ -27,6 +28,10 @@ func (g *gatedEngine) Play(ctx context.Context, uri string) error {
 	_ = g.fakeEngine.record("play " + uri)
 	<-g.gate
 	return nil
+}
+
+func (g *gatedEngine) PlayRequest(ctx context.Context, uri, _ string) error {
+	return g.Play(ctx, uri)
 }
 
 // timers holds the guess timers that the plugin armed, for a test to fire.
@@ -65,6 +70,24 @@ func useTimers(t *testing.T) *timers {
 	afterFunc = ts.after
 	t.Cleanup(func() { afterFunc = old })
 	return ts
+}
+
+// sequenceEngine holds each play until the test answers it, so two
+// presses can be in flight and fail out of order.
+type sequenceEngine struct {
+	*fakeEngine
+	started chan string
+	gates   map[string]chan error
+}
+
+func (e *sequenceEngine) Play(_ context.Context, uri string) error {
+	_ = e.fakeEngine.record("play " + uri)
+	e.started <- uri
+	return <-e.gates[uri]
+}
+
+func (e *sequenceEngine) PlayRequest(ctx context.Context, uri, _ string) error {
+	return e.Play(ctx, uri)
 }
 
 var pressRow = protocol.EventParams{Pane: "p1", Node: "results", Kind: protocol.KindSelect, Value: "album-a1"}
@@ -208,11 +231,71 @@ func TestAFailedPlayCallBringsThePaneBack(t *testing.T) {
 	}
 }
 
+// A failure from an older press must not take back the newer row the user
+// pressed meanwhile.
+func TestAFailedOlderPlayDoesNotRevertANewerGuess(t *testing.T) {
+	useTimers(t)
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	f := &fakeEngine{}
+	e := &sequenceEngine{
+		fakeEngine: f,
+		started:    make(chan string, 4),
+		gates: map[string]chan error{
+			"spotify:album:a1": make(chan error, 1),
+			"spotify:album:a2": make(chan error, 1),
+		},
+	}
+	p.engine, p.player = e, e
+	s.snap.URI = "spotify:track:old"
+	s.entries = []entry{
+		{id: "album-a1", title: "Album One", uri: "spotify:album:a1"},
+		{id: "album-a2", title: "Album Two", uri: "spotify:album:a2"},
+	}
+
+	p.event(nil, pressRow)
+	if got := <-e.started; got != "spotify:album:a1" {
+		t.Fatalf("first play = %q", got)
+	}
+	p.event(nil, protocol.EventParams{Pane: "p1", Node: "results", Kind: protocol.KindSelect, Value: "album-a2"})
+	if got := <-e.started; got != "spotify:album:a2" {
+		t.Fatalf("second play = %q", got)
+	}
+	p.mu.Lock()
+	if s.snap.Track != "Album Two" || s.guess == nil {
+		p.mu.Unlock()
+		t.Fatalf("snap = %+v, guess = %+v, want the newer row", s.snap, s.guess)
+	}
+	p.mu.Unlock()
+
+	e.gates["spotify:album:a1"] <- errors.New("spotify engine: command: Spotify answered 403")
+	// The stale completion is silent: no old notice, no old mode.
+	time.Sleep(100 * time.Millisecond)
+	p.mu.Lock()
+	if s.snap.Track != "Album Two" || s.guess == nil || s.playback != modePlaying || s.notice != "" {
+		p.mu.Unlock()
+		t.Fatalf("snap = %+v, guess = %+v, playback = %v, notice = %q after the older failure, want the newer row kept", s.snap, s.guess, s.playback, s.notice)
+	}
+	if got := texts(draw(t, p, s)); !strings.Contains(got, "Album Two") {
+		p.mu.Unlock()
+		t.Fatalf("tree = %q, want the newer player", got)
+	}
+	p.mu.Unlock()
+
+	e.gates["spotify:album:a2"] <- nil
+	eventually(t, "the newer play to end", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.playing == ""
+	})
+}
+
 // failingEngine is an engine whose Play refuses at once, as one that is
 // closed does.
 type failingEngine struct{ *fakeEngine }
 
 func (failingEngine) Play(context.Context, string) error { return engine.ErrClosed }
+
+func (f failingEngine) PlayRequest(ctx context.Context, uri, _ string) error { return f.Play(ctx, uri) }
 
 func TestAStateOfANewTrackReplacesTheGuess(t *testing.T) {
 	p, s, f, ts := pushedPlugin(t)
@@ -437,5 +520,259 @@ func TestARepeatedSearchShowsItsResultsAtOnce(t *testing.T) {
 	}
 	if got := searches.Load(); got < 1 {
 		t.Errorf("searches = %d", got)
+	}
+}
+
+// A failure from an older press that ends after the newer play succeeded
+// leaves the newer player and its clean notice alone.
+func TestAStaleFailureAfterTheNewerPlaySucceededChangesNothing(t *testing.T) {
+	useTimers(t)
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	e := &sequenceEngine{
+		fakeEngine: &fakeEngine{},
+		started:    make(chan string, 4),
+		gates: map[string]chan error{
+			"spotify:album:a1": make(chan error, 1),
+			"spotify:album:a2": make(chan error, 1),
+		},
+	}
+	p.engine, p.player = e, e
+	s.snap.URI = "spotify:track:old"
+	s.entries = []entry{
+		{id: "album-a1", title: "Album One", uri: "spotify:album:a1"},
+		{id: "album-a2", title: "Album Two", uri: "spotify:album:a2"},
+	}
+	p.event(nil, pressRow)
+	<-e.started
+	p.event(nil, protocol.EventParams{Pane: "p1", Node: "results", Kind: protocol.KindSelect, Value: "album-a2"})
+	<-e.started
+	e.gates["spotify:album:a2"] <- nil
+	eventually(t, "the newer play to end", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.playing == ""
+	})
+	p.mu.Lock()
+	beforeTrack, beforeNotice, beforePlayback := s.snap.Track, s.notice, s.playback
+	p.mu.Unlock()
+
+	e.gates["spotify:album:a1"] <- errors.New("spotify engine: command: Spotify answered 403")
+	time.Sleep(100 * time.Millisecond)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s.snap.Track != beforeTrack || s.notice != beforeNotice || s.playback != beforePlayback {
+		t.Errorf("stale failure changed the player: track %q->%q notice %q->%q playback %v->%v",
+			beforeTrack, s.snap.Track, beforeNotice, s.notice, beforePlayback, s.playback)
+	}
+}
+
+type deadlineEngine struct{ *fakeEngine }
+
+func (deadlineEngine) Play(context.Context, string) error { return context.DeadlineExceeded }
+
+func (e deadlineEngine) PlayRequest(ctx context.Context, uri, _ string) error {
+	return e.Play(ctx, uri)
+}
+
+// A play that runs out its command deadline names that cause, and still
+// brings the row back.
+func TestAPlayDeadlineReportsAnActionableCause(t *testing.T) {
+	useTimers(t)
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	f := &deadlineEngine{fakeEngine: &fakeEngine{}}
+	p.engine, p.player = f, f
+	s.entries = []entry{{id: "album-a1", title: "Album One", uri: "spotify:album:a1"}}
+
+	p.event(nil, pressRow)
+	eventually(t, "the timeout notice", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return s.notice == locales.SpotifyPlayTimeout()
+	})
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s.snap.Track != "Test Song" || s.guess != nil || s.playback == modePlaying {
+		t.Errorf("snap = %+v, guess = %+v, playback = %v after a deadline", s.snap, s.guess, s.playback)
+	}
+}
+
+// indexedPlayEngine numbers Play calls, so a test can complete an older
+// request after a newer one, even when both play the same URI.
+type indexedPlayEngine struct {
+	*fakeEngine
+	mu      sync.Mutex
+	next    int
+	started chan int
+	gates   []chan error
+}
+
+func newIndexedPlayEngine(t *testing.T, n int) *indexedPlayEngine {
+	t.Helper()
+	e := &indexedPlayEngine{fakeEngine: &fakeEngine{}, started: make(chan int, n), gates: make([]chan error, n)}
+	for i := range e.gates {
+		e.gates[i] = make(chan error, 1)
+	}
+	t.Cleanup(func() {
+		for _, gate := range e.gates {
+			close(gate)
+		}
+	})
+	return e
+}
+
+func (e *indexedPlayEngine) PlayRequest(ctx context.Context, uri, _ string) error {
+	return e.Play(ctx, uri)
+}
+
+func (e *indexedPlayEngine) Play(ctx context.Context, uri string) error {
+	_ = e.fakeEngine.record("play " + uri)
+	e.mu.Lock()
+	i := e.next
+	e.next++
+	e.mu.Unlock()
+	e.started <- i
+	select {
+	case err := <-e.gates[i]:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func indexedRows() []entry {
+	return []entry{
+		{id: "album-a1", title: "Album One", uri: "spotify:album:a1"},
+		{id: "album-a2", title: "Album Two", uri: "spotify:album:a2"},
+	}
+}
+
+// A, B, then A again: the first A failure must not take the newest A's
+// marker or show its error, even though both requests play the same URI.
+func TestARepeatedPlayRequestOwnsItsOwnCompletion(t *testing.T) {
+	useTimers(t)
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	e := newIndexedPlayEngine(t, 3)
+	p.engine, p.player = e, e
+	s.snap.URI = "spotify:track:old"
+	rows := indexedRows()
+	a, b := rows[0], rows[1]
+	for i, row := range []entry{a, b, a} {
+		p.playEntry("p1", row)
+		if got := <-e.started; got != i {
+			t.Fatalf("play %d started as request %d", i, got)
+		}
+	}
+
+	e.gates[0] <- errors.New("the older first A failed")
+	time.Sleep(100 * time.Millisecond)
+	p.mu.Lock()
+	if s.playback != modePlaying || s.notice != "" || p.playing != a.uri || s.guess == nil || s.guess.seq != 3 {
+		p.mu.Unlock()
+		t.Fatalf("older first A changed the newest A: mode=%v notice=%q playing=%q guess=%+v", s.playback, s.notice, p.playing, s.guess)
+	}
+	if got := texts(draw(t, p, s)); !strings.Contains(got, "Album One") {
+		p.mu.Unlock()
+		t.Fatalf("tree = %q, want the newest A", got)
+	}
+	p.mu.Unlock()
+}
+
+// The same A, B, A, but the newest A succeeds first: the older A failure
+// that comes later changes nothing.
+func TestARepeatedPlayAfterNewerSuccessIgnoresOlderFailure(t *testing.T) {
+	useTimers(t)
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	e := newIndexedPlayEngine(t, 3)
+	p.engine, p.player = e, e
+	s.snap.URI = "spotify:track:old"
+	rows := indexedRows()
+	a, b := rows[0], rows[1]
+	for _, row := range []entry{a, b, a} {
+		p.playEntry("p1", row)
+		<-e.started
+	}
+
+	e.gates[2] <- nil
+	eventually(t, "the newest A to end", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.playing == ""
+	})
+	p.mu.Lock()
+	beforeTrack, beforeNotice, beforePlayback := s.snap.Track, s.notice, s.playback
+	p.mu.Unlock()
+
+	e.gates[0] <- errors.New("the older first A failed")
+	time.Sleep(100 * time.Millisecond)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s.snap.Track != beforeTrack || s.notice != beforeNotice || s.playback != beforePlayback || p.playing != "" {
+		t.Errorf("older first A after the newest success changed state: track %q->%q notice %q->%q mode %v->%v playing=%q",
+			beforeTrack, s.snap.Track, beforeNotice, s.notice, beforePlayback, s.playback, p.playing)
+	}
+}
+
+// A pane that cannot show a guess still owns its play through its request
+// number: A, then B, and A's failure leaves B playing.
+func TestAPlayWithoutAGuessStillOwnsItsCompletion(t *testing.T) {
+	useTimers(t)
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	e := newIndexedPlayEngine(t, 2)
+	p.engine, p.player = e, e
+	s.playback = modeUnavailable
+	rows := indexedRows()
+	a, b := rows[0], rows[1]
+	p.playEntry("p1", a)
+	<-e.started
+	p.playEntry("p1", b)
+	<-e.started
+
+	e.gates[0] <- errors.New("A failed")
+	time.Sleep(100 * time.Millisecond)
+	p.mu.Lock()
+	if p.playing != b.uri || s.notice != "" || s.playback != modeUnavailable || s.guess != nil {
+		p.mu.Unlock()
+		t.Fatalf("A without a guess changed B: playing=%q notice=%q mode=%v guess=%+v", p.playing, s.notice, s.playback, s.guess)
+	}
+	p.mu.Unlock()
+
+	e.gates[1] <- errors.New("B failed")
+	eventually(t, "B's own failure", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.playing == "" && s.notice != ""
+	})
+}
+
+// An older request that succeeds must not clear the newer request's error.
+func TestAStaleSuccessDoesNotClearANewerError(t *testing.T) {
+	useTimers(t)
+	p, s, _ := testPlugin(protocol.Size{Width: 400, Height: 320}, modePlaying, libReady)
+	e := newIndexedPlayEngine(t, 2)
+	p.engine, p.player = e, e
+	s.snap.URI = "spotify:track:old"
+	rows := indexedRows()
+	a, b := rows[0], rows[1]
+	p.playEntry("p1", a)
+	<-e.started
+	p.playEntry("p1", b)
+	<-e.started
+
+	e.gates[1] <- errors.New("the newer B failed")
+	eventually(t, "the newer error", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return s.notice != ""
+	})
+	p.mu.Lock()
+	beforeNotice, beforePlayback := s.notice, s.playback
+	p.mu.Unlock()
+
+	e.gates[0] <- nil
+	time.Sleep(100 * time.Millisecond)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s.notice != beforeNotice || s.playback != beforePlayback {
+		t.Errorf("stale success cleared the newer error: notice %q->%q mode %v->%v", beforeNotice, s.notice, beforePlayback, s.playback)
 	}
 }

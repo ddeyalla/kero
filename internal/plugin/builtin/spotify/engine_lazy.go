@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"kero/internal/plugin/builtin/spotify/engine"
@@ -42,6 +43,45 @@ type idler interface {
 	Release()
 }
 
+// source is the identity of one inner engine. The lazy wrapper retires it
+// before the inner engine is replaced, so an error callback that was
+// dispatched before the replacement can still tell the plugin, at the
+// point where it changes state, that its source is gone. The plugin's
+// decimal play request is an owner of a command, not an engine identity.
+type source struct {
+	retired atomic.Bool
+}
+
+func (s *source) retire() {
+	if s != nil {
+		s.retired.Store(true)
+	}
+}
+
+func (s *source) live() bool {
+	return s != nil && !s.retired.Load()
+}
+
+// sourceError carries the inner engine that reported err. Its Unwrap keeps
+// every errors.Is and errors.As check of the original error.
+type sourceError struct {
+	source *source
+	err    error
+}
+
+func (e *sourceError) Error() string { return e.err.Error() }
+func (e *sourceError) Unwrap() error { return e.err }
+
+// errorSource gives the inner engine that reported err, or nil when the
+// caller reported it directly.
+func errorSource(err error) *source {
+	var se *sourceError
+	if errors.As(err, &se) {
+		return se.source
+	}
+	return nil
+}
+
 // lazyEngine is the engine that opens its web view only when a play wants
 // it, and closes it again after engineIdleTimeout with nothing playing, or
 // when the last pane closes while nothing plays. Until then it is a player
@@ -63,11 +103,15 @@ type lazyEngine struct {
 	// sets.
 	wakeTimeout time.Duration
 
-	// wakeMu lets one play open the web view while the others wait.
-	wakeMu sync.Mutex
+	// wakeGate lets one play open the web view while the others wait.
+	// A token in it is held; a waiting play takes it through its context,
+	// so a play whose caller is gone does not keep waiting.
+	wakeGate chan struct{}
 
 	mu    sync.Mutex
 	inner playerEngine
+	// source is the identity of inner, retired before inner is replaced.
+	source *source
 	// gen numbers the engines, so that a hook or a timer of an engine that
 	// is gone does not act on the next one.
 	gen     int
@@ -86,7 +130,7 @@ func newLazyEngine(
 	build func(emit func(transport.Snapshot), onError func(error)) playerEngine,
 	emit func(transport.Snapshot), onError func(error), idled func(),
 ) *lazyEngine {
-	return &lazyEngine{build: build, emit: emit, onError: onError, idled: idled, wakeTimeout: engineWakeTimeout}
+	return &lazyEngine{build: build, emit: emit, onError: onError, idled: idled, wakeTimeout: engineWakeTimeout, wakeGate: make(chan struct{}, 1)}
 }
 
 // Start does nothing: the web view opens at the first play.
@@ -98,6 +142,8 @@ func (w *lazyEngine) Close() error {
 	w.closed = true
 	inner := w.inner
 	w.inner = nil
+	w.source.retire()
+	w.source = nil
 	w.gen++
 	w.stopIdleLocked()
 	w.mu.Unlock()
@@ -129,10 +175,26 @@ func (w *lazyEngine) Release() {
 // wake opens the web view when it is closed, and waits for it to be ready.
 // A web view that does not get ready in time is returned all the same: the
 // command then fails with the engine's own answer.
-func (w *lazyEngine) wake() (playerEngine, error) {
-	w.wakeMu.Lock()
-	defer w.wakeMu.Unlock()
+func (w *lazyEngine) wake(ctx context.Context) (playerEngine, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	select {
+	case w.wakeGate <- struct{}{}:
+		defer func() { <-w.wakeGate }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	// Taking the gate and its owner's cancellation can happen together;
+	// do not build or start a web view for a call that is already gone.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	w.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		w.mu.Unlock()
+		return nil, err
+	}
 	if w.closed {
 		w.mu.Unlock()
 		return nil, engine.ErrClosed
@@ -141,14 +203,15 @@ func (w *lazyEngine) wake() (playerEngine, error) {
 	if inner == nil {
 		w.gen++
 		gen := w.gen
+		src := &source{}
 		inner = w.build(
 			func(snap transport.Snapshot) { w.pushed(gen, snap) },
 			func(err error) {
 				w.mu.Lock()
-				current := w.gen == gen
+				current := w.gen == gen && w.source == src
 				w.mu.Unlock()
 				if current {
-					w.onError(err)
+					w.onError(&sourceError{source: src, err: err})
 				}
 			},
 		)
@@ -157,6 +220,7 @@ func (w *lazyEngine) wake() (playerEngine, error) {
 			return nil, errNoEngine
 		}
 		w.inner = inner
+		w.source = src
 	}
 	if !w.playing {
 		// The web view is wanted now: a play that does not land still
@@ -170,6 +234,8 @@ func (w *lazyEngine) wake() (playerEngine, error) {
 	if err := inner.Start(); err != nil {
 		w.mu.Lock()
 		if w.gen == gen && w.inner == inner {
+			w.source.retire()
+			w.source = nil
 			w.inner = nil
 			w.gen++
 			w.stopIdleLocked()
@@ -178,15 +244,38 @@ func (w *lazyEngine) wake() (playerEngine, error) {
 		return nil, err
 	}
 	deadline := time.Now().Add(w.wakeTimeout)
+	poll := time.NewTimer(engineWakePoll)
+	defer poll.Stop()
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		_, err := inner.Read(context.Background())
-		if err == nil || time.Now().After(deadline) {
+		if err == nil {
 			return inner, nil
 		}
 		if !errors.Is(err, engine.ErrStarting) {
 			return nil, err
 		}
-		time.Sleep(engineWakePoll)
+		if time.Now().After(deadline) {
+			return inner, nil
+		}
+		wait := engineWakePoll
+		if left := time.Until(deadline); left < wait {
+			wait = left
+		}
+		if !poll.Stop() {
+			select {
+			case <-poll.C:
+			default:
+			}
+		}
+		poll.Reset(wait)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-poll.C:
+		}
 	}
 }
 
@@ -242,6 +331,8 @@ func (w *lazyEngine) teardown(gen int) {
 	}
 	inner := w.inner
 	w.inner = nil
+	w.source.retire()
+	w.source = nil
 	w.gen++
 	w.stopIdleLocked()
 	panes := !w.released
@@ -261,8 +352,11 @@ func (w *lazyEngine) current() playerEngine {
 
 // PlayPause flips between playing and paused, and opens the web view for it.
 func (w *lazyEngine) PlayPause(ctx context.Context) error {
-	inner, err := w.wake()
+	inner, err := w.wake(ctx)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return inner.PlayPause(ctx)
@@ -270,9 +364,21 @@ func (w *lazyEngine) PlayPause(ctx context.Context) error {
 
 // Play starts a track, and opens the web view for it.
 func (w *lazyEngine) Play(ctx context.Context, uri string) error {
-	inner, err := w.wake()
+	return w.PlayRequest(ctx, uri, "")
+}
+
+// PlayRequest is Play with the plugin's identity for the accepted play, so
+// that its later page error can say which play failed.
+func (w *lazyEngine) PlayRequest(ctx context.Context, uri, request string) error {
+	inner, err := w.wake(ctx)
 	if err != nil {
 		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if rp, ok := inner.(requestPlayer); ok {
+		return rp.PlayRequest(ctx, uri, request)
 	}
 	return inner.Play(ctx, uri)
 }
@@ -280,9 +386,21 @@ func (w *lazyEngine) Play(ctx context.Context, uri string) error {
 // PlayFrom starts a track inside its album or playlist, and opens the web
 // view for it.
 func (w *lazyEngine) PlayFrom(ctx context.Context, contextURI, trackURI string) error {
-	inner, err := w.wake()
+	return w.PlayFromRequest(ctx, contextURI, trackURI, "")
+}
+
+// PlayFromRequest is PlayFrom with the plugin's identity for the accepted
+// play, so that its later page error can say which play failed.
+func (w *lazyEngine) PlayFromRequest(ctx context.Context, contextURI, trackURI, request string) error {
+	inner, err := w.wake(ctx)
 	if err != nil {
 		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if rp, ok := inner.(requestContextPlayer); ok {
+		return rp.PlayFromRequest(ctx, contextURI, trackURI, request)
 	}
 	if cp, ok := inner.(contextPlayer); ok {
 		return cp.PlayFrom(ctx, contextURI, trackURI)

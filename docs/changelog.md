@@ -20,6 +20,26 @@ builds only. What each feature is and where it stands is tracked in the
   and field edges, dividers and control hairlines, including the opaque
   Reduce Transparency fallback. The normal appearance, the selected or
   ambient accent and the shared focus ring do not change.
+- A Spotify play waiting for a cold or reconnecting player now stops at its
+  five-second command deadline, and the player never receives that play after
+  the caller has gone. A play that runs out the deadline says the player took
+  too long to start. A late completion from an older press changes nothing,
+  even when the same row was pressed again since: it takes back no row,
+  clears no newer error and does not replace the newer player with an error.
+  A late page error also names the play request it came from, so an older
+  SDK command failure cannot take back a newer selection. A canceled play
+  no longer opens a web view after it takes the wake turn. A click that a
+  newer press has superseded is canceled before the engine takes it, while a
+  command the engine already accepted stays and runs. Two clicks on the same
+  row inside the double-click window are one accepted play, and that play's
+  request owns its page error, even when the failure arrives before the
+  duplicate click learns which play it joined; after a current failure,
+  pressing the same row again is sent instead of dropped as a double click.
+  A failure kept for a waiting duplicate click now lives only for that click:
+  finishing or replacing it drops the older candidates, so a later accepted
+  failure still reports and an older completion cannot clear a newer pending
+  one. An error from a player that was replaced before its callback reached
+  the pane no longer changes the new player, its notice or its mode.
 
 ## [2.0.7-local.5] - 2026-10-24
 

@@ -12,6 +12,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"kero/internal/plugin/protocol"
 	"kero/internal/plugin/registry"
 	"kero/internal/plugin/sdk"
+	"kero/locales"
 )
 
 const (
@@ -236,8 +239,31 @@ type plugin struct {
 	monitorOnce sync.Once
 	// playing is the URI of the album or playlist that a press asked to
 	// play, from the press until the player answers it, so that a second
-	// press on the same row does not play it twice.
+	// press on the same row does not play it twice. It tracks duplicate
+	// clicks only; playReq owns a completion.
 	playing string
+	// playSeq numbers accepted play requests, and playReq is the request
+	// that owns the player now. The numbers are separate from the guesses:
+	// a request still owns its completion when it made no optimistic guess.
+	playSeq uint64
+	playReq uint64
+	// playGuessSeq is the guess of the request in playReq, and is reverted
+	// only when that request fails.
+	playGuessSeq int
+	// playCancel cancels the play that is still on its way to the engine,
+	// and playCancelReq is the request it belongs to. A newer press cancels
+	// it, so an older click that the engine has not taken cannot be
+	// admitted after the newer one. A command the engine already queued is
+	// not affected: its context is read before admission only.
+	playCancel    context.CancelFunc
+	playCancelReq uint64
+	// playPending is the click whose engine answer has not bound yet, with
+	// the accepted-request failures that arrived while it waited. The
+	// pending click owns those errors: a newer press replaces them, and
+	// the click's finish or binding clears them. Coalescing can move
+	// playReq to an older accepted request, so playReq is not the identity
+	// of this lifetime.
+	playPending *pendingPlay
 	// guessSeq numbers the guesses, so that the timer of an older guess
 	// does not undo a newer one.
 	guessSeq int
@@ -781,15 +807,75 @@ func (p *plugin) playbackErrorFor(player transport.Player, gen int, err error) {
 		p.mu.Unlock()
 		return
 	}
+	// The callback can have been dispatched before its inner engine was
+	// replaced and applied after the replacement. The play request says
+	// which command owns a page error; the source says which engine does.
+	// Both are checked here, before the error changes any pane state.
+	if src := errorSource(err); src != nil && !src.live() {
+		p.mu.Unlock()
+		log.Printf("spotify: ignored a failure from an engine that is gone")
+		return
+	}
+	var pageErr *engine.PlaybackError
+	page := errors.As(err, &pageErr)
+	// A play error that names its request belongs to that accepted play.
+	// Only the request that still owns the player may report it and take
+	// back its guess.
+	if page && pageErr.Command == "play" && pageErr.Request != "" {
+		req, parseErr := strconv.ParseUint(pageErr.Request, 10, 64)
+		if parseErr != nil {
+			p.mu.Unlock()
+			log.Printf("spotify: ignored a play failure with no request identity")
+			return
+		}
+		if req != p.playReq {
+			// A duplicate click can be waiting for the engine to say which
+			// accepted request it joined. If that command fails before the
+			// binding, keep the error for the binding instead of losing it.
+			// The error lives only as long as this pending click.
+			if pending := p.playPending; pending != nil && pending.req == p.playReq {
+				if pending.errors == nil {
+					pending.errors = make(map[uint64]deferredPlayError)
+				}
+				pending.errors[req] = deferredPlayError{err: err, source: errorSource(err)}
+			}
+			p.mu.Unlock()
+			log.Printf("spotify: ignored a play failure from an older request")
+			return
+		}
+		p.applyPlayErrorLocked(err)
+		panes := p.paneIDsLocked()
+		p.mu.Unlock()
+		for _, pane := range panes {
+			p.render(pane)
+		}
+		return
+	}
 	// The engine's page reports a command or a track that failed, not a
 	// player that is gone: the player stays, with a notice.
 	starting := p.engine != nil && errors.Is(err, engine.ErrStarting)
 	notice := p.engine != nil && !errors.Is(err, engine.ErrStarting)
+	command := ""
+	if page {
+		command = pageErr.Command
+	}
 	// A command that failed will not show its guess, whenever the engine's
-	// page tells: the press that made the guess is long answered. An engine
+	// page tells: the press that made the guess is long answered. A toggle
+	// takes back only its own toggle guess, and another command (a skip, a
+	// seek) leaves a newer play selection alone. An untagged play keeps the
+	// old behaviour only when no numbered request owns the player. An engine
 	// that is only starting did not fail the press, so its guess stands.
 	if !starting {
-		p.revertGuessLocked()
+		switch command {
+		case "toggle":
+			p.revertToggleGuessesLocked()
+		case "play":
+			if p.playReq == 0 {
+				p.revertGuessLocked()
+			}
+		case "":
+			p.revertGuessLocked()
+		}
 	}
 	text := ""
 	if notice {
@@ -1444,15 +1530,138 @@ func (p *plugin) selectResult(e protocol.EventParams) {
 // playing at once, before the player answers; the player's own state
 // replaces that guess, and a failed press brings the pane back.
 func (p *plugin) playEntry(pane string, picked entry) {
-	uri := picked.uri
+	req, seq, ctx, cancel, ok := p.beginPlay(pane, picked, picked.uri, "")
+	if !ok {
+		return
+	}
+	request := strconv.FormatUint(req, 10)
+	p.actionWithContext(ctx, cancel, pane, localePlayFailed(), func(ctx context.Context) error {
+		err := p.playRequest(ctx, req, picked.uri, request)
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = errPlayTimeout
+		}
+		return err
+	}, p.finishPlay(req, picked.uri, seq))
+}
+
+// playRequest starts a play for request req. When the engine coalesces the
+// click with the play it already accepted, the request that was accepted
+// owns the result: a page error for that request is current, not stale.
+func (p *plugin) playRequest(ctx context.Context, req uint64, uri, request string) error {
+	err := playRequest(ctx, p.activePlayer(), uri, request)
+	var coalesced *engine.CoalescedError
+	if errors.As(err, &coalesced) {
+		p.coalescePlay(req, uri, coalesced.Request)
+		return nil
+	}
+	return err
+}
+
+// playFromRequest is playRequest for a track inside its album or playlist.
+func (p *plugin) playFromRequest(ctx context.Context, req uint64, contextURI, trackURI, request string) error {
+	err := playFromRequest(ctx, p.activePlayer(), contextURI, trackURI, request)
+	var coalesced *engine.CoalescedError
+	if errors.As(err, &coalesced) {
+		p.coalescePlay(req, trackURI, coalesced.Request)
+		return nil
+	}
+	return err
+}
+
+// deferredPlayError is a current accepted-command failure kept until a
+// duplicate click binds to its request. The source travels with it, so a
+// later replay checks that the engine that reported it is still the one
+// playing.
+type deferredPlayError struct {
+	err    error
+	source *source
+}
+
+// pendingPlay is one click that has not bound to the request the engine
+// accepted. errors holds failures from other requests that arrived during
+// that wait; coalescePlay looks up the accepted request in it.
+type pendingPlay struct {
+	req    uint64
+	errors map[uint64]deferredPlayError
+}
+
+// coalescePlay makes the accepted play the owner of a click that the engine
+// coalesced with it, and releases the click's row marker: the accepted play
+// already owns the row. A newer press keeps what it owns.
+func (p *plugin) coalescePlay(req uint64, uri, accepted string) {
+	n, err := strconv.ParseUint(accepted, 10, 64)
+	if err != nil || n == 0 {
+		return
+	}
 	p.mu.Lock()
-	// A second press on the row waits for the first one.
-	if p.panes[pane] == nil || uri == "" || p.playing == uri {
+	if p.playReq != req {
 		p.mu.Unlock()
 		return
 	}
+	p.playReq = n
+	if p.playing == uri {
+		p.playing = ""
+	}
+	deferred, ok := deferredPlayError{}, false
+	if pending := p.playPending; pending != nil && pending.req == req {
+		p.playPending = nil
+		deferred, ok = pending.errors[n]
+	}
+	var panes []string
+	if ok {
+		// The callback may have been deferred before its source retired.
+		// Recheck at this mutation boundary; a retired source changes
+		// nothing.
+		if deferred.source == nil || deferred.source.live() {
+			p.applyPlayErrorLocked(deferred.err)
+			panes = p.paneIDsLocked()
+		}
+	}
+	p.mu.Unlock()
+	for _, pane := range panes {
+		p.render(pane)
+	}
+}
+
+// applyPlayErrorLocked reports a current play failure and takes back that
+// request's guess. It is called with p.mu held. The request in playReq owns
+// the failure; the caller has already checked that.
+func (p *plugin) applyPlayErrorLocked(err error) {
+	p.playPending = nil
+	seq := p.playGuessSeq
+	p.playReq, p.playGuessSeq = 0, 0
+	p.revertGuessSeqLocked(seq)
+	text := playbackNotice(err)
+	for _, s := range p.panes {
+		s.notice, s.noticeURI = text, s.snap.URI
+	}
+}
+
+// beginPlay accepts a press as a numbered play request and shows its row,
+// and is called with no lock. A second press on the row that is already
+// playing waits for the first one. The request number, not the URI, owns
+// the completion: a repeated row is a new request after the first ends.
+func (p *plugin) beginPlay(pane string, row entry, uri, trackURI string) (uint64, int, context.Context, context.CancelFunc, bool) {
+	p.mu.Lock()
+	if p.panes[pane] == nil || uri == "" || p.playing == uri {
+		p.mu.Unlock()
+		return 0, 0, nil, nil, false
+	}
+	// The press that is still on its way to the engine is superseded. The
+	// context cancels only before admission: a command the engine queued
+	// is already accepted, and stays.
+	if p.playCancel != nil {
+		p.playCancel()
+	}
 	p.playing = uri
-	seq := p.guessLocked(picked, "")
+	p.playSeq++
+	req := p.playSeq
+	ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+	p.playReq = req
+	p.playPending = &pendingPlay{req: req}
+	p.playCancel, p.playCancelReq = cancel, req
+	seq := p.guessLocked(row, trackURI)
+	p.playGuessSeq = seq
 	panes := p.paneIDsLocked()
 	p.mu.Unlock()
 	for _, pane := range panes {
@@ -1461,19 +1670,40 @@ func (p *plugin) playEntry(pane string, picked entry) {
 	if seq != 0 {
 		p.armGuess(seq)
 	}
+	return req, seq, ctx, cancel, true
+}
 
-	p.action(pane, localePlayFailed(), func(ctx context.Context) error {
-		err := p.activePlayer().Play(ctx, uri)
-		p.mu.Lock()
+// finishPlay gives the completion of request req its own state change, under
+// p.mu, and tells whether the request still owns the pane. Only the request
+// that owns it clears its row marker or reverts its guess; an older request
+// changes nothing, even when it played the same URI again. A request with no
+// guess still owns its completion through its number.
+func (p *plugin) finishPlay(req uint64, uri string, seq int) func(*session, error) bool {
+	return func(_ *session, err error) bool {
+		if p.playCancelReq == req {
+			p.playCancel, p.playCancelReq = nil, 0
+		}
+		if pending := p.playPending; pending != nil && pending.req == req {
+			p.playPending = nil
+		}
+		if p.playReq != req {
+			// A page error already settled this request and released it.
+			// Its own row marker can go; a newer request's marker stays.
+			if p.playReq == 0 && p.playing == uri {
+				p.playing = ""
+			}
+			return false
+		}
 		if p.playing == uri {
 			p.playing = ""
 		}
 		if err != nil {
-			p.revertGuessLocked()
+			p.playReq = 0
+			p.playGuessSeq = 0
+			p.revertGuessSeqLocked(seq)
 		}
-		p.mu.Unlock()
-		return err
-	})
+		return true
+	}
 }
 
 // guessLocked makes every pane that can play show a row as now playing,
@@ -1518,8 +1748,24 @@ func (p *plugin) guessLocked(row entry, trackURI string) int {
 // the player did not take, and is called with p.mu held. A pane whose real
 // state came meanwhile has no guess and keeps that state.
 func (p *plugin) revertGuessLocked() {
+	p.revertGuessesLocked(func(*shown) bool { return true })
+}
+
+// revertGuessSeqLocked brings back only the guess numbered seq: a failure
+// from an older press must not take back a row pressed since.
+func (p *plugin) revertGuessSeqLocked(seq int) {
+	p.revertGuessesLocked(func(g *shown) bool { return g.seq == seq })
+}
+
+// revertToggleGuessesLocked brings back only play/pause guesses, so a
+// failed toggle cannot undo a newer play selection.
+func (p *plugin) revertToggleGuessesLocked() {
+	p.revertGuessesLocked(func(g *shown) bool { return g.toggle })
+}
+
+func (p *plugin) revertGuessesLocked(match func(*shown) bool) {
 	for _, s := range p.panes {
-		if s.guess == nil {
+		if s.guess == nil || !match(s.guess) {
 			continue
 		}
 		volume := s.snap.Volume
@@ -1713,34 +1959,73 @@ func (p *plugin) signIn(pane string) {
 	}()
 }
 
+// errPlayTimeout marks a play whose command deadline passed while the
+// player started, so the pane can name that cause rather than a generic
+// playback failure.
+var errPlayTimeout = errors.New("spotify: play started too slowly")
+
 // action runs one player command off the handler goroutine, reports a
 // failure in the pane, and reads the player again after a success.
 func (p *plugin) action(pane, fail string, fn func(context.Context) error) {
+	p.actionWith(pane, fail, fn, nil)
+}
+
+// actionWith is action for a command that may be superseded before it ends.
+// finish owns the command's state change: it is called under p.mu with the
+// pane's session, if it is still open, and says whether the result still owns
+// the pane. Ownership is checked afresh in that same lock, so a request that
+// ended between the command and this point cannot apply an older result. A
+// stale result changes nothing — no notice, mode, clear or read — so it
+// cannot hide the newer command.
+func (p *plugin) actionWith(pane, fail string, fn func(context.Context) error, finish func(*session, error) bool) {
+	p.actionWithContext(nil, nil, pane, fail, fn, finish)
+}
+
+// actionWithContext is actionWith for a command whose context the caller
+// made, so that a newer press can cancel the command before the player takes
+// it. A nil ctx makes the usual timeout.
+func (p *plugin) actionWithContext(ctx context.Context, cancel context.CancelFunc, pane, fail string, fn func(context.Context) error, finish func(*session, error) bool) {
 	pushes := p.pushes()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
+		if ctx == nil {
+			ctx, cancel = context.WithTimeout(context.Background(), actionTimeout)
+		}
 		defer cancel()
 		err := fn(ctx)
 		if err != nil {
 			p.mu.Lock()
-			if s := p.panes[pane]; s != nil {
-				s.notice = fail
+			s := p.panes[pane]
+			owned := finish == nil || finish(s, err)
+			changed := false
+			if s != nil && owned {
+				notice := fail
+				if errors.Is(err, errPlayTimeout) {
+					notice = locales.SpotifyPlayTimeout()
+				}
+				s.notice = notice
 				s.playback = playbackState(err, s.snap)
+				changed = true
 			}
 			p.mu.Unlock()
-			p.render(pane)
+			if changed {
+				p.render(pane)
+			}
 			return
 		}
 		p.mu.Lock()
+		s := p.panes[pane]
+		owned := finish == nil || finish(s, nil)
 		cleared := false
-		if s := p.panes[pane]; s != nil {
+		if s != nil && owned {
 			cleared = clearNotice(s)
 		}
 		p.mu.Unlock()
 		if cleared {
 			p.render(pane)
 		}
-		p.readAfterCommand(pushes)
+		if owned {
+			p.readAfterCommand(pushes)
+		}
 	}()
 }
 

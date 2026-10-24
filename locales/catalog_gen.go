@@ -5352,6 +5352,16 @@ func (msgs Messages) SpotifyPlaybackFailedDetail(message string) string {
 	return Catalog.Format(msgs.locale, "spotifyPlaybackFailedDetail", map[string]any{"message": message})
 }
 
+// SpotifyPlayTimeout says "Spotify is taking too long to start. Try again."
+// in the language the app shows.
+func SpotifyPlayTimeout() string { return In(i18n.Locale()).SpotifyPlayTimeout() }
+
+// SpotifyPlayTimeout says "Spotify is taking too long to start. Try again."
+// in the language of msgs.
+func (msgs Messages) SpotifyPlayTimeout() string {
+	return Catalog.Format(msgs.locale, "spotifyPlayTimeout", nil)
+}
+
 // SpotifyNoClientID says "Add your Spotify Client ID"
 // in the language the app shows.
 func SpotifyNoClientID() string { return In(i18n.Locale()).SpotifyNoClientID() }

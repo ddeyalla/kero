@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -182,4 +183,184 @@ func TestTheLastPaneClosedKeepsAPlayingTrack(t *testing.T) {
 	// It goes as soon as the track stops, with no pane to wait for.
 	f.hold(transport.Snapshot{State: transport.StatePaused, Track: "Juicy", ReadAt: time.Now()})
 	eventually(t, "the web view to close", func() bool { _, closed := f.counts(); return closed == 1 })
+}
+
+// A play whose caller is already gone does not open a web view or send
+// anything.
+func TestLazyPlayRejectsAnAlreadyCancelledContext(t *testing.T) {
+	p, _, f := lazyPlugin(t, &webAPI{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	err := p.activePlayer().Play(ctx, "spotify:track:t1")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("play = %v, want context.Canceled", err)
+	}
+	if time.Since(start) > 200*time.Millisecond {
+		t.Errorf("a cancelled play took %v", time.Since(start))
+	}
+	if started, _ := f.counts(); started != 0 {
+		t.Errorf("the web view opened %d times for a cancelled play", started)
+	}
+	if calls := f.calls(); len(calls) != 0 {
+		t.Errorf("commands = %v, want none", calls)
+	}
+}
+
+// Taking the wake gate and canceling can happen together: a call that is
+// canceled before it owns the web view must not build or start one, and
+// must release the gate for the next healthy call.
+func TestLazyPlayCancelsAfterTakingTheWakeGate(t *testing.T) {
+	p, _, f := lazyPlugin(t, &webAPI{})
+	w := p.activePlayer().(*lazyEngine)
+	w.mu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.PlayRequest(ctx, "spotify:track:t1", "1") }()
+	eventually(t, "the wake gate", func() bool { return len(w.wakeGate) == 1 })
+	cancel()
+	w.mu.Unlock()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("play = %v, want context.Canceled", err)
+	}
+	if started, closed := f.counts(); started != 0 || closed != 0 {
+		t.Fatalf("a canceled play built %d and closed %d web views", started, closed)
+	}
+	if calls := f.calls(); len(calls) != 0 {
+		t.Fatalf("a canceled play sent %v", calls)
+	}
+	if len(w.wakeGate) != 0 {
+		t.Fatal("the canceled play leaked the wake gate")
+	}
+
+	// The gate is free, and a later call still opens the view and plays.
+	if err := w.PlayRequest(context.Background(), "spotify:track:t2", "2"); err != nil {
+		t.Fatal(err)
+	}
+	if started, _ := f.counts(); started != 1 {
+		t.Fatalf("the healthy call built %d web views, want one", started)
+	}
+	if calls := f.calls(); !slices.Equal(calls, []string{"play spotify:track:t2"}) {
+		t.Fatalf("commands = %v, want the healthy play", calls)
+	}
+}
+
+// requestInner records the request identity that reaches the inner engine.
+type requestInner struct {
+	*fakeEngine
+	mu       sync.Mutex
+	requests []string
+	from     []string
+}
+
+func (e *requestInner) PlayRequest(ctx context.Context, uri, request string) error {
+	e.mu.Lock()
+	e.requests = append(e.requests, request)
+	e.mu.Unlock()
+	return e.Play(ctx, uri)
+}
+
+func (e *requestInner) PlayFromRequest(ctx context.Context, contextURI, trackURI, request string) error {
+	e.mu.Lock()
+	e.requests = append(e.requests, request)
+	e.from = append(e.from, contextURI+" at "+trackURI)
+	e.mu.Unlock()
+	return nil
+}
+
+func TestTheLazyEngineCarriesThePlayRequestIdentity(t *testing.T) {
+	inner := &requestInner{fakeEngine: &fakeEngine{ready: true}}
+	w := newLazyEngine(
+		func(func(transport.Snapshot), func(error)) playerEngine { return inner },
+		func(transport.Snapshot) {}, func(error) {}, func() {},
+	)
+	if err := w.PlayRequest(context.Background(), "spotify:album:a1", "9"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.PlayFromRequest(context.Background(), "spotify:album:a1", "spotify:track:t1", "10"); err != nil {
+		t.Fatal(err)
+	}
+	inner.mu.Lock()
+	defer inner.mu.Unlock()
+	if !slices.Equal(inner.requests, []string{"9", "10"}) || !slices.Equal(inner.from, []string{"spotify:album:a1 at spotify:track:t1"}) {
+		t.Fatalf("requests = %v, from = %v", inner.requests, inner.from)
+	}
+}
+
+// A play waits for a cold web view only as long as its caller allows: at
+// the deadline it returns, and even a web view that becomes ready later
+// never receives that play.
+func TestLazyPlayStopsAtItsDeadlineWhileTheWebViewStarts(t *testing.T) {
+	oldWake := engineWakeTimeout
+	engineWakeTimeout = 80 * time.Millisecond
+	t.Cleanup(func() { engineWakeTimeout = oldWake })
+	oldIdle := engineIdleTimeout
+	engineIdleTimeout = time.Hour
+	t.Cleanup(func() { engineIdleTimeout = oldIdle })
+	p, _, f := lazyPlugin(t, &webAPI{})
+	f.mu.Lock()
+	f.ready = false
+	f.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := p.activePlayer().Play(ctx, "spotify:track:t1")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("play = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+		t.Errorf("a play past its deadline took %v", elapsed)
+	}
+	// The view becomes ready after the caller has gone. Give the wake period
+	// and the poll a chance to send the old play late.
+	f.mu.Lock()
+	f.ready = true
+	f.mu.Unlock()
+	time.Sleep(3*engineWakeTimeout + 50*time.Millisecond)
+	if calls := f.calls(); len(calls) != 0 {
+		t.Errorf("commands after the deadline = %v, want none", calls)
+	}
+}
+
+// A play waiting behind another wake stops as soon as its caller does,
+// rather than waiting for the gate and sending late.
+func TestLazyPlayCancelsWhileAnotherWakeOwnsTheGate(t *testing.T) {
+	old := engineWakeTimeout
+	engineWakeTimeout = 2 * time.Second
+	t.Cleanup(func() { engineWakeTimeout = old })
+	p, _, f := lazyPlugin(t, &webAPI{})
+	f.mu.Lock()
+	f.ready = false
+	f.mu.Unlock()
+
+	first := make(chan struct{})
+	go func() {
+		defer close(first)
+		_ = p.activePlayer().Play(context.Background(), "spotify:track:first")
+	}()
+	eventually(t, "the first wake", func() bool { started, _ := f.counts(); return started == 1 })
+	time.Sleep(20 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := p.activePlayer().Play(ctx, "spotify:track:second")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second play = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+		t.Errorf("the waiting play took %v past its deadline", elapsed)
+	}
+
+	f.mu.Lock()
+	f.ready = true
+	f.mu.Unlock()
+	<-first
+	// A play that returned past its deadline must not send from a goroutine
+	// that outlives the return. Wait out the wake timeout before checking.
+	time.Sleep(engineWakeTimeout + 50*time.Millisecond)
+	if calls := f.calls(); !slices.Equal(calls, []string{"play spotify:track:first"}) {
+		t.Errorf("commands = %v, want only the first play", calls)
+	}
 }

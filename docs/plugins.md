@@ -55,9 +55,18 @@ What the user gave it, its settings and secrets, lives apart, in
 ## Commands
 
 Spotify's failed track and Up next lists offer **Retry** in place. A failed
-read keeps the open album or playlist and any cached tracks. An offline
-library also offers Retry, without changing the selected tab. These paths
-live in `internal/plugin/builtin/spotify/drill.go`, `view.go` and `spotify.go`.
+read keeps the open album or playlist and any cached tracks. A play that a
+newer press has superseded completes silently, including a late page error
+that names an older play request; only the current command reports a failure.
+A press still waiting for a cold engine is canceled by a newer press before
+the engine takes it, while an accepted command still runs. Two clicks on one
+row inside the engine's window are one accepted play whose request owns the
+page error, and a retry after a current failure is sent rather than dropped.
+The page compares the accepted request, so a later accepted play is not
+treated as the earlier double click. An offline library also offers Retry,
+without changing the selected tab. These paths live in
+`internal/plugin/builtin/spotify/drill.go`, `view.go`, `spotify.go`,
+`engine/engine.go`, `engine/page.html`, `engine_sync.go` and `engine_lazy.go`.
 
 A command runs on a pane of its plugin: the focused pane of the session
 shown, another pane of that session, then a pane of another session. A pane

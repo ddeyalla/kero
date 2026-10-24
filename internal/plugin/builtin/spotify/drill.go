@@ -250,41 +250,24 @@ func (p *plugin) selectTrack(e protocol.EventParams, queue bool) {
 // playing at once, as it does for a tile.
 func (p *plugin) playTrack(pane string, track web.ListTrack, contextURI string) {
 	uri := track.URI
-	p.mu.Lock()
-	if p.panes[pane] == nil || uri == "" || p.playing == uri {
-		p.mu.Unlock()
+	row := entry{title: track.Name, subtitle: track.ArtistLine(), image: track.Artwork}
+	req, seq, ctx, cancel, ok := p.beginPlay(pane, row, uri, uri)
+	if !ok {
 		return
 	}
-	p.playing = uri
-	row := entry{title: track.Name, subtitle: track.ArtistLine(), image: track.Artwork}
-	seq := p.guessLocked(row, uri)
-	panes := p.paneIDsLocked()
-	p.mu.Unlock()
-	for _, pane := range panes {
-		p.render(pane)
-	}
-	if seq != 0 {
-		p.armGuess(seq)
-	}
-
-	p.action(pane, localePlayFailed(), func(ctx context.Context) error {
-		player := p.activePlayer()
+	request := strconv.FormatUint(req, 10)
+	p.actionWithContext(ctx, cancel, pane, localePlayFailed(), func(ctx context.Context) error {
 		var err error
-		if cp, ok := player.(contextPlayer); ok && contextURI != "" {
-			err = cp.PlayFrom(ctx, contextURI, uri)
+		if contextURI != "" {
+			err = p.playFromRequest(ctx, req, contextURI, uri, request)
 		} else {
-			err = player.Play(ctx, uri)
+			err = p.playRequest(ctx, req, uri, request)
 		}
-		p.mu.Lock()
-		if p.playing == uri {
-			p.playing = ""
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = errPlayTimeout
 		}
-		if err != nil {
-			p.revertGuessLocked()
-		}
-		p.mu.Unlock()
 		return err
-	})
+	}, p.finishPlay(req, uri, seq))
 }
 
 // loadQueue reads the tracks that come next. The queue is not cached by the
