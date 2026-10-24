@@ -10,7 +10,31 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
-No pending changes.
+### Changed
+
+- Refined the shared top and bottom tab renderer. Each project header and its
+  sessions now sit in a distinct glass capsule with two points of padding and
+  internal spacing; adjacent project capsules are six points apart. The
+  capsules keep an opaque control surface when Reduce Transparency is on.
+- Session tabs now size to their status, available pin symbol, actual
+  appearance chrome, full title and reserved close control instead of sharing
+  one width. Compact titles whose preferred tab width is at most 120 points
+  stay whole. Longer tabs shrink proportionally
+  from their content-measured widths, capped at 220 points, toward the
+  80-point minimum; compact tabs do not give up their width. When these floors
+  take more room than the row has, the row scrolls.
+
+### Fixed
+
+- Optional plugin shortcuts in top and bottom tabs now reserve the same
+  measured compact-title floors that tab allocation protects. A shortcut that
+  would force otherwise avoidable scrolling moves into the labeled plugin
+  overflow instead; visible shortcuts remain unduplicated in wider windows.
+- Tab measurement now matches rendered chrome: the two-point border is
+  counted only in dark appearance, and the pin's 16 points are reserved only
+  when the cached SF Symbol is available. Light tabs no longer over-budget,
+  missing symbols leave no blank pin space, and plugin-pin eligibility uses
+  these same actual measurements.
 
 ## [2.0.7-local.4] - 2026-10-24
 
