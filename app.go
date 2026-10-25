@@ -1141,10 +1141,13 @@ func (a *App) apply(s settings.Settings, save bool) {
 	themes := old.LightTheme != s.LightTheme || old.DarkTheme != s.DarkTheme || old.Accent != s.Accent || old.AmbientColor != s.AmbientColor
 	anew := old.Cursor != s.Cursor || old.CursorBlink != s.CursorBlink || old.OptionAsAlt != s.OptionAsAlt ||
 		old.Clipboard != s.Clipboard || old.RightClick != s.RightClick
+	// Scrollback is read once, when the terminal is constructed. An attach
+	// still waiting for its handshake therefore carries the old limit.
+	pendingScrollback := old.ScrollbackBytes() != s.ScrollbackBytes()
 	light, dark := a.termThemes()
 	for id, e := range a.terms {
 		if e.term == nil {
-			if anew {
+			if anew || pendingScrollback {
 				// This attach is still in flight with the old options;
 				// let it finish, then attach again as it shows.
 				a.dropTerm(id)

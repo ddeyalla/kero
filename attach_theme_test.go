@@ -231,6 +231,117 @@ func TestPublishTermReconcilesLatestThemeAndDropsStale(t *testing.T) {
 	}
 }
 
+// Changing the scrollback while the attach handshake is blocked must
+// invalidate that pending entry. The replacement attach uses the new
+// limit; the old terminal is built with its old snapshot and its stale
+// publication is rejected with both resources closed.
+func TestPendingAttachReplacesScrollbackChange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("loads libghostty-vt")
+	}
+	oldNew := newTerminal
+	defer func() { newTerminal = oldNew }()
+	type built struct {
+		opts   terminal.Options
+		term   *terminal.Terminal
+		stream *client.Stream
+		ready  <-chan struct{}
+		err    error
+	}
+	builtCh := make(chan built, 2)
+	newTerminal = func(o terminal.Options) (*terminal.Terminal, error) {
+		term, err := terminal.New(o)
+		g := o.Conn.(*gated)
+		builtCh <- built{o, term, g.Stream, g.ready, err}
+		return term, err
+	}
+
+	first := startAttachFake(t)
+	a := testApp(t)
+	a.conn = connReady
+	a.ensureTerm("a")
+	<-first.accepted
+	oldEntry := a.terms["a"]
+	if oldEntry == nil {
+		t.Fatal("the first attach did not start")
+	}
+
+	oldLimit := a.set.ScrollbackBytes()
+	next := a.set
+	next.Scrollback = 8
+	a.apply(next, false)
+	if a.terms["a"] != nil {
+		t.Fatal("the pending attach survived a scrollback change")
+	}
+
+	second := startAttachFake(t)
+	a.ensureTerm("a")
+	<-second.accepted
+
+	first.releaseOnce.Do(func() { close(first.release) })
+	second.releaseOnce.Do(func() { close(second.release) })
+	<-first.welcomed
+	<-second.welcomed
+
+	var oldTerm, newTerm *terminal.Terminal
+	var oldStream, newStream *client.Stream
+	var gotOld, gotNew bool
+	for range 2 {
+		select {
+		case b := <-builtCh:
+			if b.err != nil {
+				t.Fatal(b.err)
+			}
+			select {
+			case <-b.ready:
+			case <-time.After(5 * time.Second):
+				t.Fatal("an attach did not finish its terminal setup")
+			}
+			switch b.opts.Scrollback {
+			case oldLimit:
+				gotOld = true
+				oldTerm, oldStream = b.term, b.stream
+			case 8 << 20:
+				gotNew = true
+				newTerm, newStream = b.term, b.stream
+			default:
+				t.Fatalf("built with scrollback %d, want %d or %d", b.opts.Scrollback, oldLimit, 8<<20)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("an attach did not build its terminal")
+		}
+	}
+	if !gotOld || !gotNew {
+		t.Fatalf("built old=%v new=%v, want both", gotOld, gotNew)
+	}
+	if oldTerm == nil || newTerm == nil || oldStream == nil || newStream == nil {
+		t.Fatal("a built terminal is missing")
+	}
+	newEntry := a.terms["a"]
+	if newEntry == nil || newEntry == oldEntry {
+		t.Fatal("the replacement attach did not replace the pending entry")
+	}
+	a.publishTerm("a", oldEntry, oldTerm, oldStream)
+	if a.terms["a"] != newEntry {
+		t.Fatal("the stale attach replaced the current entry")
+	}
+	select {
+	case <-first.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stale attach did not close its stream")
+	}
+	a.publishTerm("a", newEntry, newTerm, newStream)
+	if newEntry.term != newTerm || newEntry.stream != newStream {
+		t.Fatal("the replacement attach did not publish")
+	}
+	a.dropTerm("a")
+	select {
+	case <-second.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the replacement attach did not close its stream")
+	}
+}
+
 // A slow attach must not read the ambient fade from its worker. The old
 // path called termOptions in the worker after the handshake, racing the
 // frame thread as the fade moved. The queued options are now a UI snapshot,
