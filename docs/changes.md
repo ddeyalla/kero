@@ -2516,16 +2516,23 @@ disables its whole card while `a.closing[p.ID]` is set, so the closing header,
 its nested New Pane/Split/Zoom/Close controls and the terminal/view body cannot
 take the focus back or dispatch an action during the fade; the surviving pane
 keeps its own controls. `setFocus` rejects an exiting pane, and `cyclePane`
-walks past it. `focusDirection` asks `Layout.NeighborExcluding` for the nearest
-live pane in the original rectangles, excluding closing panes as candidates,
-so a closing pane in front of a live one cannot dead-end the move. The
-neighbour lookup keeps the existing distance rule and never removes or
+walks past it. `closePane`'s immediate transfer and `removePane`'s fade-end
+fallback both ask the layout for the nearest live pane while excluding every
+closing pane; the fallback no longer writes focus to a closing target when no
+live candidate remains. `focusDirection` asks `Layout.NeighborExcluding` for
+the nearest live pane in the original rectangles, excluding closing panes as
+candidates, so a closing pane in front of a live one cannot dead-end the move.
+The neighbour lookup keeps the existing distance rule and never removes or
 reflows the layout. The exit pose, close scheduling and neighbour focus are
 unchanged. `pane_close_input_test.go` drives the real app view and shared pane
 header control to cover the closing card, a nested button and the live pane;
-its irregular-layout regression covers both sides and no eligible target.
-`internal/proto/layout_test.go` checks the additive neighbour helper and that
-`Neighbor` keeps its old answer. No new user-visible text was added.
+its irregular-layout regression covers both sides, no eligible target and a
+zoomed close. Because the tester app has no window, that regression exercises
+the immediate `removePane` fallback rather than the animated `closePane`
+transfer; the animated call site uses the same excluding lookup and is covered
+by source trace, with the native fade branch left unexercised. `internal/proto/layout_test.go` checks the additive neighbour
+helper and that `Neighbor` keeps its old answer. No new user-visible text was
+added.
 
 ## Reviewed performance acceptance, 2026-10-25
 

@@ -154,6 +154,80 @@ func TestFocusDirectionUsesLiveCandidateFromOriginalGeometry(t *testing.T) {
 	}
 }
 
+// TestPaneCloseFallbackFocusTransferSkipsClosingNeighbor covers the
+// no-window close path: closePane removes immediately and removePane chooses
+// the next focus. testApp has no window, so the animated closePane transfer
+// branch is not executed here; its call site uses the same
+// NeighborExcluding exclusion and is covered by source trace, not this test.
+func TestPaneCloseFallbackFocusTransferSkipsClosingNeighbor(t *testing.T) {
+	newRow := func(t *testing.T) (*App, *proto.Session) {
+		t.Helper()
+		a := testApp(t)
+		s := a.session("s1")
+		s.Panes = append(s.Panes,
+			proto.Pane{ID: "c", Shell: "bash", Dir: "/tmp", Status: proto.Idle, Progress: -1},
+		)
+		s.Layout = &proto.Layout{
+			Row: true, Ratio: 1.0 / 3,
+			A: &proto.Layout{Pane: "a"},
+			B: &proto.Layout{Row: true, Ratio: 0.5, A: &proto.Layout{Pane: "b"}, B: &proto.Layout{Pane: "c"}},
+		}
+		return a, s
+	}
+
+	t.Run("left pane closes beside fading middle", func(t *testing.T) {
+		a, s := newRow(t)
+		a.setFocus(s, "a")
+		a.closing = map[string]bool{"b": true}
+		a.closePane(s, "a", false)
+		if got := a.focusOf(s); got != "c" {
+			t.Fatalf("closing a selected %q, want live c beyond fading b", got)
+		}
+		// The fade's eventual removal must keep c, not fall back to b.
+		a.removePane(s, "b")
+		if got := a.focusOf(s); got != "c" {
+			t.Fatalf("removing fading b selected %q, want c", got)
+		}
+		if a.selected != "s1" {
+			t.Fatalf("closing a pane changed the selected session to %q", a.selected)
+		}
+	})
+
+	t.Run("mirrored right pane closes", func(t *testing.T) {
+		a, s := newRow(t)
+		a.setFocus(s, "c")
+		a.closing = map[string]bool{"b": true}
+		a.closePane(s, "c", false)
+		if got := a.focusOf(s); got != "a" {
+			t.Fatalf("closing c selected %q, want live a beyond fading b", got)
+		}
+	})
+
+	t.Run("no live candidate", func(t *testing.T) {
+		a, s := newRow(t)
+		a.setFocus(s, "a")
+		a.closing = map[string]bool{"b": true, "c": true}
+		a.closePane(s, "a", false)
+		if got := a.focus[s.ID]; got == "b" || got == "c" {
+			t.Fatalf("closing a assigned focus to closing %q", got)
+		}
+	})
+
+	t.Run("zoomed pane closes", func(t *testing.T) {
+		a, s := newRow(t)
+		a.setFocus(s, "a")
+		s.Zoomed = "a"
+		a.closing = map[string]bool{"b": true}
+		a.closePane(s, "a", false)
+		if got := a.focusOf(s); got != "c" {
+			t.Fatalf("closing zoomed a selected %q, want live c", got)
+		}
+		if s.Zoomed != "" {
+			t.Fatalf("closing a left zoom on %q", s.Zoomed)
+		}
+	})
+}
+
 func TestClosingPaneKeyboardNavigationNoEligibleTarget(t *testing.T) {
 	a := testApp(t)
 	s := a.session("s1")

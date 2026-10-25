@@ -838,7 +838,7 @@ func (a *App) closePane(s *proto.Session, pane string, ask bool) {
 		// The keyboard goes to the neighbor at once: not to what ends.
 		if a.focusOf(s) == pane {
 			for _, dir := range []string{"left", "up", "right", "down"} {
-				if n := s.Layout.Neighbor(pane, dir); n != "" && !a.closing[n] {
+				if n := s.Layout.NeighborExcluding(pane, dir, func(id string) bool { return a.closing[id] }); n != "" {
 					a.setFocus(s, n)
 					a.paneRef(n).Focus()
 					break
@@ -867,10 +867,11 @@ func (a *App) removePane(s *proto.Session, pane string) {
 	if s.PaneByID(pane) == nil {
 		return
 	}
-	// The neighbor taking the room takes the focus, as kerod does.
+	// The neighbor taking the room takes the focus, as kerod does. Closing
+	// panes are not focus targets, so a farther live pane may take it.
 	if a.focusOf(s) == pane && s.Layout != nil {
 		for _, dir := range []string{"left", "up", "right", "down"} {
-			if n := s.Layout.Neighbor(pane, dir); n != "" {
+			if n := s.Layout.NeighborExcluding(pane, dir, func(id string) bool { return a.closing[id] }); n != "" {
 				a.focus[s.ID] = n
 				break
 			}

@@ -96,9 +96,9 @@ func (l *Layout) Neighbor(pane, direction string) string {
 	return l.neighbor(pane, direction, nil)
 }
 
-// NeighborExcluding is Neighbor, without the panes skip names. It uses the
-// same original rectangles and distance, so excluding a pane never reflows
-// the layout or changes the answer for another pane.
+// NeighborExcluding is Neighbor, excluding pane IDs for which skip returns
+// true. It uses the same original rectangles and distance, so excluding a pane
+// never reflows the layout or changes the answer for another pane.
 func (l *Layout) NeighborExcluding(pane, direction string, skip func(string) bool) string {
 	return l.neighbor(pane, direction, skip)
 }

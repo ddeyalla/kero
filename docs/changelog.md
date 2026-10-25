@@ -30,7 +30,8 @@ builds only. What each feature is and where it stands is tracked in the
 - A pane closing in a split no longer takes pointer or keyboard input while
   its exit fades: focus stays with the surviving neighbour, its header
   controls cannot dispatch from the closing pane, and Next/Previous/Directional
-  Pane skip it.
+  Pane skip it. Focus transfers at close and at the fade's removal also skip
+  any other closing pane, so the nearest live pane takes the keyboard.
 - Directional Pane now finds the nearest live pane in the original layout when
   a closing pane sits closest in that direction. A closing pane no longer
   dead-ends the move before a live pane beyond it, including in irregular
