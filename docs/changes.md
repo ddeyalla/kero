@@ -676,6 +676,21 @@ a zoomed session, a closed pane, the issue detail's jump, a session at
 rest, a daemon with no fold); `attention_pane_test.go`
 (`TestAttentionRowOpensIssue`).
 
+## Shared view-pane accessibility
+
+A view pane's body is a focusable column so a click or the pane's focus gives
+it the keyboard, as a terminal does. It used to call `Pressed()` without an
+explicit role. MyGo then inferred a button from focusable+clickable, and a
+button is a leaf in the accessibility tree: the whole plugin, Files, Browser
+or Attention pane became one label and its controls disappeared. `viewPane`
+now sets `ui.RoleGroup` on that body. The body still owns pane focus and pane
+key gating; its children stay separate accessible elements and their own
+actions work. The regression drives the real `viewPane` with nested plugin
+button, search field and slider controls, checks the group and distinct roles,
+then checks focus and plugin key gating/restoration. The same body is covered
+for the built-in Attention view. Code: [`pane_views.go`](../pane_views.go)
+(`viewPane`); tests: `pane_views_access_test.go`.
+
 ## The Attention pane
 
 The **Attention** pane shows what needs the user, of every session, in one

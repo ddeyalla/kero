@@ -76,7 +76,10 @@ func paneViewName(view string) string {
 // does: a click, or the pane's focus, gives it.
 func (a *App) viewPane(c *ui.Context, pal *palette, s *proto.Session, p *proto.Pane) {
 	ref := a.paneRef(p.ID)
-	body := ui.Column(c.Key("body")).Grow(1).MinHeight(0).MinWidth(0).Focusable().Bind(ref)
+	// The body owns pane focus, but it is not the button that every control
+	// inside it is: an explicit group keeps its plugin, file, browser and
+	// attention children as separate accessible elements.
+	body := ui.Column(c.Key("body")).Grow(1).MinHeight(0).MinWidth(0).Focusable().Role(ui.RoleGroup).Bind(ref)
 	if body.Pressed() {
 		ref.Focus(c)
 	}
