@@ -931,6 +931,17 @@ func (a *App) ensureTerm(id string) {
 	e := &termEntry{started: time.Now()}
 	a.terms[id] = e
 	a.noteTerm(id)
+	// The attach worker must not read the app's settings or ambient fade
+	// while the main thread changes them. Snapshot the terminal's options
+	// here, on the UI owner; the worker only sets the stream and builds the
+	// terminal.
+	g := &gated{ready: make(chan struct{}), hold: &a.sizeHold}
+	o := a.termOptions(id, g)
+	// The terminal shows kerod's frames: kerod's terminal is the session's,
+	// ours shows what it shows, cell for cell, and lays out nothing of the
+	// program's own. It takes the sizes kerod's does, between the frames of
+	// one size and the next.
+	o.ResizeByConn = true
 	go func() {
 		stream, err := client.Attach(id)
 		if err != nil {
@@ -941,13 +952,7 @@ func (a *App) ensureTerm(id string) {
 			})
 			return
 		}
-		g := &gated{Stream: stream, ready: make(chan struct{}), hold: &a.sizeHold}
-		o := a.termOptions(id, g)
-		// The terminal shows kerod's frames: kerod's terminal is the
-		// session's, ours shows what it shows, cell for cell, and lays out
-		// nothing of the program's own. It takes the sizes kerod's does,
-		// between the frames of one size and the next.
-		o.ResizeByConn = true
+		g.Stream = stream
 		term, err := terminal.New(o)
 		if err != nil {
 			stream.Close()
@@ -969,6 +974,18 @@ func (a *App) ensureTerm(id string) {
 				return
 			}
 			e.term, e.stream = term, stream
+			// A fade or a settings change may have finished while this
+			// terminal had no e.term, so the update pass could not reach it.
+			// Reconcile the settings that can change without a new terminal.
+			light, dark := a.termThemes()
+			term.SetTheme(light, dark)
+			term.SetFont(a.termFont())
+			term.SetMinimumContrast(a.set.MinContrast)
+			if a.set.CopyOnSelect {
+				term.SetCopyOnSelect(terminal.CopyOnSelectClipboard)
+			} else {
+				term.SetCopyOnSelect(terminal.CopyOnSelectNone)
+			}
 			if a.selected == id {
 				a.focusTerminal()
 			}
@@ -1119,6 +1136,11 @@ func (a *App) apply(s settings.Settings, save bool) {
 	light, dark := a.termThemes()
 	for id, e := range a.terms {
 		if e.term == nil {
+			if anew {
+				// This attach is still in flight with the old options;
+				// let it finish, then attach again as it shows.
+				a.dropTerm(id)
+			}
 			continue
 		}
 		if anew {

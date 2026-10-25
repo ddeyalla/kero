@@ -498,8 +498,10 @@ func TestAmbientLendEndsWithThePane(t *testing.T) {
 func TestAmbientCachesAndSetsThemesOnce(t *testing.T) {
 	a := ambientApp(protocol.PermAmbient)
 	var got *palette
+	var queued int
 	tt := ui.NewTester(func(c *ui.Context) {
 		got = a.paletteFor(c)
+		queued = len(a.later)
 		runAmbientLater(a)
 	}, 200, 100)
 	a.lendAmbient("p1", "fake", true, tintedView(ui.RGB(200, 40, 40)))
@@ -512,7 +514,7 @@ func TestAmbientCachesAndSetsThemesOnce(t *testing.T) {
 	if got != first {
 		t.Error("a settled frame made a new palette")
 	}
-	if len(a.later) != 0 {
+	if queued != 0 {
 		t.Error("a settled frame left a theme update queued")
 	}
 	if tt.FramePending() {
@@ -520,7 +522,7 @@ func TestAmbientCachesAndSetsThemesOnce(t *testing.T) {
 	}
 
 	tt.Frame()
-	if len(a.later) != 0 {
+	if queued != 0 {
 		t.Error("an unchanged shade queued a theme update")
 	}
 	a.ambientChanged()
@@ -531,7 +533,7 @@ func TestAmbientCachesAndSetsThemesOnce(t *testing.T) {
 	a.set.LightTheme, a.set.DarkTheme = "Nord", "Nord"
 	a.lendAmbient("p1", "fake", true, tintedView(ui.RGB(40, 40, 200)))
 	tt.Frame()
-	if len(a.later) != 0 {
+	if queued != 0 {
 		t.Error("user-picked themes queued a theme update")
 	}
 }
