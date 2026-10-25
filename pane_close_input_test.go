@@ -157,8 +157,7 @@ func TestFocusDirectionUsesLiveCandidateFromOriginalGeometry(t *testing.T) {
 // TestPaneCloseFallbackFocusTransferSkipsClosingNeighbor covers the
 // no-window close path: closePane removes immediately and removePane chooses
 // the next focus. testApp has no window, so the animated closePane transfer
-// branch is not executed here; its call site uses the same
-// NeighborExcluding exclusion and is covered by source trace, not this test.
+// branch is untested here; this test covers the windowless remove fallback.
 func TestPaneCloseFallbackFocusTransferSkipsClosingNeighbor(t *testing.T) {
 	newRow := func(t *testing.T) (*App, *proto.Session) {
 		t.Helper()

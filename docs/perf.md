@@ -243,7 +243,7 @@ streaming. The daily app and its agents ran beside it, as they always do.
 | Measure | 1 pane | 4 panes | 8 panes | Budget |
 | --- | --- | --- | --- | --- |
 | kerod footprint | 28.8 MB | 40.2 MB | 57.7 MB | |
-| kerod footprint per pane (over 13.1–13.5 MB with none) | 15.3 MB | 6.8 MB | 5.6 MB | ≤ 25 MB: ok |
+| kerod footprint per pane (over 13.1–13.5 MB with none) | 15.3 MB | 6.8 MB | 5.6 MB | ≤ 25 MB footprint: ok (retired); not the current RSS verdict |
 | kerod RSS | 31.7 MB | 64.3 MB | 74.4 MB | |
 | kerod idle CPU | 0.03 % | 0.05 % | 0.08 % | |
 | kerod idle wakeups (interrupt) | 870/min | 1,005/min | 1,521/min | |

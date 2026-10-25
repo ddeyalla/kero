@@ -2528,9 +2528,8 @@ unchanged. `pane_close_input_test.go` drives the real app view and shared pane
 header control to cover the closing card, a nested button and the live pane;
 its irregular-layout regression covers both sides, no eligible target and a
 zoomed close. Because the tester app has no window, that regression exercises
-the immediate `removePane` fallback rather than the animated `closePane`
-transfer; the animated call site uses the same excluding lookup and is covered
-by source trace, with the native fade branch left unexercised. `internal/proto/layout_test.go` checks the additive neighbour
+the immediate `removePane` fallback; the animated `closePane` transfer branch
+is untested here. `internal/proto/layout_test.go` checks the additive neighbour
 helper and that `Neighbor` keeps its old answer. No new user-visible text was
 added.
 
