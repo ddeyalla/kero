@@ -52,6 +52,11 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Documentation
 
+- Recorded the production-mode empty app and daemon baseline, distinguishing
+  kernel RSS from physical footprint, the pre-lazy-grain source from its
+  separate headless comparison, and fixture overhead from terminal scrollback.
+  Both RSS targets remain exceeded; no acceptance or unavoidable-floor claim
+  is made.
 - Recorded the corrected C9 25-session attribution run: 8 retained app
   clients and 25 daemon VTs, a 60.023 s quiet sample, zero forced GC, and
   separate RSS, footprint, Go, VT and Metal counters. The stage table and

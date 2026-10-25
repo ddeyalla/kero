@@ -60,7 +60,40 @@ resident pages are not a disjoint part of process RSS. The role dispatch
 and lazy constructor remove grain's headless precompile path; these two
 snapshots do not identify every remaining native allocation or establish
 an unavoidable memory floor. Software pixel and setting-toggle regressions
-passed. No installed GUI or native compositor test was performed.
+passed. The C15 GUI candidate was not measured.
+
+## Empty app and daemon baseline
+
+On 2026-10-25, C17 measured the **pre-C15 eager-grain** application source
+`04895fea5f36` with published MyGo `7fb5c34991fd` and the private metadata
+seam. Production compiler flags were verified: Darwin ARM64, `CGO_ENABLED=1`,
+empty `GOFLAGS`, no inspector override, `-s -w`, `production=1`, `-trimpath`
+and `mygo_noinspector`. The private identity and metadata seam mean this is
+not a byte-identical shipping release.
+
+The isolated 1180 × 760 app had zero sessions and terminals. After a
+15-second settle, one `vmmap -summary` and one `vmmap -w` per process were
+each bracketed by kernel `proc_pid_rusage` samples; all four commands
+succeeded. All ten inventory checks stayed empty. Eleven sampled window
+observations were visible, unoccluded and independently native/UI unfocused.
+
+| Empty process | Kernel RSS, MiB | Physical footprint, MiB |
+| --- | --- | --- |
+| App | 139.234375–139.296875 | 94.532532–94.579407 |
+| Daemon | 39.046875–39.281250 | 16.360291–16.454041 |
+
+Both RSS ranges exceed the literal 30 MiB app and 25 MiB daemon targets,
+without baseline subtraction. This establishes empty-process overhead for
+this fixture, separate from terminal scrollback; it does not satisfy
+BRU-222, prove an unavoidable floor or rule out further savings. Footprint
+and shared/COW mapping totals are separate counters, not a native ownership
+pie. No forced GC was requested; no GC counter pass was measured.
+
+These were sampled guards around an empty fixture, not continuous 60-second,
+input or retained-terminal acceptance. The C14/C15 matched headless
+comparison above remains separate: C17's daemon must not be compared with
+the C15 candidate as a matched experiment. C15 preserved GUI shader behavior
+in software tests, but its candidate GUI was not measured.
 
 ## Budgets
 
