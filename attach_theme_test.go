@@ -182,6 +182,22 @@ func TestPublishTermReconcilesLatestThemeAndDropsStale(t *testing.T) {
 		t.Fatal("the published terminal reported no theme")
 	}
 
+	// A fade that settled while the terminal had no e.term is reconciled
+	// too, rather than keeping the pre-attach snapshot.
+	tt.Advance(ambientFade * 2)
+	tt.Frame()
+	a.publishTerm("a", e, term, stream)
+	vt.Frame()
+	select {
+	case theme := <-f.themes:
+		want, _ := a.termThemes()
+		if theme.Cursor != colorBytes(want.Cursor) {
+			t.Fatalf("settled cursor = %v, want the settled fade %v", theme.Cursor, colorBytes(want.Cursor))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the settled terminal reported no theme")
+	}
+
 	// A custom pair is also reconciled at publication, rather than keeping
 	// the snapshot taken before the attach.
 	a.set.LightTheme, a.set.DarkTheme = "Nord", "Nord"
