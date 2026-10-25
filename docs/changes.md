@@ -224,19 +224,21 @@ scope and the remaining BRU-333 native-allocation ownership investigation.
 
 Clip-mask idle memory lives below Shibu, in MyGo's
 `internal/gpu/transform.go`: the builder caches transformed clip masks for the
-current frame, then drops masks no op uses beyond a 32 MiB budget. A mask that
-shrinks keeps its image's backing array through `scene.Image.Resize`, so
-counting only `len(m.image.Pix)` could leave more retained backing capacity than
-the budget allowed. The pinned MyGo fork (`7fb5c349`,
+current frame, then drops idle masks once their combined retained backing
+capacity exceeds the 32 MiB budget. A mask that shrinks keeps its image's
+backing array through `scene.Image.Resize`, so counting only
+`len(m.image.Pix)` could leave more retained backing capacity than the budget
+allowed. The pinned MyGo fork (`7fb5c349`,
 `v0.5.6-0.20261025114427-7fb5c34991fd`) counts `cap(m.image.Pix)` instead; the
 budget and the lifetime of masks used by the current frame are unchanged. Shibu
 pins the fork commit through the existing `replace` directive, never through a
 local path. This is accounting and lifetime correctness, not a claimed
 25-session or total-footprint improvement.
 
-C9 recorded a corrected 25-session attribution run on `04895fe` plus the
-accepted reporting diff `892838…`, with MyGo `439448` and the sealed C8
-app/daemon binary `adca389b…`. The private no-forced-GC run completed two
+C9 recorded a corrected 25-session attribution run that predates the
+`7fb5c349` capacity fix; it measured `04895fe` plus the accepted reporting
+diff `892838…`, with MyGo `439448` and the sealed C8 app/daemon binary
+`adca389b…`. The private no-forced-GC run completed two
 painted 25-pane sweeps and a 60.023 s quiet sample with 8 retained app clients
 and 25 daemon VTs. Observed maxima were app RSS 290.516 MiB and footprint
 378.642 MiB, daemon RSS 231.938 MiB and footprint 167.423 MiB; every sampled

@@ -41,10 +41,11 @@ conditions. The last two rows are tests, which `go test ./...` runs, so a
 regression fails the checks without the app.
 
 MyGo's GPU builder keeps transformed clip masks for the current frame and
-drops idle ones beyond 32 MiB. The pinned fork counts a shrunken mask's
-retained backing capacity, not only its visible length, so stale capacity is
-dropped. This is accounting and lifetime correctness, not a budget row, an app
-RSS or footprint attribution, or evidence of 25-session savings.
+drops idle masks once their combined retained capacity exceeds 32 MiB. The
+pinned fork counts a shrunken mask's retained backing capacity, not only its
+visible length, so stale capacity is dropped. This is accounting and lifetime
+correctness, not a budget row, an app RSS or footprint attribution, or
+evidence of 25-session savings.
 
 ## Measuring
 
@@ -182,9 +183,9 @@ mode sets none of them.
 
 The corrected C9 run measured `04895fe` plus the accepted reporting diff
 `892838…`, with MyGo `439448` and the sealed C8 app/daemon binary
-`adca389b…`. It reused the private corrected C9 harness; it is not the
-`7fb5c349` capacity pin, a candidate comparison, or a run of the unchanged
-public `PERF_MEMORY` command, whose memory path forces GC.
+`adca389b…`. It predates the `7fb5c349` capacity fix; it is not a measurement
+of that pinned code, a candidate comparison, or a run of the unchanged public
+`PERF_MEMORY` command, whose memory path forces GC.
 
 The fixture fed 16 MiB plus one byte per session, completed two painted
 25-pane sweeps, then took a 60.023 s quiet sample with 13/13 stable
@@ -204,13 +205,14 @@ The recorded maxima are app RSS at first-shown and app footprint at visit-1-8;
 daemon RSS at quiet-before and daemon footprint at streaming. They are stage
 maxima, not terms to add across stages.
 
-At quiet, app HeapAlloc/GoSys was 27.112/156.901 MiB, VT resident pages were
-31.25 primary and 3.125 alternate, images and compressed bytes 0. Daemon
-HeapAlloc/GoSys was 9.713/97.272 MiB, VT resident pages 97.656 primary and 0
-alternate, images and compressed bytes 0. Unique window Metal owner resources
-were 256 bytes; the device `currentAllocatedSize` cross-check was 15.5625 MiB
-separately. At first-shown the owner total was 38.681 MiB and device 68.406
-MiB; neither is added to RSS or footprint.
+At quiet, app HeapAlloc/GoSys was 27.112/156.901 MiB, VT resident page backing
+bytes were 31.25 MiB primary and 3.125 MiB alternate, images and compressed
+bytes 0. Daemon HeapAlloc/GoSys was 9.713/97.272 MiB, VT resident page backing
+bytes were 97.656 MiB primary and 0 alternate, images and compressed bytes 0.
+Unique window Metal owner resources were 256 bytes; the device
+`currentAllocatedSize` cross-check was 15.5625 MiB separately. At first-shown
+the owner total was 38.681 MiB and device 68.406 MiB; neither is added to RSS
+or footprint.
 
 Every sampled app footprint was below the 750 MiB aggregate threshold
 (observed maximum 378.642 MiB); the continuous peak was not measured. Go heap,
