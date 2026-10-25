@@ -98,7 +98,8 @@ Click a project header to fold its sessions away; it shows the session count
 and how many need you, keeps the selected session's panes on screen, and marks
 itself while folded. A session chosen in the overflow, palette, by a shortcut,
 in an attention jump or from a plugin notification opens its project and
-scrolls its tab into view. An attention jump reveals the tab even when that
+scrolls its row or tab into view, in a sidebar on either side or in the
+navigation tabs. An attention jump reveals the row or tab even when that
 session is already selected. A session whose project is unknown or empty is
 shown in **Other**, and choosing it opens **Other** too. Folding a project
 changes no selection and stays folded until an explicit selection asks to

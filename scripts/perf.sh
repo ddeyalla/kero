@@ -8,7 +8,7 @@
 # KERO_HOME, HOME and socket; every KERO_* variable of the caller cleared,
 # so the daily app and its kerod are never reached), opens N panes and feeds
 # each PERF_FEED_MB megabytes of output (16 by default, past the default
-# scrollback of 4 MB, so that every pane's scrollback is full), and then:
+# scrollback of 4 MiB, so that every pane's scrollback is full), and then:
 #
 #   1. waits PERF_SETTLE seconds (15), past kerod's 10 s history save;
 #   2. samples kerod and the app over separate focused and visible/unfocused
@@ -254,7 +254,7 @@ for i in $(seq "$panes"); do
 		fi
 	fi
 done
-echo "perf.sh: $panes pane(s), $((fed >> 20)) MB each; waiting for them to take it" >&2
+echo "perf.sh: $panes pane(s), $((fed >> 20)) MiB each; waiting for them to take it" >&2
 for id in $(cat "$tmp/targets"); do
 	for _ in $(seq 600); do
 		"$bin" read "$id" 2>/dev/null | grep -q PERF-READY && break
@@ -262,6 +262,11 @@ for id in $(cat "$tmp/targets"); do
 	done
 	"$bin" read "$id" 2>/dev/null | grep -q PERF-READY || { echo "perf.sh: pane $id did not finish its output" >&2; exit 1; }
 done
+
+# The RSS denominator is the actual isolated daemon's distinct terminal PTYs.
+# N client terminals need not be retained, but N daemon terminals must exist.
+"$bin" ls --json >"$tmp/fixture.json"
+$probe validate-fixture "$panes" "$tmp/fixture.json"
 
 if [ "${PERF_MEMORY:-0}" != 1 ]; then
 	start_app

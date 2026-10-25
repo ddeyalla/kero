@@ -142,7 +142,7 @@ MB = 1 << 20
 
 
 def _mb(n):
-    return f"{n / MB:.1f} MB"
+    return f"{n / MB:.1f} MiB"
 
 
 def _ms(v):
@@ -155,6 +155,21 @@ def _verdict(value, limit):
     return "ok" if value <= limit else "OVER"
 
 
+def validate_daemon_fixture(panes, sessions):
+    """The isolated fixture must contain N distinct terminal PTYs, not views."""
+    if type(panes) is not int or panes < 1:
+        raise ValueError("fixture panes must be a positive integer")
+    ids = []
+    for session in sessions:
+        for pane in session["panes"]:
+            if pane.get("view") or not pane.get("id"):
+                raise ValueError("fixture must contain only terminal panes with IDs")
+            ids.append(pane["id"])
+    if len(ids) != panes or len(set(ids)) != panes:
+        raise ValueError("fixture terminal count does not match requested panes")
+    return len(ids)
+
+
 def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames=None, busy_frames=None, key_latency=None, idle_window=None):
     """The table perf.sh prints, as lines. base is a sample of kerod with
     no pane, t0 and t1 bound the idle window; app is the app's pid.
@@ -163,6 +178,8 @@ def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames
     The package idle wakeups, those that woke an idle CPU package (Activity
     Monitor's "Idle Wake Ups"), go beside them; they depend on what else
     keeps the machine awake, and are 0 on a busy one."""
+    if type(panes) is not int or panes < 1:
+        raise ValueError("fixture panes must be a positive integer")
     rows = []
 
     def row(name, value, budget="", verdict=""):
@@ -176,21 +193,25 @@ def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames
     if k1:
         row("kerod footprint", _mb(k1["footprint"]))
         row("kerod resident (RSS)", _mb(k1["resident"]))
+        per_rss = k1["resident"] / panes
+        row("kerod resident (RSS) per pane", _mb(per_rss), "<= 25 MiB",
+            _verdict(per_rss, 25 * MB))
         if k0:
             per = (k1["footprint"] - k0["footprint"]) / panes
-            row("kerod footprint per pane", _mb(per) + f"  (over {_mb(k0['footprint'])} with none)", "<= 25 MB",
-                _verdict(per, 25 * MB))
+            row("kerod footprint per pane", _mb(per) + f"  (over {_mb(k0['footprint'])} with none; diagnostic)")
     r = idle_rates(t0, t1, kerod)
     if r:
         row("kerod idle CPU", f"{r['cpu']:.2f} %")
-        row("kerod idle wakeups", wakeups(r))
+        row("kerod idle wakeups", wakeups(r), "<= 500/min" if idle_window == "unfocused" else "",
+            _verdict(r["interrupt_wakeups"], 500) if idle_window == "unfocused" else "")
     if app:
         a1 = t1["pids"].get(str(app))
         if a1:
             row("app footprint (1 pane shown)", _mb(a1["footprint"]))
             row("app resident (RSS)", _mb(a1["resident"]))
-            per = a1["resident"] / panes
-            row("app resident (RSS) per pane", _mb(per), "<= 30 MB", _verdict(per, 30 * MB))
+            # Fixture sessions are not retained client terminals. The ordinary
+            # workload shows only one, so dividing by panes can invent a pass.
+            row("app retained-terminal RSS budget", "not measured (use PERF_MEMORY=1)", "<= 30 MiB/pane")
         ra = idle_rates(t0, t1, app)
         if ra:
             row("app idle CPU", f"{ra['cpu']:.2f} %")
@@ -240,7 +261,7 @@ def report(panes, fed, kerod, base, t0, t1, app=None, app_reason="", idle_frames
         row("key -> paint p99", "not measured (use PERF_GUI=1)", "<= 50 ms")
 
     seconds = r["seconds"] if r else 0
-    head = f"perf: {panes} pane(s), {fed / MB:.0f} MB fed to each, idle window {seconds:.0f} s"
+    head = f"perf: {panes} pane(s), {fed / MB:.0f} MiB fed to each, idle window {seconds:.0f} s"
     widths = [max(len(x[i]) for x in rows + [("measure", "value", "budget", "")]) for i in range(3)]
     lines = [head, ""]
     lines.append(f"{'measure'.ljust(widths[0])}  {'value'.ljust(widths[1])}  budget")
@@ -274,6 +295,13 @@ def main(argv):
         start = int(argv[2]) if len(argv) > 2 else 1
         end = int(argv[3]) if len(argv) > 3 else len(lines)
         print(json.dumps(frames(lines[start - 1:end])))
+        return 0
+    if argv and argv[0] == "validate-fixture":
+        p = argparse.ArgumentParser(prog="perf_probe.py validate-fixture")
+        p.add_argument("panes", type=int)
+        p.add_argument("sessions", help="isolated daemon ls --json output")
+        a = p.parse_args(argv[1:])
+        validate_daemon_fixture(a.panes, _load(a.sessions))
         return 0
     if argv and argv[0] == "report":
         p = argparse.ArgumentParser(prog="perf_probe.py report")
