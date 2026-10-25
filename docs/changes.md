@@ -101,10 +101,11 @@ session's displayed group with `knownProjects`, `groupOfProject` and
 ID selects the synthetic Other group and expands Other's `""` collapse key,
 while the session's own `Project` stays as it was. `requestReveal` is the
 shared reveal request: it changes only `nav.reveal`, never the selection or
-the page. An attention jump always calls it, even when the session is already
-selected and its group is open, because the tab may be scrolled out of sight;
-the jump then selects and expands only when the page, session or displayed
-group needs it. Startup reconciliation and `toggleProject` still call
+the page. Every explicit selection calls it, including the palette, overflow,
+shortcuts, attention jumps and plugin notifications, even when the session is
+already selected and its group is open, because the row or tab may be scrolled
+out of sight; the jump then selects and expands only when the page, session or
+displayed group needs it. Startup reconciliation and `toggleProject` still call
 `selectSession` or nothing, so a fold survives a restart and never becomes a
 selection change.
 
@@ -114,8 +115,10 @@ The vertical sidebar consumes the same `nav.reveal` request at
 requested row in either left or right placement. The request is one-shot, so
 a later frame cannot jump again. Ordinary `selectSession`, `setState` and
 `toggleProject` never set it, keeping their scroll and fold unchanged.
-`sidebar_reveal_test.go` uses 120 sessions in a real app and `ui.Tester` to
-cover both sidebars, a folded group, and an already-selected offscreen row.
+`sidebar_reveal_test.go` captures the committed `ScrollState.Bounds` and
+checks the revealed row against that real viewport, below the header and above
+the footer, for both sidebars, a folded group and an already-selected offscreen
+row.
 
 `nav_usage.go` hosts the usage popover on the shared plugin host.
 `@nav/usage` is a transient surface id, not a daemon pane: `pluginPane.go`'s
@@ -700,7 +703,12 @@ button, search field and slider controls. It finds the body by that stable
 label, proves each control is a descendant of that group, and keeps an
 unrelated group in the tree so an any-group assertion cannot pass. It then
 checks focus and plugin key gating/restoration. The built-in Attention case
-identifies its own named group the same way. Code:
+identifies its own named group the same way. Earlier native CUA evidence came
+from an isolated Linear plugin's nested controls in
+`codex-native-observations.md` §ui2h at `af942019` (PID 67311), not from every
+built-in pane; Files, Browser and Attention are tester proof only here. The
+shared `pane_views.go` is unchanged in this integration, and no fresh native
+acceptance is claimed. Code:
 [`pane_views.go`](../pane_views.go) (`viewPane`); tests:
 `pane_views_access_test.go`.
 
@@ -2507,12 +2515,17 @@ keeps the pane in the layout only for its exit fade. `panes.go`'s `paneCard`
 disables its whole card while `a.closing[p.ID]` is set, so the closing header,
 its nested New Pane/Split/Zoom/Close controls and the terminal/view body cannot
 take the focus back or dispatch an action during the fade; the surviving pane
-keeps its own controls. `setFocus` rejects an exiting pane, and `cyclePane` and
-`focusDirection` walk past it to the next live candidate, or leave the current
-focus unchanged when none exists. The exit pose, close scheduling and neighbour
-focus are unchanged. `pane_close_input_test.go` drives the real app view and shared pane
-header control to cover the closing card, a nested button and the live pane.
-No new user-visible text was added.
+keeps its own controls. `setFocus` rejects an exiting pane, and `cyclePane`
+walks past it. `focusDirection` asks `Layout.NeighborExcluding` for the nearest
+live pane in the original rectangles, excluding closing panes as candidates,
+so a closing pane in front of a live one cannot dead-end the move. The
+neighbour lookup keeps the existing distance rule and never removes or
+reflows the layout. The exit pose, close scheduling and neighbour focus are
+unchanged. `pane_close_input_test.go` drives the real app view and shared pane
+header control to cover the closing card, a nested button and the live pane;
+its irregular-layout regression covers both sides and no eligible target.
+`internal/proto/layout_test.go` checks the additive neighbour helper and that
+`Neighbor` keeps its old answer. No new user-visible text was added.
 
 ## Reviewed performance acceptance, 2026-10-25
 

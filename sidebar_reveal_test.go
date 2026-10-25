@@ -36,14 +36,27 @@ func sidebarRevealApp(t *testing.T) *App {
 	return a
 }
 
-func assertSidebarRowVisible(t *testing.T, a *App, r ui.Rect, width float32) {
+func sidebarFrame(a *App, viewport *ui.Rect) func(*ui.Context) {
+	return func(c *ui.Context) {
+		a.view(c)
+		*viewport = a.sidebarScroll.Bounds(c)
+	}
+}
+
+func assertSidebarRowVisible(t *testing.T, a *App, viewport ui.Rect, r ui.Rect, width float32) {
 	t.Helper()
 	left, right := float32(0), width
 	if a.navPlacement() == navRight {
 		left = width - a.chrome.sideW
 	}
-	if r.X < left || r.X+r.W > right || r.Y < 0 || r.Y+r.H > 700 {
-		t.Fatalf("row %+v is outside the %s sidebar %v..%v at 700 high", r, a.navPlacement(), left, right)
+	if viewport.Y < topBar || viewport.Y+viewport.H > 700-36 {
+		t.Fatalf("the sidebar viewport %+v is not between the header and footer", viewport)
+	}
+	if viewport.X < left || viewport.X+viewport.W > right {
+		t.Fatalf("the sidebar viewport %+v is outside %v..%v", viewport, left, right)
+	}
+	if r.X < left || r.X+r.W > right || r.Y < viewport.Y || r.Y+r.H > viewport.Y+viewport.H {
+		t.Fatalf("row %+v is outside the %s sidebar viewport %+v", r, a.navPlacement(), viewport)
 	}
 }
 
@@ -52,7 +65,8 @@ func TestSidebarExplicitRevealScrollsRowIntoView(t *testing.T) {
 		t.Run(string(place), func(t *testing.T) {
 			a := sidebarRevealApp(t)
 			a.setNavPlacement(place)
-			tt := ui.NewTester(a.view, 900, 700)
+			var viewport ui.Rect
+			tt := ui.NewTester(sidebarFrame(a, &viewport), 900, 700)
 			tt.Frame()
 			if a.sidebarScroll.MaxY <= 0 || a.sidebarScroll.Y != 0 {
 				t.Fatalf("the sidebar does not start at the top: %+v", a.sidebarScroll)
@@ -62,6 +76,7 @@ func TestSidebarExplicitRevealScrollsRowIntoView(t *testing.T) {
 				t.Fatalf("the last row is not built: %v", tt.Texts())
 			}
 			a.selectRevealing(last)
+			tt.Frame()
 			tt.Frame()
 			if a.nav.reveal != "" {
 				t.Fatalf("the reveal stayed pending: %q", a.nav.reveal)
@@ -73,66 +88,80 @@ func TestSidebarExplicitRevealScrollsRowIntoView(t *testing.T) {
 			if !ok {
 				t.Fatalf("the revealed row is not in the frame")
 			}
-			assertSidebarRowVisible(t, a, r, 900)
+			assertSidebarRowVisible(t, a, viewport, r, 900)
 		})
 	}
 }
 
 func TestSidebarRevealUnfoldsAndDoesNotYankOrdinarySelection(t *testing.T) {
-	a := sidebarRevealApp(t)
-	tt := ui.NewTester(a.view, 900, 700)
-	tt.Frame()
-	last := "reveal-119"
+	for _, place := range []navPlacement{navLeft, navRight} {
+		t.Run(string(place), func(t *testing.T) {
+			a := sidebarRevealApp(t)
+			a.setNavPlacement(place)
+			var viewport ui.Rect
+			tt := ui.NewTester(sidebarFrame(a, &viewport), 900, 700)
+			tt.Frame()
+			last := "reveal-119"
 
-	// An ordinary selection changes the session but neither unfolds nor
-	// scrolls the sidebar.
-	a.prefs.Collapsed["p1"] = true
-	a.selectSession(last)
-	tt.Frame()
-	if !a.prefs.Collapsed["p1"] {
-		t.Fatal("ordinary selection unfolded the project")
-	}
-	if a.sidebarScroll.Y != 0 {
-		t.Fatalf("ordinary selection yanked the sidebar: %+v", a.sidebarScroll)
-	}
+			// An ordinary selection changes the session but neither unfolds nor
+			// scrolls the sidebar.
+			a.prefs.Collapsed["p1"] = true
+			a.selectSession(last)
+			tt.Frame()
+			if !a.prefs.Collapsed["p1"] {
+				t.Fatal("ordinary selection unfolded the project")
+			}
+			if a.sidebarScroll.Y != 0 {
+				t.Fatalf("ordinary selection yanked the sidebar: %+v", a.sidebarScroll)
+			}
 
-	// An explicit reveal of the already-selected, folded row opens the group
-	// and brings the row into view.
-	a.selectRevealing(last)
-	tt.Frame()
-	if a.prefs.Collapsed["p1"] {
-		t.Fatal("explicit reveal left the project folded")
+			// An explicit reveal of the already-selected, folded row opens the group
+			// and brings the row into view.
+			a.selectRevealing(last)
+			tt.Frame()
+			tt.Frame()
+			if a.prefs.Collapsed["p1"] {
+				t.Fatal("explicit reveal left the project folded")
+			}
+			if a.sidebarScroll.Y <= 0 {
+				t.Fatalf("explicit reveal did not scroll: %+v", a.sidebarScroll)
+			}
+			r, ok := tt.Find(last)
+			if !ok {
+				t.Fatal("the explicitly revealed row is missing")
+			}
+			assertSidebarRowVisible(t, a, viewport, r, 900)
+		})
 	}
-	if a.sidebarScroll.Y <= 0 {
-		t.Fatalf("explicit reveal did not scroll: %+v", a.sidebarScroll)
-	}
-	r, ok := tt.Find(last)
-	if !ok {
-		t.Fatal("the explicitly revealed row is missing")
-	}
-	assertSidebarRowVisible(t, a, r, 900)
 }
 
 func TestSidebarRevealAlreadySelectedOffscreen(t *testing.T) {
-	a := sidebarRevealApp(t)
-	last := "reveal-119"
-	// Select without a reveal first, as a plain click or an internal state
-	// update can. It leaves the row offscreen.
-	a.selectSession(last)
-	tt := ui.NewTester(a.view, 900, 700)
-	tt.Frame()
-	if a.sidebarScroll.Y != 0 {
-		t.Fatalf("plain selection scrolled: %+v", a.sidebarScroll)
+	for _, place := range []navPlacement{navLeft, navRight} {
+		t.Run(string(place), func(t *testing.T) {
+			a := sidebarRevealApp(t)
+			a.setNavPlacement(place)
+			last := "reveal-119"
+			// Select without a reveal first, as a plain click or an internal state
+			// update can. It leaves the row offscreen.
+			a.selectSession(last)
+			var viewport ui.Rect
+			tt := ui.NewTester(sidebarFrame(a, &viewport), 900, 700)
+			tt.Frame()
+			if a.sidebarScroll.Y != 0 {
+				t.Fatalf("plain selection scrolled: %+v", a.sidebarScroll)
+			}
+			// The same selected row now receives an explicit reveal request.
+			a.selectRevealing(last)
+			tt.Frame()
+			tt.Frame()
+			if a.nav.reveal != "" || a.sidebarScroll.Y <= 0 {
+				t.Fatalf("already-selected row was not revealed: reveal=%q scroll=%+v", a.nav.reveal, a.sidebarScroll)
+			}
+			r, ok := tt.Find(last)
+			if !ok {
+				t.Fatal("the already-selected revealed row is missing")
+			}
+			assertSidebarRowVisible(t, a, viewport, r, 900)
+		})
 	}
-	// The same selected row now receives an explicit reveal request.
-	a.selectRevealing(last)
-	tt.Frame()
-	if a.nav.reveal != "" || a.sidebarScroll.Y <= 0 {
-		t.Fatalf("already-selected row was not revealed: reveal=%q scroll=%+v", a.nav.reveal, a.sidebarScroll)
-	}
-	r, ok := tt.Find(last)
-	if !ok {
-		t.Fatal("the already-selected revealed row is missing")
-	}
-	assertSidebarRowVisible(t, a, r, 900)
 }

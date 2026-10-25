@@ -108,6 +108,52 @@ func TestClosingPaneKeyboardNavigationSkipsIt(t *testing.T) {
 	}
 }
 
+func TestFocusDirectionUsesLiveCandidateFromOriginalGeometry(t *testing.T) {
+	a := testApp(t)
+	s := a.session("s1")
+	s.Panes = append(s.Panes,
+		proto.Pane{ID: "c", Shell: "bash", Dir: "/tmp", Status: proto.Idle, Progress: -1},
+		proto.Pane{ID: "d", Shell: "zsh", Dir: "/tmp", Status: proto.Idle, Progress: -1},
+	)
+	// a and d sit above b and c; a is over b, so down from a would pick
+	// the closing b and dead-end without the live c.
+	s.Layout = &proto.Layout{
+		Row: false, Ratio: 0.5,
+		A: &proto.Layout{Row: true, Ratio: 0.75, A: &proto.Layout{Pane: "a"}, B: &proto.Layout{Pane: "d"}},
+		B: &proto.Layout{Row: true, Ratio: 0.75, A: &proto.Layout{Pane: "b"}, B: &proto.Layout{Pane: "c"}},
+	}
+	a.setFocus(s, "a")
+	a.closing = map[string]bool{"b": true}
+	a.focusDirection("down")
+	if got := a.focusOf(s); got != "c" {
+		t.Fatalf("down from a selected %q, want live c beyond closing b", got)
+	}
+
+	a.setFocus(s, "d")
+	a.closing = map[string]bool{"c": true}
+	a.focusDirection("down")
+	if got := a.focusOf(s); got != "b" {
+		t.Fatalf("down from d selected %q, want live b beyond closing c", got)
+	}
+
+	a.setFocus(s, "a")
+	a.closing = map[string]bool{"b": true, "c": true}
+	a.focusDirection("down")
+	if got := a.focusOf(s); got != "a" {
+		t.Fatalf("down with no live candidate selected %q, want a", got)
+	}
+	if a.selected != "s1" {
+		t.Fatalf("directional focus changed the selected session to %q", a.selected)
+	}
+
+	s.Zoomed = "a"
+	a.closing = map[string]bool{"b": true}
+	a.focusDirection("down")
+	if got := a.focusOf(s); got != "a" || s.Zoomed != "a" {
+		t.Fatalf("zoomed directional focus changed to %q, zoom %q", got, s.Zoomed)
+	}
+}
+
 func TestClosingPaneKeyboardNavigationNoEligibleTarget(t *testing.T) {
 	a := testApp(t)
 	s := a.session("s1")

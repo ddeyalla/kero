@@ -31,6 +31,10 @@ builds only. What each feature is and where it stands is tracked in the
   its exit fades: focus stays with the surviving neighbour, its header
   controls cannot dispatch from the closing pane, and Next/Previous/Directional
   Pane skip it.
+- Directional Pane now finds the nearest live pane in the original layout when
+  a closing pane sits closest in that direction. A closing pane no longer
+  dead-ends the move before a live pane beyond it, including in irregular
+  splits.
 - The shared keyboard focus ring, including sliders and generic controls,
   now follows the selected accent instead of staying system blue. The ring
   keeps its normal opacity, and Increase Contrast still draws a full-opacity

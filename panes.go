@@ -920,28 +920,20 @@ func (a *App) zoomPane(s *proto.Session, pane string) {
 	a.paneRef(pane).Focus()
 }
 
-// focusDirection moves into the pane next to the focused one, skipping
-// panes that are already exiting.
+// focusDirection moves into the live pane next to the focused one. A closing
+// pane is skipped as a candidate in the original layout, so it cannot
+// dead-end the search before a live pane farther along.
 func (a *App) focusDirection(dir string) {
 	s := a.session(a.selected)
 	if s == nil || s.Layout == nil || s.Zoomed != "" {
 		return
 	}
-	seen := map[string]bool{a.focusOf(s): true}
-	current := a.focusOf(s)
-	for range len(s.Panes) {
-		n := s.Layout.Neighbor(current, dir)
-		if n == "" || seen[n] {
-			return
-		}
-		seen[n] = true
-		if !a.closing[n] {
-			a.setFocus(s, n)
-			a.paneRef(n).Focus()
-			return
-		}
-		current = n
+	n := s.Layout.NeighborExcluding(a.focusOf(s), dir, func(id string) bool { return a.closing[id] })
+	if n == "" {
+		return
 	}
+	a.setFocus(s, n)
+	a.paneRef(n).Focus()
 }
 
 // cyclePane moves to the next or previous pane, in the layout's order,
