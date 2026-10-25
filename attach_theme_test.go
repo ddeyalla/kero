@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/client"
+	"kero/internal/plugin/protocol"
 	"kero/internal/proto"
 )
 
@@ -132,6 +133,19 @@ func (f *attachFake) stream(t *testing.T) *client.Stream {
 
 func colorBytes(c ui.Color) [4]byte { return [4]byte{c.R, c.G, c.B, c.A} }
 
+func sameTheme(got proto.Theme, want *terminal.Theme) bool {
+	if got.Foreground != colorBytes(want.Foreground) || got.Background != colorBytes(want.Background) ||
+		got.Cursor != colorBytes(want.Cursor) {
+		return false
+	}
+	for i := range want.Palette {
+		if got.Palette[i] != colorBytes(want.Palette[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // publishTerm installs the terminal on the UI owner and reconciles the
 // current theme, font and settings. Draw the published terminal to make
 // MyGo report its applied theme to the stream.
@@ -139,96 +153,157 @@ func TestPublishTermReconcilesLatestThemeAndDropsStale(t *testing.T) {
 	if testing.Short() {
 		t.Skip("loads libghostty-vt")
 	}
-	f := startAttachFake(t)
-	a := testApp(t)
-	a.conn = connReady
-	stream := f.stream(t)
-	g := &gated{Stream: stream, ready: make(chan struct{}), hold: &a.sizeHold}
-	o := a.termOptions("a", g)
-	o.ResizeByConn = true
-	term, err := terminal.New(o)
-	if err != nil {
-		stream.Close()
-		t.Fatal(err)
+	type fixture struct {
+		app    *App
+		fake   *attachFake
+		term   *terminal.Terminal
+		stream *client.Stream
+		entry  *termEntry
+		old    *terminal.Theme
 	}
-	close(g.ready)
-	e := &termEntry{}
-	a.terms["a"] = e
-
-	var got *palette
-	tt := ui.NewTester(func(c *ui.Context) {
-		got = a.paletteFor(c)
-		runAmbientLater(a)
-	}, 200, 100)
-	red := ui.RGB(200, 40, 40)
-	a.lendAmbient("p1", "fake", true, tintedView(red))
-	tt.Frame()
-	tt.Advance(ambientFade / 2)
-	tt.Frame()
-	if got.card == a.accentPal(false).withAmbient(red, 1).card {
-		t.Fatal("the fade had already settled")
-	}
-
-	a.publishTerm("a", e, term, stream)
-	vt := ui.NewTester(func(c *ui.Context) { terminal.View(c, term) }, 200, 100)
-	vt.Frame()
-	select {
-	case theme := <-f.themes:
-		want, _ := a.termThemes()
-		if theme.Cursor != colorBytes(want.Cursor) {
-			t.Fatalf("published cursor = %v, want the current fade %v", theme.Cursor, colorBytes(want.Cursor))
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the published terminal reported no theme")
-	}
-
-	// A fade that settled while the terminal had no e.term is reconciled
-	// too, rather than keeping the pre-attach snapshot.
-	tt.Advance(ambientFade * 2)
-	tt.Frame()
-	a.publishTerm("a", e, term, stream)
-	vt.Frame()
-	select {
-	case theme := <-f.themes:
-		want, _ := a.termThemes()
-		if theme.Cursor != colorBytes(want.Cursor) {
-			t.Fatalf("settled cursor = %v, want the settled fade %v", theme.Cursor, colorBytes(want.Cursor))
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the settled terminal reported no theme")
-	}
-
-	// A custom pair is also reconciled at publication, rather than keeping
-	// the snapshot taken before the attach.
-	a.set.LightTheme, a.set.DarkTheme = "Nord", "Nord"
-	a.publishTerm("a", e, term, stream)
-	vt.Frame()
-	select {
-	case theme := <-f.themes:
-		want, err := terminal.GhosttyTheme("Nord")
+	newFixture := func(t *testing.T) fixture {
+		t.Helper()
+		f := startAttachFake(t)
+		a := testApp(t)
+		a.plugins.known = ambientApp(protocol.PermAmbient).plugins.known
+		a.plugins.knownAt = true
+		a.conn = connReady
+		stream := f.stream(t)
+		g := &gated{Stream: stream, ready: make(chan struct{}), hold: &a.sizeHold}
+		o := a.termOptions("a", g)
+		o.ResizeByConn = true
+		term, err := terminal.New(o)
 		if err != nil {
+			stream.Close()
 			t.Fatal(err)
 		}
-		if theme.Cursor != colorBytes(want.Cursor) {
-			t.Fatalf("custom cursor = %v, want %v", theme.Cursor, colorBytes(want.Cursor))
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the custom terminal reported no theme")
+		close(g.ready)
+		e := &termEntry{}
+		a.terms["a"] = e
+		t.Cleanup(func() {
+			if e.term != nil {
+				a.dropTerm("a")
+				return
+			}
+			term.Close()
+			stream.Close()
+		})
+		return fixture{a, f, term, stream, e, o.Theme}
 	}
 
-	// A replacement that won the entry while the attach was in flight is
-	// rejected, and both the terminal and its stream are closed.
-	other := &termEntry{}
-	a.terms["a"] = other
-	a.publishTerm("a", e, term, stream)
-	select {
-	case <-f.closed:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the rejected attach kept its stream")
+	red := ui.RGB(200, 40, 40)
+	cases := []struct {
+		name    string
+		prepare func(t *testing.T, a *App, tt *ui.Tester, got **palette) *terminal.Theme
+	}{
+		{
+			name: "mid fade",
+			prepare: func(t *testing.T, a *App, tt *ui.Tester, got **palette) *terminal.Theme {
+				base := *got
+				a.lendAmbient("p1", "fake", true, tintedView(red))
+				if color := a.ambientColor(); color != red {
+					t.Fatalf("ambient color = %v, want %v", color, red)
+				}
+				tt.Frame()
+				tt.Advance(ambientFade / 2)
+				tt.Frame()
+				if s := a.ambient.strength; s <= 0 || s >= 1 {
+					t.Fatalf("mid-fade strength = %v, want between 0 and 1", s)
+				}
+				if (*got).card == base.card || (*got).card == base.withAmbient(red, 1).card {
+					t.Fatal("the mid-fade card matched the base or the settled palette")
+				}
+				want, _ := a.termThemes()
+				return want
+			},
+		},
+		{
+			name: "settled fade",
+			prepare: func(t *testing.T, a *App, tt *ui.Tester, _ **palette) *terminal.Theme {
+				a.lendAmbient("p1", "fake", true, tintedView(red))
+				if color := a.ambientColor(); color != red {
+					t.Fatalf("ambient color = %v, want %v", color, red)
+				}
+				tt.Frame()
+				tt.Advance(ambientFade * 2)
+				tt.Frame()
+				tt.Frame()
+				if s := a.ambient.strength; s != 1 {
+					t.Fatalf("settled strength = %v, want 1", s)
+				}
+				want, _ := a.termThemes()
+				return want
+			},
+		},
+		{
+			name: "custom theme",
+			prepare: func(t *testing.T, a *App, _ *ui.Tester, _ **palette) *terminal.Theme {
+				a.set.LightTheme, a.set.DarkTheme = "Nord", "Nord"
+				want, err := terminal.GhosttyTheme("Nord")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return want
+			},
+		},
 	}
-	if a.terms["a"] != other {
-		t.Fatal("the rejected attach replaced the current entry")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newFixture(t)
+			var got *palette
+			tt := ui.NewTester(func(c *ui.Context) {
+				got = fx.app.paletteFor(c)
+				runAmbientLater(fx.app)
+			}, 200, 100)
+			tt.Frame()
+			if fx.entry.term != nil {
+				t.Fatal("the fixture terminal was installed before publication")
+			}
+			want := tc.prepare(t, fx.app, tt, &got)
+			if fx.entry.term != nil {
+				t.Fatal("the terminal was installed while the fade or theme changed")
+			}
+			if fx.app.terms["a"] != fx.entry {
+				t.Fatal("the fixture entry left the table before publication")
+			}
+			if want.Cursor == fx.old.Cursor {
+				t.Fatal("the fixture old snapshot already has the expected cursor")
+			}
+
+			fx.app.publishTerm("a", fx.entry, fx.term, fx.stream)
+			if fx.entry.term != fx.term || fx.entry.stream != fx.stream {
+				t.Fatal("the fixture terminal did not publish")
+			}
+			vt := ui.NewTester(func(c *ui.Context) { terminal.View(c, fx.term) }, 200, 100)
+			vt.Frame()
+			select {
+			case theme := <-fx.fake.themes:
+				if !sameTheme(theme, want) {
+					t.Fatalf("published theme = %v, want the current theme %v", theme, want)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("the published terminal reported no theme")
+			}
+		})
 	}
+
+	t.Run("stale replacement", func(t *testing.T) {
+		fx := newFixture(t)
+		other := &termEntry{}
+		fx.app.terms["a"] = other
+		fx.app.publishTerm("a", fx.entry, fx.term, fx.stream)
+		select {
+		case <-fx.fake.closed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the rejected attach kept its stream")
+		}
+		if fx.app.terms["a"] != other {
+			t.Fatal("the rejected attach replaced the current entry")
+		}
+		if fx.entry.term != nil {
+			t.Fatal("the rejected attach installed its terminal")
+		}
+	})
 }
 
 // Changing the scrollback while the attach handshake is blocked must
@@ -292,6 +367,10 @@ func TestPendingAttachReplacesScrollbackChange(t *testing.T) {
 			if b.err != nil {
 				t.Fatal(b.err)
 			}
+			t.Cleanup(func() {
+				b.term.Close()
+				b.stream.Close()
+			})
 			select {
 			case <-b.ready:
 			case <-time.After(5 * time.Second):
@@ -353,16 +432,23 @@ func TestSlowAttachDoesNotReadAmbientFromWorker(t *testing.T) {
 	}
 	f := startAttachFake(t)
 	oldNew := newTerminal
-	created := make(chan *terminal.Terminal, 1)
+	type built struct {
+		term   *terminal.Terminal
+		stream *client.Stream
+		ready  <-chan struct{}
+		err    error
+	}
+	created := make(chan built, 1)
 	newTerminal = func(o terminal.Options) (*terminal.Terminal, error) {
 		term, err := terminal.New(o)
-		if err == nil {
-			created <- term
-		}
+		g := o.Conn.(*gated)
+		created <- built{term, g.Stream, g.ready, err}
 		return term, err
 	}
 	defer func() { newTerminal = oldNew }()
 	a := testApp(t)
+	a.plugins.known = ambientApp(protocol.PermAmbient).plugins.known
+	a.plugins.knownAt = true
 	a.conn = connReady
 	a.ensureTerm("a")
 	<-f.accepted
@@ -372,11 +458,19 @@ func TestSlowAttachDoesNotReadAmbientFromWorker(t *testing.T) {
 		got = a.paletteFor(c)
 		runAmbientLater(a)
 	}, 200, 100)
-	a.lendAmbient("p1", "fake", true, tintedView(ui.RGB(200, 40, 40)))
+	tt.Frame()
+	red := ui.RGB(200, 40, 40)
+	a.lendAmbient("p1", "fake", true, tintedView(red))
+	if color := a.ambientColor(); color != red {
+		t.Fatalf("ambient color = %v, want %v", color, red)
+	}
 	tt.Frame()
 	tt.Advance(ambientFade / 2)
 	tt.Frame()
-	if got.card == a.accentPal(false).withAmbient(ui.RGB(200, 40, 40), 1).card {
+	if s := a.ambient.strength; s <= 0 || s >= 1 {
+		t.Fatalf("mid-fade strength = %v, want between 0 and 1", s)
+	}
+	if got.card == a.accentPal(false).withAmbient(red, 1).card {
 		t.Fatal("the fade had already settled")
 	}
 
@@ -385,15 +479,29 @@ func TestSlowAttachDoesNotReadAmbientFromWorker(t *testing.T) {
 	deadline := time.After(5 * time.Second)
 	for {
 		select {
-		case term := <-created:
-			term.Close()
+		case b := <-created:
+			if b.err != nil {
+				t.Fatal(b.err)
+			}
+			t.Cleanup(func() { b.term.Close() })
+			select {
+			case <-b.ready:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the slow attach did not finish its terminal setup")
+			}
+			e := a.terms["a"]
+			if e == nil {
+				t.Fatal("attach entry disappeared")
+			}
+			a.publishTerm("a", e, b.term, b.stream)
+			if e.term != b.term || e.stream != b.stream {
+				t.Fatal("the slow attach did not publish")
+			}
+			a.dropTerm("a")
 			select {
 			case <-f.closed:
 			case <-time.After(5 * time.Second):
 				t.Fatal("the completed attach did not close its stream")
-			}
-			if e := a.terms["a"]; e == nil {
-				t.Fatal("attach entry disappeared")
 			}
 			return
 		case <-deadline:
