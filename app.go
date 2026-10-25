@@ -923,6 +923,10 @@ func (g *gated) flush() {
 	}
 }
 
+// newTerminal is terminal.New; tests replace it to observe the completed
+// constructor without a window.
+var newTerminal = terminal.New
+
 // ensureTerm attaches a terminal to a session, unless one is.
 func (a *App) ensureTerm(id string) {
 	if a.terms[id] != nil || a.conn != connReady || a.isViewPane(id) {
@@ -953,7 +957,7 @@ func (a *App) ensureTerm(id string) {
 			return
 		}
 		g.Stream = stream
-		term, err := terminal.New(o)
+		term, err := newTerminal(o)
 		if err != nil {
 			stream.Close()
 			a.update(func() {
@@ -967,30 +971,34 @@ func (a *App) ensureTerm(id string) {
 		term.Resize(stream.Welcome.Cols, stream.Welcome.Rows)
 		stream.OnResized = term.Resize
 		close(g.ready)
-		a.update(func() {
-			if a.terms[id] != e {
-				term.Close()
-				stream.Close()
-				return
-			}
-			e.term, e.stream = term, stream
-			// A fade or a settings change may have finished while this
-			// terminal had no e.term, so the update pass could not reach it.
-			// Reconcile the settings that can change without a new terminal.
-			light, dark := a.termThemes()
-			term.SetTheme(light, dark)
-			term.SetFont(a.termFont())
-			term.SetMinimumContrast(a.set.MinContrast)
-			if a.set.CopyOnSelect {
-				term.SetCopyOnSelect(terminal.CopyOnSelectClipboard)
-			} else {
-				term.SetCopyOnSelect(terminal.CopyOnSelectNone)
-			}
-			if a.selected == id {
-				a.focusTerminal()
-			}
-		})
+		a.update(func() { a.publishTerm(id, e, term, stream) })
 	}()
+}
+
+// publishTerm installs a finished attach on the UI owner. A replace may have
+// removed the entry while the attach ran, in which case both resources go.
+func (a *App) publishTerm(id string, e *termEntry, term *terminal.Terminal, stream *client.Stream) {
+	if a.terms[id] != e {
+		term.Close()
+		stream.Close()
+		return
+	}
+	e.term, e.stream = term, stream
+	// A fade or a settings change may have finished while this terminal
+	// had no e.term, so the update pass could not reach it. Reconcile the
+	// settings that can change without a new terminal.
+	light, dark := a.termThemes()
+	term.SetTheme(light, dark)
+	term.SetFont(a.termFont())
+	term.SetMinimumContrast(a.set.MinContrast)
+	if a.set.CopyOnSelect {
+		term.SetCopyOnSelect(terminal.CopyOnSelectClipboard)
+	} else {
+		term.SetCopyOnSelect(terminal.CopyOnSelectNone)
+	}
+	if a.selected == id {
+		a.focusTerminal()
+	}
 }
 
 func (a *App) termFont() terminal.Font {
