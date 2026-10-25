@@ -40,6 +40,12 @@ The budgets are targets at 1, 4, 8 and 12 panes, each with a full scrollback
 conditions. The last two rows are tests, which `go test ./...` runs, so a
 regression fails the checks without the app.
 
+MyGo's GPU builder keeps transformed clip masks for the current frame and
+drops idle ones beyond 32 MiB. The pinned fork counts a shrunken mask's
+retained backing capacity, not only its visible length, so stale capacity is
+dropped. This is accounting and lifetime correctness, not a budget row, an app
+RSS or footprint attribution, or evidence of 25-session savings.
+
 ## Measuring
 
 ```sh

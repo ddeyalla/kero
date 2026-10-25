@@ -12,6 +12,11 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- The GPU builder's idle clip-mask budget now counts the backing capacity a
+  shrunken mask retains, not only its visible length. A mask that no frame
+  uses is dropped once its backing array would exceed the 32 MiB budget;
+  masks used by the current frame stay cached. This carries the MyGo fork
+  fix and is not a claimed 25-session footprint result.
 - The shared keyboard focus ring, including sliders and generic controls,
   now follows the selected accent instead of staying system blue. The ring
   keeps its normal opacity, and Increase Contrast still draws a full-opacity

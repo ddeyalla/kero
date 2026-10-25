@@ -222,6 +222,18 @@ endpoint and listener never enter production builds. See `docs/perf.md` for
 measured samples, distinct RSS and physical-footprint counters, native-input
 scope and the remaining BRU-333 native-allocation ownership investigation.
 
+Clip-mask idle memory lives below Shibu, in MyGo's
+`internal/gpu/transform.go`: the builder caches transformed clip masks for the
+current frame, then drops masks no op uses beyond a 32 MiB budget. A mask that
+shrinks keeps its image's backing array through `scene.Image.Resize`, so
+counting only `len(m.image.Pix)` could leave more retained backing capacity than
+the budget allowed. The pinned MyGo fork (`7fb5c349`,
+`v0.5.6-0.20261025114427-7fb5c34991fd`) counts `cap(m.image.Pix)` instead; the
+budget and the lifetime of masks used by the current frame are unchanged. Shibu
+pins the fork commit through the existing `replace` directive, never through a
+local path. This is accounting and lifetime correctness, not a claimed
+25-session or total-footprint improvement.
+
 ## Release validation and CI
 
 Release mode publishes the reviewed source on the pinned upstream base in
