@@ -12,6 +12,10 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- The background grain shader now initializes in the GUI role before its
+  first window, rather than during package initialization. The CLI, terminal
+  service and plugin processes no longer compile that backdrop or create
+  its Metal precompiler device. The grain's appearance and setting are unchanged.
 - The GPU builder's idle clip-mask budget now counts the backing capacity a
   shrunken mask retains, not only its visible length. Idle masks are dropped
   once their combined retained backing capacity exceeds the 32 MiB budget;

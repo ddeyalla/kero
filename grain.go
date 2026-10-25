@@ -1,6 +1,8 @@
 package main
 
 import (
+	"sync"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/shader"
 )
@@ -33,8 +35,11 @@ func Fragment(dst vec4, pos vec2) vec4 {
 }
 `
 
-// grain is the shader, compiled once; it draws in any window.
-var grain = shader.MustCompile(grainSrc)
+// grain returns the shader shared by all windows. The UI prewarms it;
+// headless roles never compile a backdrop or initialize its GPU device.
+var grain = sync.OnceValue(func() *shader.Shader {
+	return shader.MustCompile(grainSrc)
+})
 
 // grainAlpha is how strong the grain is, in the light and the dark, and
 // lighter where the desktop shows through, which has a texture of its own.

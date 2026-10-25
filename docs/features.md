@@ -156,6 +156,7 @@ Current release: **2.0.7-local.5** (Kero 2.0.7), 2026-10-24.
 | Accent presets: Blue, Plum, Rose, Sea, Moss, Graphite — an accent color, the wash that comes with it, the terminals' selection | Settings › Appearance › Accent (with its wash); `accent = <preset>` in the config (the accent alone) | 2.0.7-local.2 | Untried |
 | Shared keyboard focus ring in the chosen accent, including generic controls and sliders; Increase Contrast keeps its full opacity | Settings › Appearance › Accent; Tab to a slider or control | Unreleased | Tested |
 | Grain over the background wash: a repeating 300-point tile at 3.3% light and 4% dark | Settings › Appearance › Grain; `grain = false` off | 2.0.7-local.2 | Pixel strength and tiling regressions pass |
+| Initialize the grain shader only when the GUI needs it | Automatic; the GUI prewarms before its first window | Unreleased | Software pixel, strength, tiling and setting-toggle regressions pass; installed GUI behavior unverified |
 | Spotify list errors retain the open album or playlist and offer Retry; offline libraries and Up next can retry in place | Retry in a failed Spotify list | 2.0.7-local.2 | Fake HTTP recovery and race tests |
 
 ## Terminal

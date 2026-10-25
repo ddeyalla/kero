@@ -21,6 +21,47 @@ acceptance gaps. The historical 1.22 GB daily-app growth has not reproduced;
 native VM categories are recorded without inventing allocator ownership.
 No unsupported GC or memory limit was added to make a measurement pass.
 
+## Empty daemon shader initialization
+
+The application now initializes its background grain shader only in the GUI
+role. `main.go` prewarms the once-owned shader after role and single-instance
+routing, before creating a window. The CLI, daemon and plugin roles do not
+compile it. This removes unnecessary backdrop work from headless processes;
+it does not change the shader, MyGo's compiler or a memory budget.
+
+The C14 production-mode empty-daemon baseline used published MyGo `7fb5c34991fd`,
+no terminals and a 15-second settle. Kernel RSS was 40.266–40.375 MiB and
+physical footprint was 15.813–15.923 MiB. RSS exceeded the literal 25 MiB
+(26,214,400-byte) daemon target. Metal, QuartzCore and CoreGraphics image
+mappings were present, together with graphics-tagged mappings. Region
+resident totals include shared mappings and are not kernel RSS or exclusive
+allocator costs. The baseline alone does not quantify grain's marginal cost.
+
+The production compiler flags were `-s -w`, `production=1`, `-trimpath` and
+`mygo_noinspector`, with a private package identity and app metadata seam.
+The seam is inactive in the headless daemon. This is not byte-identical
+shipping-release evidence, a paired app result or a one-pane acceptance run.
+The earlier development diagnostic build is not a release RSS lower bound.
+
+The C15 lazy-grain candidate repeated that headless protocol with the same
+pin, production flags and private metadata seam. The dependent source base
+differed only in documentation and the already matched MyGo pin, before
+the grain lifecycle change. The empty inventory stayed empty and all
+transient inventory clients exited before samples. Kernel RSS was
+30.469–30.688 MiB and footprint was 10.157–10.376 MiB. RSS still exceeded
+25 MiB by 5.469–5.688 MiB; this does not close the memory acceptance target.
+The observed RSS reduction was 9.688–9.797 MiB, not a complete allocator
+attribution or a guarantee of the same savings in another workload.
+
+The candidate had no `IOAccelerator`, `IOAccelerator (graphics)` or `IOKit`
+region rows. Metal, QuartzCore and CoreGraphics images remained mapped;
+image presence alone does not prove a device was created. Their shared
+resident pages are not a disjoint part of process RSS. The role dispatch
+and lazy constructor remove grain's headless precompile path; these two
+snapshots do not identify every remaining native allocation or establish
+an unavoidable memory floor. Software pixel and setting-toggle regressions
+passed. No installed GUI or native compositor test was performed.
+
 ## Budgets
 
 | Measure | Budget | How it is measured |

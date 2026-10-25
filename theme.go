@@ -321,7 +321,7 @@ func baseTermTheme(pal *palette, sel ui.Color) *terminal.Theme {
 func backdrop(c *ui.Context, pal *palette, row ui.Element, s settings.Settings) {
 	if s.Grain {
 		row.Draw(func(p *ui.Painter, r ui.Rect) {
-			grain.Draw(p, r, shader.Options{Uniforms: map[string]any{"Alpha": grainAlpha(c, pal.dark)}})
+			grain().Draw(p, r, shader.Options{Uniforms: map[string]any{"Alpha": grainAlpha(c, pal.dark)}})
 		})
 	}
 	base, glow := washes(s.Background, pal.dark)

@@ -1709,8 +1709,20 @@ light and 4% in the dark at a speck's strongest — an average of some
 through,
 which has a texture of its own. `grain = false` turns it off.
 
+The shader is held by `sync.OnceValue` in `grain.go`. `runApp` in `main.go`
+prewarms it after role dispatch and the single-instance check, before the
+first window. The CLI, `__kerod` and `plugin-run` return through their own
+dispatch paths without compiling this UI backdrop or initializing its Metal
+precompiler device. A software tester that draws a backdrop directly obtains
+the same cached shader through `backdrop` in `theme.go`. The shader source,
+strength and setting are unchanged; compilation stays out of an already
+running GUI frame. This does not change MyGo's shader compiler or GPU policy.
+
 The grain pixel regression in `grain_test.go` checks the tile and the
-2–4% maximum strength. `sidebar_motion_test.go` verifies that a project of
+2–4% maximum strength. A light/dark backdrop regression also switches grain
+off, on, off and on across frames, checking that both the wash and repeated
+tile return unchanged. These are software-rendering checks, not an installed
+GUI or native compositor verification. `sidebar_motion_test.go` verifies that a project of
 100 sessions snaps to its collapsed or expanded state with Reduce Motion.
 Its software-tester benchmark measures collapse operations; it is not a
 measurement of the native GPU's frame rate.

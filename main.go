@@ -93,6 +93,9 @@ func runApp() {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return
 	}
+	// Compile the backdrop before the first window, not at package init:
+	// the CLI, daemon and plugin roles do not draw it.
+	grain()
 	// Updates use the signed Shibu release feed configured in mygo.json.
 	mygo.Use(native.Plugin)
 	a := newApp()
