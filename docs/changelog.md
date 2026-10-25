@@ -42,8 +42,10 @@ builds only. What each feature is and where it stands is tracked in the
   the pane no longer changes the new player, its notice or its mode.
 - Plugin, Files, Browser and Attention panes now expose their controls as
   separate elements to macOS accessibility, instead of folding the whole pane
-  into one button. Pane focus, plugin keyboard gating and terminal focus
-  restoration are unchanged.
+  into one button. The focusable body group is named as the pane header is,
+  so assistive technology announces the pane rather than an unnamed group.
+  Pane focus, plugin keyboard gating and terminal focus restoration are
+  unchanged.
 
 ## [2.0.7-local.5] - 2026-10-24
 

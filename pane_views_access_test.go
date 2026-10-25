@@ -30,6 +30,35 @@ const (
 	accessTextField uint8 = 9
 )
 
+// viewWithUnrelatedGroup draws an unrelated accessible group beside the app,
+// so a test cannot pass merely because some group exists somewhere.
+func viewWithUnrelatedGroup(a *App) func(c *ui.Context) {
+	return func(c *ui.Context) {
+		a.view(c)
+		ui.Box(c.Key("unrelated-group")).Absolute().Top(0).Left(0).Size(2, 2).
+			Role(ui.RoleGroup).Label("Unrelated group")
+	}
+}
+
+func accessIndex(nodes []testerAccessNode, role uint8, label string) int {
+	for i, n := range nodes {
+		if n.role == role && n.label == label {
+			return i
+		}
+	}
+	return -1
+}
+
+func accessDescendant(nodes []testerAccessNode, ancestor, child int) bool {
+	for child >= 0 {
+		if child == ancestor {
+			return true
+		}
+		child = nodes[child].parent
+	}
+	return false
+}
+
 func testerAccessibilityOn(t *testing.T, tt *ui.Tester) {
 	t.Helper()
 	rt := reflect.ValueOf(tt).Elem().FieldByName("rt")
@@ -100,29 +129,30 @@ func TestViewPaneKeepsNestedPluginControlsAccessible(t *testing.T) {
 		size:    protocol.Size{Width: 1, Height: 1},
 	}
 	a.plugins.panes = map[string]*pluginPaneState{"b": st}
-	tt := ui.NewTester(a.view, 1000, 700)
+	tt := ui.NewTester(viewWithUnrelatedGroup(a), 1000, 700)
 	testerAccessibilityOn(t, tt)
 	frames(tt)
 
 	nodes := testerAccessNodes(t, tt)
-	var group, button, search, slider bool
-	for _, n := range nodes {
-		switch {
-		case n.role == accessGroup:
-			group = true
-		case n.role == accessButton && n.label == "Sign In":
-			button = true
-		case n.role == accessTextField && n.label == "Search files":
-			search = true
-		case n.role == accessSlider && n.label == "Slider":
-			slider = true
+	body := accessIndex(nodes, accessGroup, paneViewName(proto.PanePlugins))
+	unrelated := accessIndex(nodes, accessGroup, "Unrelated group")
+	if body < 0 {
+		t.Fatalf("the plugin body is not a named accessible group: %+v", nodes)
+	}
+	if unrelated < 0 || unrelated == body {
+		t.Fatalf("the unrelated control group is missing or ambiguous: %+v", nodes)
+	}
+	button := accessIndex(nodes, accessButton, "Sign In")
+	search := accessIndex(nodes, accessTextField, "Search files")
+	slider := accessIndex(nodes, accessSlider, "Slider")
+	for name, i := range map[string]int{"Sign In": button, "Search files": search, "Slider": slider} {
+		if i < 0 {
+			t.Errorf("the nested %s control is missing: %+v", name, nodes)
+			continue
 		}
-	}
-	if !group {
-		t.Errorf("the plugin body is not an accessible group: %+v", nodes)
-	}
-	if !button || !search || !slider {
-		t.Errorf("nested controls are not distinct: button=%v search=%v slider=%v nodes=%+v", button, search, slider, nodes)
+		if !accessDescendant(nodes, body, i) || accessDescendant(nodes, unrelated, i) {
+			t.Errorf("the nested %s control is not under the plugin body group: %+v", name, nodes)
+		}
 	}
 
 	if err := tt.Click("Search files"); err != nil {
@@ -149,13 +179,16 @@ func TestViewPaneBodyIsGroupForBuiltinAttention(t *testing.T) {
 	a := testApp(t)
 	p := &a.st.Sessions[0].Panes[1]
 	p.View, p.Shell, p.Target = proto.PaneAttention, "", ""
-	tt := ui.NewTester(a.view, 1000, 700)
+	tt := ui.NewTester(viewWithUnrelatedGroup(a), 1000, 700)
 	testerAccessibilityOn(t, tt)
 	frames(tt)
-	for _, n := range testerAccessNodes(t, tt) {
-		if n.role == accessGroup {
-			return
-		}
+	nodes := testerAccessNodes(t, tt)
+	body := accessIndex(nodes, accessGroup, paneViewName(proto.PaneAttention))
+	unrelated := accessIndex(nodes, accessGroup, "Unrelated group")
+	if body < 0 {
+		t.Fatalf("the built-in view body is not a named accessible group: %+v", nodes)
 	}
-	t.Fatal("the built-in view body is not an accessible group")
+	if unrelated < 0 || unrelated == body {
+		t.Fatalf("the unrelated control group is missing or ambiguous: %+v", nodes)
+	}
 }

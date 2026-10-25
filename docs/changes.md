@@ -683,13 +683,17 @@ it the keyboard, as a terminal does. It used to call `Pressed()` without an
 explicit role. MyGo then inferred a button from focusable+clickable, and a
 button is a leaf in the accessibility tree: the whole plugin, Files, Browser
 or Attention pane became one label and its controls disappeared. `viewPane`
-now sets `ui.RoleGroup` on that body. The body still owns pane focus and pane
-key gating; its children stay separate accessible elements and their own
+now sets `ui.RoleGroup` on that body and names it with `paneViewName(p.View)`,
+the same localized title its header shows. The body still owns pane focus and
+pane key gating; its children stay separate accessible elements and their own
 actions work. The regression drives the real `viewPane` with nested plugin
-button, search field and slider controls, checks the group and distinct roles,
-then checks focus and plugin key gating/restoration. The same body is covered
-for the built-in Attention view. Code: [`pane_views.go`](../pane_views.go)
-(`viewPane`); tests: `pane_views_access_test.go`.
+button, search field and slider controls. It finds the body by that stable
+label, proves each control is a descendant of that group, and keeps an
+unrelated group in the tree so an any-group assertion cannot pass. It then
+checks focus and plugin key gating/restoration. The built-in Attention case
+identifies its own named group the same way. Code:
+[`pane_views.go`](../pane_views.go) (`viewPane`); tests:
+`pane_views_access_test.go`.
 
 ## The Attention pane
 

@@ -77,9 +77,11 @@ func paneViewName(view string) string {
 func (a *App) viewPane(c *ui.Context, pal *palette, s *proto.Session, p *proto.Pane) {
 	ref := a.paneRef(p.ID)
 	// The body owns pane focus, but it is not the button that every control
-	// inside it is: an explicit group keeps its plugin, file, browser and
-	// attention children as separate accessible elements.
-	body := ui.Column(c.Key("body")).Grow(1).MinHeight(0).MinWidth(0).Focusable().Role(ui.RoleGroup).Bind(ref)
+	// inside it is: an explicit group, named as the pane header names it,
+	// keeps its plugin, file, browser and attention children as separate
+	// accessible elements.
+	body := ui.Column(c.Key("body")).Grow(1).MinHeight(0).MinWidth(0).Focusable().Role(ui.RoleGroup).
+		Label(paneViewName(p.View)).Bind(ref)
 	if body.Pressed() {
 		ref.Focus(c)
 	}
