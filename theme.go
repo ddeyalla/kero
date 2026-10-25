@@ -250,14 +250,28 @@ func highContrastPal(p *palette) *palette {
 	return v.(*palette)
 }
 
-// paletteFor returns the palette of the frame, as the accent and the
-// desktop's contrast setting have it.
+// paletteFor returns the palette of the main window's frame, as the accent
+// and the desktop's contrast setting have it, and moves the ambient shade
+// that the terminals follow.
 func (a *App) paletteFor(c *ui.Context) *palette {
+	return a.ambientPal(c, a.paletteBase(c))
+}
+
+// paletteForPeek returns the palette of the image flyout, which is another
+// window: it shows the main window's shown ambient shade without moving it
+// or setting the terminals' themes.
+func (a *App) paletteForPeek(c *ui.Context) *palette {
+	return a.ambientThemePal(a.paletteBase(c))
+}
+
+// paletteBase returns the palette of the accent and the appearance, before
+// the ambient color.
+func (a *App) paletteBase(c *ui.Context) *palette {
 	p := a.accentPal(c.Theme().Dark)
 	if c.Preferences().HighContrast {
 		p = highContrastPal(p)
 	}
-	return a.ambientPal(c, p)
+	return p
 }
 
 // Terminal themes on the card's color, with palettes tuned to read on it:

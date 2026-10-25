@@ -2163,6 +2163,16 @@ a track plays, so the colour fades on pause. The tint itself comes from
 `plugin_tint.go`, darkened into a band where white text keeps 4.5 to 1
 (`pluginTintClamp`).
 
+The terminals' cursor and selection follow the same shown shade and strength
+as the cards: `ambientPal` records them, `ambientThemePal` builds the terminal
+theme from them, and `scheduleTermThemes` sets the terminals after the frame,
+once for each changed shade. A fade in, a colour change, a fade out on pause
+or stop, and turning **Colour from music** off all take the same 600 ms; a
+terminal attached during the fade starts at the shade on screen, and the
+updates stop when the fade settles. Reduce Motion keeps its instant change.
+User-picked Ghostty themes opt out; with one picked, only the default
+appearance follows the ambient colour.
+
 Protocol additions are optional (`omitempty`): `Node.Active`, `Item.Active`,
 `Item.Leading`, `Rate` and `At` on sliders and text, the icons `volume-off`,
 `shuffle`, `repeat` and `volume`, the permissions `web` and `ambient`, and the

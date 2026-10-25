@@ -12,6 +12,12 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- Ambient colour now fades the terminals' cursor and selection with the
+  cards and accent over the same 600 ms, including a colour change, a pause
+  or stop, and turning **Colour from music** off. A terminal attached during
+  the fade starts at the shade on screen, and a settled fade stops setting
+  themes. Reduce Motion still changes them at once, and picked Ghostty themes
+  still opt out; with one picked, only the default appearance follows.
 - The shared keyboard focus ring, including sliders and generic controls,
   now follows the selected accent instead of staying system blue. The ring
   keeps its normal opacity, and Increase Contrast still draws a full-opacity

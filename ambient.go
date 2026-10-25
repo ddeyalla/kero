@@ -43,9 +43,17 @@ type ambientState struct {
 	target ui.Color
 	last   ui.Color
 
-	// applied is the color the terminals' themes were last set with, so
-	// that a change that leaves it alone sets nothing.
-	applied ui.Color
+	// shown and strength are the color and the strength the frame drew,
+	// on their way to the target over ambientFade. The terminals' themes
+	// follow them, so no terminal jumps ahead of the cards.
+	shown    ui.Color
+	strength float32
+
+	// applied is the shown color and strength the terminals' themes were
+	// last set with, so that a frame that leaves them alone sets nothing.
+	applied         ui.Color
+	appliedStrength float32
+	themePending    bool
 
 	// blended is the last palette ambientPal made, with what it was made
 	// from, so that a frame in which nothing moves returns it as it is.
@@ -143,31 +151,12 @@ func (a *App) lendAmbient(pane string, plugin string, focused bool, v *pluginVie
 	}
 }
 
-// ambientChanged brings what does not follow the frame's palette up to
-// date: the terminals' cursor and selection, which are set on the
-// terminal, not drawn from the palette.
-//
-// Known gap: the terminals' cursor and selection change at once, while the
-// cards crossfade; a terminal has no animated theme to follow the frame.
+// ambientChanged asks for the frame that moves the ambient color. The
+// terminals' themes follow the shown color after that frame, as
+// scheduleTermThemes does: a terminal has no animated theme, so the app
+// sets one for each shade of the fade.
 func (a *App) ambientChanged() {
 	a.invalidateMain()
-	if a.ambientColor() == a.ambient.applied || a.themesPicked() {
-		return
-	}
-	// After the frame, not in the middle of it.
-	a.defer_(func() {
-		amb := a.ambientColor()
-		if amb == a.ambient.applied {
-			return
-		}
-		a.ambient.applied = amb
-		light, dark := a.termThemes()
-		for _, e := range a.terms {
-			if e.term != nil {
-				e.term.SetTheme(light, dark)
-			}
-		}
-	})
 }
 
 // themesPicked tells whether the user chose both terminal themes, which
@@ -201,6 +190,8 @@ func (a *App) ambientPal(c *ui.Context, pal *palette) *palette {
 		on = 1
 	}
 	strength := root.AnimateTo("ambient-on", on, fade)
+	a.ambient.shown, a.ambient.strength = shown, strength
+	a.scheduleTermThemes()
 	if strength <= 0.004 {
 		return pal
 	}
@@ -210,6 +201,44 @@ func (a *App) ambientPal(c *ui.Context, pal *palette) *palette {
 		b.out = pal.withAmbient(shown, strength)
 	}
 	return b.out
+}
+
+// scheduleTermThemes sets the terminals' cursor and selection to the shade
+// the frame drew, after the frame, as the cards already have it. One update
+// is queued for a changed shade, and none once the fade has settled.
+func (a *App) scheduleTermThemes() {
+	s := &a.ambient
+	if a.themesPicked() || s.themePending || (s.shown == s.applied && s.strength == s.appliedStrength) {
+		return
+	}
+	// A shade below the blend's edge is plain: there is nothing to set.
+	if s.strength <= 0.004 && s.appliedStrength <= 0.004 {
+		return
+	}
+	s.themePending = true
+	a.defer_(func() {
+		s.themePending = false
+		if a.themesPicked() || (s.shown == s.applied && s.strength == s.appliedStrength) {
+			return
+		}
+		s.applied, s.appliedStrength = s.shown, s.strength
+		light, dark := a.termThemes()
+		for _, e := range a.terms {
+			if e.term != nil {
+				e.term.SetTheme(light, dark)
+			}
+		}
+	})
+}
+
+// ambientThemePal returns p with the shade the frame drew blended in, or p
+// itself once the edge of the fade has arrived. termThemes and ambientPal
+// use it, so a terminal and the frame show the same shade.
+func (a *App) ambientThemePal(p *palette) *palette {
+	if a.ambient.shown.A == 0 || a.ambient.strength <= 0.004 {
+		return p
+	}
+	return p.withAmbient(a.ambient.shown, a.ambient.strength)
 }
 
 // withAmbient returns the palette with the color blended in at the

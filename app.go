@@ -998,10 +998,7 @@ func (a *App) termThemes() (light, dark *terminal.Theme) {
 		}
 		return def
 	}
-	l, d := a.accentPal(false), a.accentPal(true)
-	if amb := a.ambientColor(); amb.A > 0 {
-		l, d = l.withAmbient(amb, 1), d.withAmbient(amb, 1)
-	}
+	l, d := a.ambientThemePal(a.accentPal(false)), a.ambientThemePal(a.accentPal(true))
 	s := accentSpecs[a.accentID()]
 	return pick(a.set.LightTheme, termTheme(l, s.lightSel)), pick(a.set.DarkTheme, termTheme(d, s.darkSel))
 }
