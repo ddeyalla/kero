@@ -46,6 +46,15 @@ builds only. What each feature is and where it stands is tracked in the
   one. An error from a player that was replaced before its callback reached
   the pane no longer changes the new player, its notice or its mode.
 
+### Documentation
+
+- Recorded the corrected C9 25-session attribution run: 8 retained app
+  clients and 25 daemon VTs, a 60.023 s quiet sample, zero forced GC, and
+  separate RSS, footprint, Go, VT and Metal counters. The stage table and
+  limits are in [Performance](perf.md#c9-25-session-attribution). This does
+  not claim daily/all-workload acceptance, a disjoint footprint sum, or
+  mask-fix savings.
+
 ## [2.0.7-local.5] - 2026-10-24
 
 - Includes Kero 2.0.7 (`7b60cc3f5090`) and Shibu customizations.

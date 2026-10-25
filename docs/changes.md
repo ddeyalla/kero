@@ -234,6 +234,22 @@ pins the fork commit through the existing `replace` directive, never through a
 local path. This is accounting and lifetime correctness, not a claimed
 25-session or total-footprint improvement.
 
+C9 recorded a corrected 25-session attribution run on `04895fe` plus the
+accepted reporting diff `892838…`, with MyGo `439448` and the sealed C8
+app/daemon binary `adca389b…`. The private no-forced-GC run completed two
+painted 25-pane sweeps and a 60.023 s quiet sample with 8 retained app clients
+and 25 daemon VTs. Observed maxima were app RSS 290.516 MiB and footprint
+378.642 MiB, daemon RSS 231.938 MiB and footprint 167.423 MiB; every sampled
+app footprint stayed below the 750 MiB aggregate threshold. `NumForcedGC` was
+0 in all 114 process snapshots. The stage table, separate RSS/footprint,
+Go/VT/Metal counters and the 8-versus-25 retained distinction are in
+[Performance](perf.md#c9-25-session-attribution). The historical 1.2 GB daily
+observation, the earlier C8 partial 413 MiB result and earlier misses are not
+erased; this synthetic run does not reproduce them. It does not claim
+all-workload/daily acceptance, a disjoint footprint sum, mask-cap savings or
+an app-RSS/25 verdict, and no GC or memory-limit policy changed. The unchanged
+public `PERF_MEMORY` path still forces GC and does not reproduce C9.
+
 ## Release validation and CI
 
 Release mode publishes the reviewed source on the pinned upstream base in

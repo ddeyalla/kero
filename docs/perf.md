@@ -178,6 +178,47 @@ Their CPU and frame rates are diagnostic data, not idle or streaming latency
 acceptance. `GOMEMLIMIT`, `GOGC` and `GODEBUG`, when inherited, are recorded; this
 mode sets none of them.
 
+### C9 25-session attribution
+
+The corrected C9 run measured `04895fe` plus the accepted reporting diff
+`892838…`, with MyGo `439448` and the sealed C8 app/daemon binary
+`adca389b…`. It reused the private corrected C9 harness; it is not the
+`7fb5c349` capacity pin, a candidate comparison, or a run of the unchanged
+public `PERF_MEMORY` command, whose memory path forces GC.
+
+The fixture fed 16 MiB plus one byte per session, completed two painted
+25-pane sweeps, then took a 60.023 s quiet sample with 13/13 stable
+1180×760 native and UI-unfocused, visible and unoccluded observations.
+The final state retained 8 app clients and 25 daemon VTs. `NumForcedGC`
+was 0 across all 114 process snapshots.
+
+| Stage | App RSS / footprint MiB | Daemon RSS / footprint MiB |
+| --- | ---: | ---: |
+| empty | 117.922 / 167.251 | 44.469 / 16.876 |
+| visited-2 | 278.250 / 270.673 | 178.484 / 128.783 |
+| streaming | 229.047 / 283.642 | 231.516 / 167.423 |
+| quiet-unfocused | 229.828 / 131.486 | 231.938 / 146.454 |
+| recorded max | app 290.516 / 378.642 | daemon 231.938 / 167.423 |
+
+The recorded maxima are app RSS at first-shown and app footprint at visit-1-8;
+daemon RSS at quiet-before and daemon footprint at streaming. They are stage
+maxima, not terms to add across stages.
+
+At quiet, app HeapAlloc/GoSys was 27.112/156.901 MiB, VT resident pages were
+31.25 primary and 3.125 alternate, images and compressed bytes 0. Daemon
+HeapAlloc/GoSys was 9.713/97.272 MiB, VT resident pages 97.656 primary and 0
+alternate, images and compressed bytes 0. Unique window Metal owner resources
+were 256 bytes; the device `currentAllocatedSize` cross-check was 15.5625 MiB
+separately. At first-shown the owner total was 38.681 MiB and device 68.406
+MiB; neither is added to RSS or footprint.
+
+Every sampled app footprint was below the 750 MiB aggregate threshold
+(observed maximum 378.642 MiB); the continuous peak was not measured. Go heap,
+VT, Metal ownership, RSS and footprint are different counters and are not a
+disjoint physical pie. VT bookkeeping, command-buffer-only and retired Metal
+resources, and compositor/driver/pipeline bytes remain unknown. This run makes
+no app-RSS/25 verdict, mask-fix savings claim or daily/all-workload acceptance.
+
 ## Profiling kerod
 
 With `KERO_PPROF` set to a loopback address, kerod serves Go's profiles
