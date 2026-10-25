@@ -55,8 +55,10 @@ builds only. What each feature is and where it stands is tracked in the
 - Recorded the production-mode empty app and daemon baseline, distinguishing
   kernel RSS from physical footprint, the pre-lazy-grain source from its
   separate headless comparison, and fixture overhead from terminal scrollback.
-  Both RSS targets remain exceeded; no acceptance or unavoidable-floor claim
-  is made.
+  The RSS ranges are absolute empty-process diagnostics, not per-pane budget
+  verdicts; with zero terminals there is no N denominator. Existing per-pane
+  budgets still require actual 1/4/8/12-pane workloads, and BRU-222 remains
+  open. No acceptance, unavoidable-floor or target-waiver claim is made.
 - Recorded the corrected C9 25-session attribution run: 8 retained app
   clients and 25 daemon VTs, a 60.023 s quiet sample, zero forced GC, and
   separate RSS, footprint, Go, VT and Metal counters. The stage table and

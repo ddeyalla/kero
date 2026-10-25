@@ -31,8 +31,10 @@ it does not change the shader, MyGo's compiler or a memory budget.
 
 The C14 production-mode empty-daemon baseline used published MyGo `7fb5c34991fd`,
 no terminals and a 15-second settle. Kernel RSS was 40.266–40.375 MiB and
-physical footprint was 15.813–15.923 MiB. RSS exceeded the literal 25 MiB
-(26,214,400-byte) daemon target. Metal, QuartzCore and CoreGraphics image
+physical footprint was 15.813–15.923 MiB. This is an absolute empty-daemon
+diagnostic without a terminal denominator, not a per-pane budget pass/fail;
+the existing 25 MiB kerod budget applies actual 1/4/8/12-pane workloads, and
+BRU-222 remains open. Metal, QuartzCore and CoreGraphics image
 mappings were present, together with graphics-tagged mappings. Region
 resident totals include shared mappings and are not kernel RSS or exclusive
 allocator costs. The baseline alone does not quantify grain's marginal cost.
@@ -48,8 +50,10 @@ pin, production flags and private metadata seam. The dependent source base
 differed only in documentation and the already matched MyGo pin, before
 the grain lifecycle change. The empty inventory stayed empty and all
 transient inventory clients exited before samples. Kernel RSS was
-30.469–30.688 MiB and footprint was 10.157–10.376 MiB. RSS still exceeded
-25 MiB by 5.469–5.688 MiB; this does not close the memory acceptance target.
+30.469–30.688 MiB and footprint was 10.157–10.376 MiB. That absolute
+empty-daemon range is a diagnostic, not a per-pane budget verdict: it has no
+terminal denominator, and the existing per-pane budgets still require actual
+1/4/8/12-pane workloads, so BRU-222 remains open.
 The observed RSS reduction was 9.688–9.797 MiB, not a complete allocator
 attribution or a guarantee of the same savings in another workload.
 
@@ -82,12 +86,15 @@ observations were visible, unoccluded and independently native/UI unfocused.
 | App | 139.234375–139.296875 | 94.532532–94.579407 |
 | Daemon | 39.046875–39.281250 | 16.360291–16.454041 |
 
-Both RSS ranges exceed the literal 30 MiB app and 25 MiB daemon targets,
-without baseline subtraction. This establishes empty-process overhead for
-this fixture, separate from terminal scrollback; it does not satisfy
-BRU-222, prove an unavoidable floor or rule out further savings. Footprint
-and shared/COW mapping totals are separate counters, not a native ownership
-pie. No forced GC was requested; no GC counter pass was measured.
+Both RSS ranges are absolute empty-process diagnostics without a terminal
+denominator; with zero sessions and terminals, they cannot establish the
+per-pane 30 MiB app or 25 MiB daemon budget pass/fail. The existing per-pane
+budgets still apply actual 1/4/8/12-pane workloads, and BRU-222 remains open.
+This establishes empty-process overhead for this fixture, separate from
+terminal scrollback; it does not prove an unavoidable floor or rule out
+further savings. Footprint and shared/COW mapping totals are separate
+counters, not a native ownership pie. No forced GC was requested; no GC
+counter pass was measured.
 
 These were sampled guards around an empty fixture, not continuous 60-second,
 input or retained-terminal acceptance. The C14/C15 matched headless

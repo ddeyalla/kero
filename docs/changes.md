@@ -1528,11 +1528,14 @@ records C17's production-mode, pre-lazy-grain fixture with zero sessions and
 terminals. Four region snapshots were bracketed by kernel RSS/footprint
 samples, with empty inventories and independently observed window state.
 App RSS was 139.234375–139.296875 MiB and daemon RSS was
-39.046875–39.281250 MiB, both above the literal 30/25 MiB targets. This
-separates empty-process overhead from scrollback; it is not a claim that
-the remaining overhead is unavoidable, a retained-terminal acceptance
-result or a measurement of the lazy-grain candidate GUI. The private
-identity/metadata seam also prevents byte-identical shipping-release claims.
+39.046875–39.281250 MiB. These absolute empty-process diagnostics have no
+terminal denominator, so they cannot establish the per-pane 30/25 MiB
+budget pass/fail. The existing budgets still apply actual 1/4/8/12-pane
+workloads, and BRU-222 remains open. This separates empty-process overhead
+from scrollback; it is not a claim that the remaining overhead is
+unavoidable, a retained-terminal acceptance result or a measurement of the
+lazy-grain candidate GUI. The private identity/metadata seam also prevents
+byte-identical shipping-release claims.
 
 ## Title bar and traffic lights
 
