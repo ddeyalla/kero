@@ -544,11 +544,11 @@ func (a *App) notify(first bool) {
 }
 
 // looking tells whether the user is looking at a session: it is the one
-// selected, in a window that is in front and has the keyboard, and not
-// the Linear workspace; and, when the session has a pane zoomed, the pane
-// in question is the one in view (pane "" asks of the session as a whole).
+// selected, in a window that is in front and has the keyboard; and, when
+// the session has a pane zoomed, the pane in question is the one in view
+// (pane "" asks of the session as a whole).
 func (a *App) looking(s *proto.Session, pane string) bool {
-	if s.ID != a.selected || !a.active || !a.focused || a.show == "linear" {
+	if s.ID != a.selected || !a.active || !a.focused {
 		return false
 	}
 	return s.Zoomed == "" || pane == "" || s.Zoomed == pane
