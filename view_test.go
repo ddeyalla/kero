@@ -526,7 +526,7 @@ func TestSessionTooltipAtPointer(t *testing.T) {
 	}
 }
 
-// A kerod of another version of Kero gets a chip to restart it, which asks
+// A kerod of another version of Shibu Code gets a chip to restart it, which asks
 // first while a program runs, as the restart ends it.
 func TestRestartStaleDaemon(t *testing.T) {
 	a := testApp(t)
@@ -538,7 +538,7 @@ func TestRestartStaleDaemon(t *testing.T) {
 		t.Fatalf("no chip to restart kerod: %v; texts %q", err, tt.Texts())
 	}
 	tt.Frame()
-	if a.confirm == nil || !strings.Contains(a.confirm.detail, "Kero 1.9.0") {
+	if a.confirm == nil || !strings.Contains(a.confirm.detail, "Shibu Code 1.9.0") {
 		t.Fatalf("no question before the restart: %+v", a.confirm)
 	}
 

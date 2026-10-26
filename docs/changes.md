@@ -3,6 +3,30 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Names: `shibu` and `kero`
+
+`internal/clilink` owns the commands. `names` lists `shibu` first, then
+`kero`, and `Link` makes every one of them run the app's executable: symlinks
+on macOS and Linux, and on Windows a console copy of the GUI executable under
+`kero.exe` with the other names hard linked to it, or copied where the file
+system has no links. `Target` returns the executable from the first name that
+is there, so an install with only `kero` still opens the app. `kero.target`
+keeps its name, so an installed command updates in place.
+
+The CLI is dispatched from `main.go` on the arguments alone, so either command
+name reaches `internal/cli`. `cli.usage`, the usage errors, the version line
+and the skill guide name `shibu`; `kero` stays accepted and installed, because
+the hook command lines in `~/.claude/settings.json` and `~/.codex/hooks.json`
+name it and Codex trusts a hook by its hash. `hookContext` and `taskContext`
+in `internal/cli/hook.go` teach agents `shibu` and say Shibu Code; the skill is
+still installed at `skills/kero` and still carries `name: kero`.
+
+The locale strings in `locales/en.json` name Shibu Code and its `shibu`
+command, and `go tool mygo generate` writes `locales/catalog_gen.go`. Kept
+internal: the Go module and imports, the bundle identifier
+`dev.ddeyalla.kero`, the `kero-local` data folder, the `KERO_*` variables,
+`kerod`, and the upstream references that mean the original project.
+
 ## Plugin crash logs
 
 `internal/plugin/host/host.go` waits for the process's stderr copy after its

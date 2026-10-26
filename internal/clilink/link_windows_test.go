@@ -40,6 +40,10 @@ func TestLinkMakesConsoleCopy(t *testing.T) {
 	if got := Target(bin); !strings.EqualFold(got, exe) {
 		t.Errorf("target %q", got)
 	}
+	// Both commands, shibu and kero.
+	if !all(commands(bin)) {
+		t.Errorf("not every command: %v", commands(bin))
+	}
 	// Again: nothing to do.
 	if err := Link(exe, bin); err != nil {
 		t.Fatal(err)

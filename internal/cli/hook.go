@@ -20,11 +20,11 @@ import (
 	"kero/internal/settings"
 )
 
-// hookCmd is what an agent runs as its session starts (the hook `kero
-// skill setup` installs): it tells the agent that it runs in Kero, in
-// which session and pane, and to name the session after its task; and
+// hookCmd is what an agent runs as its session starts (the hook `shibu
+// skill setup` installs): it tells the agent that it runs in Shibu Code,
+// in which session and pane, and to name the session after its task; and
 // tells kerod the agent's own session, to resume after a restart. It never
-// fails the agent: outside Kero, or on any trouble, it says nothing.
+// fails the agent: outside Shibu Code, or on any trouble, it says nothing.
 func hookCmd(args []string) error {
 	agent := ""
 	if len(args) > 0 {
@@ -129,13 +129,13 @@ func contextCmd(agent, session string, wait bool) error {
 func hookContext(c *client.Client, pane, sid string, away bool) string {
 	var b strings.Builder
 	if away {
-		fmt.Fprintf(&b, "You are running in Kero, a terminal for coding agents: session %s, pane %s. "+
-			"The `kero` command (see the kero skill) runs things beside you, such as a dev server, tests or another agent. "+
-			"Your commands don't run in your pane and don't have its $KERO_SESSION and $KERO_PANE: give kero your pane as the target, "+
-			"as in `kero split %s --down -- npm run dev`.", sid, pane, pane)
+		fmt.Fprintf(&b, "You are running in Shibu Code, a terminal for coding agents: session %s, pane %s. "+
+			"The `shibu` command (also installed as `kero`; see the kero skill) runs things beside you, such as a dev server, tests or another agent. "+
+			"Your commands don't run in your pane and don't have its $KERO_SESSION and $KERO_PANE: give shibu your pane as the target, "+
+			"as in `shibu split %s --down -- npm run dev`.", sid, pane, pane)
 	} else {
-		fmt.Fprintf(&b, "You are running in Kero, a terminal for coding agents: session %s, pane %s ($KERO_SESSION and $KERO_PANE). "+
-			"The `kero` command (see the kero skill) runs things beside you, such as a dev server, tests or another agent, "+
+		fmt.Fprintf(&b, "You are running in Shibu Code, a terminal for coding agents: session %s, pane %s ($KERO_SESSION and $KERO_PANE). "+
+			"The `shibu` command (also installed as `kero`; see the kero skill) runs things beside you, such as a dev server, tests or another agent, "+
 			"and tells the user what you are doing.", sid, pane)
 	}
 	if c == nil {
@@ -158,7 +158,7 @@ func hookContext(c *client.Client, pane, sid string, away bool) string {
 			b.WriteString(" You run in one of the session's other panes: leave its name alone.")
 		default:
 			fmt.Fprintf(&b, " The session has no name yet. As soon as you know your task, name the session after it "+
-				"in a few words joined by dashes, so the user finds it in Kero's sidebar: `kero rename %s fix-login-redirect`. "+
+				"in a few words joined by dashes, so the user finds it in Shibu Code's sidebar: `shibu rename %s fix-login-redirect`. "+
 				"Do it once, without asking or mentioning it.", sid)
 		}
 		b.WriteString(taskContext(&st, s))
@@ -168,7 +168,7 @@ func hookContext(c *client.Client, pane, sid string, away bool) string {
 
 // taskContext is what the hook tells an agent of the user's tracker: the
 // issue its session works on, or, when none, that work starts from an
-// issue it links with kero task start. Any harness can run the command;
+// issue it links with shibu task start. Any harness can run the command;
 // the hook only tells those that have one. "" when Linear is not read.
 func taskContext(st *proto.State, s proto.Session) string {
 	lin := st.Linear
@@ -182,7 +182,7 @@ func taskContext(st *proto.State, s proto.Session) string {
 		for _, i := range lin.Issues {
 			if i.ID == p.TaskID || i.Identifier == p.TaskID {
 				return fmt.Sprintf(" This session works on the Linear issue %s (%q), now %s: leave the link alone. "+
-					"Move the issue on as the work does, as `kero linear set-state %s \"In Review\"`.",
+					"Move the issue on as the work does, as `shibu linear set-state %s \"In Review\"`.",
 					i.Identifier, i.Title, i.State, i.Identifier)
 			}
 		}
@@ -198,15 +198,15 @@ func taskContext(st *proto.State, s proto.Session) string {
 	// The commands name no issue: an example of a real one is one an
 	// agent could run as it stands.
 	return fmt.Sprintf(" The user tracks work in %s: a task starts as an issue there. As soon as you know your task, find its issue, "+
-		"named in the prompt (issue ids look like %s) or in `kero task list`, and before you begin run `kero task start <issue-id> --session %s`: "+
+		"named in the prompt (issue ids look like %s) or in `shibu task list`, and before you begin run `shibu task start <issue-id> --session %s`: "+
 		"it links this session to the issue, moves it to In Progress and prints the branch to work on. "+
 		"If no issue matches the task, ask the user which one it is; don't create one. "+
-		"Move the issue on as the work does, as `kero linear set-state <issue-id> \"In Review\"`.",
+		"Move the issue on as the work does, as `shibu linear set-state <issue-id> \"In Review\"`.",
 		where, shape, s.ID)
 }
 
-// integration is what kero installs in an agent, beside its skill, to
-// hook it into Kero: a hook in its settings, or a plugin of its own.
+// integration is what shibu installs in an agent, beside its skill, to
+// hook it into Shibu Code: a hook in its settings, or a plugin of its own.
 type integration interface {
 	name() string // the agent, as `kero hook` takes it
 	path() string // where it goes
@@ -215,9 +215,10 @@ type integration interface {
 	remove() error
 }
 
-// agentHook is a hook kero installs in an agent's settings: a command
+// agentHook is a hook shibu installs in an agent's settings: a command
 // running `kero hook <agent>` on each of its events (hookEvents), which
-// reads which from its input.
+// reads which from its input. The command line keeps kero's name: changing
+// it would change the hash Codex trusts a hook by.
 type agentHook struct {
 	agent string // as `kero hook` takes it: "claude", "codex"
 	file  string // the JSON file holding the agent's hooks
@@ -226,8 +227,9 @@ type agentHook struct {
 func (h agentHook) name() string { return h.agent }
 func (h agentHook) path() string { return h.file }
 
-// kero is the kero command of Kero's own directory (package clilink),
-// which stays where it is as Kero updates.
+// kero is the kero command of Shibu Code's own directory (package
+// clilink), which stays where it is as Shibu Code updates: the installed
+// hook command lines name it, and must not change.
 func kero() string {
 	exe := filepath.Join(proto.Dir(), "bin", "kero")
 	if runtime.GOOS == "windows" {
@@ -236,8 +238,8 @@ func kero() string {
 	return exe
 }
 
-// command is the hook's command line: the kero command of Kero's own
-// directory (package clilink), which stays where it is as Kero updates.
+// command is the hook's command line: the kero command of Shibu Code's own
+// directory (package clilink), which stays where it is as Shibu Code updates.
 func (h agentHook) command() string {
 	if runtime.GOOS == "windows" {
 		return `"` + kero() + `" hook ` + h.agent
@@ -304,8 +306,8 @@ func (h agentHook) install() error {
 	return h.edit(true)
 }
 
-// linkCLI makes the kero command that hooks and plugins run, should kerod
-// not have made it yet.
+// linkCLI makes the commands that hooks and plugins run, should kerod not
+// have made them yet.
 func linkCLI() {
 	if exe, err := os.Executable(); err == nil {
 		if real, err := filepath.EvalSymlinks(exe); err == nil {
@@ -455,7 +457,7 @@ func (p agentPlugin) path() string {
 	return p.dir
 }
 
-// content is a file as kero writes it: the asset, with the kero command
+// content is a file as shibu writes it: the asset, with the kero command
 // it runs.
 func (p agentPlugin) content(asset string) []byte {
 	b, _ := agentAssets.ReadFile(asset)
@@ -508,7 +510,7 @@ func (p agentPlugin) remove() error {
 	return nil
 }
 
-// agentHooks returns what kero installs to hook agents into Kero: for
+// agentHooks returns what shibu installs to hook agents into Shibu Code: for
 // Claude Code, and for Codex, Pi and OpenCode when they are installed (or
 // named).
 func agentHooks(agent string) []integration {

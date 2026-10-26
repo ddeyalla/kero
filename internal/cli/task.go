@@ -50,7 +50,7 @@ func taskStart(args []string) error {
 		sid = os.Getenv("KERO_SESSION")
 	}
 	if sid == "" {
-		return usageErr("kero task start runs in a Kero pane, or takes --session")
+		return usageErr("kero task start runs in a Shibu Code pane, or takes --session")
 	}
 	c, err := client.Connect(true)
 	if err != nil {

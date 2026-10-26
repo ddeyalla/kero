@@ -1056,31 +1056,31 @@ func (msgs Messages) ToastSessionResumed(name string) string {
 	return Catalog.Format(msgs.locale, "toastSessionResumed", map[string]any{"name": name})
 }
 
-// CliInstallFailed says "Couldn’t install the kero command: {error}"
+// CliInstallFailed says "Couldn’t install the shibu command: {error}"
 // in the language the app shows.
 func CliInstallFailed(error string) string { return In(i18n.Locale()).CliInstallFailed(error) }
 
-// CliInstallFailed says "Couldn’t install the kero command: {error}"
+// CliInstallFailed says "Couldn’t install the shibu command: {error}"
 // in the language of msgs.
 func (msgs Messages) CliInstallFailed(error string) string {
 	return Catalog.Format(msgs.locale, "cliInstallFailed", map[string]any{"error": error})
 }
 
-// CliInstalledIn says "Installed the kero command in {dir}"
+// CliInstalledIn says "Installed the shibu command in {dir}"
 // in the language the app shows.
 func CliInstalledIn(dir string) string { return In(i18n.Locale()).CliInstalledIn(dir) }
 
-// CliInstalledIn says "Installed the kero command in {dir}"
+// CliInstalledIn says "Installed the shibu command in {dir}"
 // in the language of msgs.
 func (msgs Messages) CliInstalledIn(dir string) string {
 	return Catalog.Format(msgs.locale, "cliInstalledIn", map[string]any{"dir": dir})
 }
 
-// CliAddedToPath says "Added the kero command to your PATH: new terminals have it"
+// CliAddedToPath says "Added the shibu command to your PATH: new terminals have it"
 // in the language the app shows.
 func CliAddedToPath() string { return In(i18n.Locale()).CliAddedToPath() }
 
-// CliAddedToPath says "Added the kero command to your PATH: new terminals have it"
+// CliAddedToPath says "Added the shibu command to your PATH: new terminals have it"
 // in the language of msgs.
 func (msgs Messages) CliAddedToPath() string {
 	return Catalog.Format(msgs.locale, "cliAddedToPath", nil)
@@ -1234,11 +1234,11 @@ func (msgs Messages) ConfirmQuitAllTitle() string {
 	return Catalog.Format(msgs.locale, "confirmQuitAllTitle", nil)
 }
 
-// ConfirmQuitAllDetail says "{count, plural, one {Kero keeps sessions running when it quits. This ends the # session, with what runs in it.} other…"
+// ConfirmQuitAllDetail says "{count, plural, one {Shibu Code keeps sessions running when it quits. This ends the # session, with what runs in it.}…"
 // in the language the app shows.
 func ConfirmQuitAllDetail(count int) string { return In(i18n.Locale()).ConfirmQuitAllDetail(count) }
 
-// ConfirmQuitAllDetail says "{count, plural, one {Kero keeps sessions running when it quits. This ends the # session, with what runs in it.} other…"
+// ConfirmQuitAllDetail says "{count, plural, one {Shibu Code keeps sessions running when it quits. This ends the # session, with what runs in it.}…"
 // in the language of msgs.
 func (msgs Messages) ConfirmQuitAllDetail(count int) string {
 	return Catalog.Format(msgs.locale, "confirmQuitAllDetail", map[string]any{"count": count})
@@ -1284,13 +1284,13 @@ func (msgs Messages) RestartRunning(count int) string {
 	return Catalog.Format(msgs.locale, "restartRunning", map[string]any{"count": count})
 }
 
-// RestartStaleDetail says "The service that runs your sessions is still Kero {was}, and this is Kero {version}. {running}: restarting ends them,…"
+// RestartStaleDetail says "The service that runs your sessions is still Shibu Code {was}, and this is Shibu Code {version}. {running}: restartin…"
 // in the language the app shows.
 func RestartStaleDetail(was string, version string, running string) string {
 	return In(i18n.Locale()).RestartStaleDetail(was, version, running)
 }
 
-// RestartStaleDetail says "The service that runs your sessions is still Kero {was}, and this is Kero {version}. {running}: restarting ends them,…"
+// RestartStaleDetail says "The service that runs your sessions is still Shibu Code {was}, and this is Shibu Code {version}. {running}: restartin…"
 // in the language of msgs.
 func (msgs Messages) RestartStaleDetail(was string, version string, running string) string {
 	return Catalog.Format(msgs.locale, "restartStaleDetail", map[string]any{"was": was, "version": version, "running": running})
@@ -1686,21 +1686,21 @@ func (msgs Messages) StatusBugWork() string {
 	return Catalog.Format(msgs.locale, "statusBugWork", nil)
 }
 
-// UpdateRestartTip says "Kero was updated: restart the background service to run the new version"
+// UpdateRestartTip says "Shibu Code was updated: restart the background service to run the new version"
 // in the language the app shows.
 func UpdateRestartTip() string { return In(i18n.Locale()).UpdateRestartTip() }
 
-// UpdateRestartTip says "Kero was updated: restart the background service to run the new version"
+// UpdateRestartTip says "Shibu Code was updated: restart the background service to run the new version"
 // in the language of msgs.
 func (msgs Messages) UpdateRestartTip() string {
 	return Catalog.Format(msgs.locale, "updateRestartTip", nil)
 }
 
-// UpdatedTitle says "Kero was updated"
+// UpdatedTitle says "Shibu Code was updated"
 // in the language the app shows.
 func UpdatedTitle() string { return In(i18n.Locale()).UpdatedTitle() }
 
-// UpdatedTitle says "Kero was updated"
+// UpdatedTitle says "Shibu Code was updated"
 // in the language of msgs.
 func (msgs Messages) UpdatedTitle() string {
 	return Catalog.Format(msgs.locale, "updatedTitle", nil)
@@ -2088,11 +2088,11 @@ func (msgs Messages) SvcRunning(pid string, duration string, sessions int, panes
 	return Catalog.Format(msgs.locale, "svcRunning", map[string]any{"pid": pid, "duration": duration, "sessions": sessions, "panes": panes})
 }
 
-// SvcStale says " · still an earlier Kero: restart it to update"
+// SvcStale says " · still an earlier Shibu Code: restart it to update"
 // in the language the app shows.
 func SvcStale() string { return In(i18n.Locale()).SvcStale() }
 
-// SvcStale says " · still an earlier Kero: restart it to update"
+// SvcStale says " · still an earlier Shibu Code: restart it to update"
 // in the language of msgs.
 func (msgs Messages) SvcStale() string {
 	return Catalog.Format(msgs.locale, "svcStale", nil)
@@ -2188,11 +2188,11 @@ func (msgs Messages) SetSessions() string {
 	return Catalog.Format(msgs.locale, "setSessions", nil)
 }
 
-// SetSessionsDetail says "Sessions keep running in the background when Kero quits; {action} ends them."
+// SetSessionsDetail says "Sessions keep running in the background when Shibu Code quits; {action} ends them."
 // in the language the app shows.
 func SetSessionsDetail(action string) string { return In(i18n.Locale()).SetSessionsDetail(action) }
 
-// SetSessionsDetail says "Sessions keep running in the background when Kero quits; {action} ends them."
+// SetSessionsDetail says "Sessions keep running in the background when Shibu Code quits; {action} ends them."
 // in the language of msgs.
 func (msgs Messages) SetSessionsDetail(action string) string {
 	return Catalog.Format(msgs.locale, "setSessionsDetail", map[string]any{"action": action})
@@ -2338,11 +2338,11 @@ func (msgs Messages) SetResumeAgents() string {
 	return Catalog.Format(msgs.locale, "setResumeAgents", nil)
 }
 
-// SetResumeAgentsDetail says "Claude Code, Codex, Pi and OpenCode pick up their conversation where it was, once Kero’s skill is set up for them i…"
+// SetResumeAgentsDetail says "Claude Code, Codex, Pi and OpenCode pick up their conversation where it was, once Shibu Code’s skill is set up for …"
 // in the language the app shows.
 func SetResumeAgentsDetail() string { return In(i18n.Locale()).SetResumeAgentsDetail() }
 
-// SetResumeAgentsDetail says "Claude Code, Codex, Pi and OpenCode pick up their conversation where it was, once Kero’s skill is set up for them i…"
+// SetResumeAgentsDetail says "Claude Code, Codex, Pi and OpenCode pick up their conversation where it was, once Shibu Code’s skill is set up for …"
 // in the language of msgs.
 func (msgs Messages) SetResumeAgentsDetail() string {
 	return Catalog.Format(msgs.locale, "setResumeAgentsDetail", nil)
@@ -2358,11 +2358,11 @@ func (msgs Messages) SetStartup() string {
 	return Catalog.Format(msgs.locale, "setStartup", nil)
 }
 
-// SetOpenAtLogin says "Open Kero at login"
+// SetOpenAtLogin says "Open Shibu Code at login"
 // in the language the app shows.
 func SetOpenAtLogin() string { return In(i18n.Locale()).SetOpenAtLogin() }
 
-// SetOpenAtLogin says "Open Kero at login"
+// SetOpenAtLogin says "Open Shibu Code at login"
 // in the language of msgs.
 func (msgs Messages) SetOpenAtLogin() string {
 	return Catalog.Format(msgs.locale, "setOpenAtLogin", nil)
@@ -2450,11 +2450,11 @@ func (msgs Messages) SetAutoCheck() string {
 	return Catalog.Format(msgs.locale, "setAutoCheck", nil)
 }
 
-// SetAutoCheckDetail says "Once a day, while Kero is open."
+// SetAutoCheckDetail says "Once a day, while Shibu Code is open."
 // in the language the app shows.
 func SetAutoCheckDetail() string { return In(i18n.Locale()).SetAutoCheckDetail() }
 
-// SetAutoCheckDetail says "Once a day, while Kero is open."
+// SetAutoCheckDetail says "Once a day, while Shibu Code is open."
 // in the language of msgs.
 func (msgs Messages) SetAutoCheckDetail() string {
 	return Catalog.Format(msgs.locale, "setAutoCheckDetail", nil)
@@ -2470,11 +2470,11 @@ func (msgs Messages) SetAutoInstall() string {
 	return Catalog.Format(msgs.locale, "setAutoInstall", nil)
 }
 
-// SetAutoInstallDetail says "They take effect the next time Kero opens."
+// SetAutoInstallDetail says "They take effect the next time Shibu Code opens."
 // in the language the app shows.
 func SetAutoInstallDetail() string { return In(i18n.Locale()).SetAutoInstallDetail() }
 
-// SetAutoInstallDetail says "They take effect the next time Kero opens."
+// SetAutoInstallDetail says "They take effect the next time Shibu Code opens."
 // in the language of msgs.
 func (msgs Messages) SetAutoInstallDetail() string {
 	return Catalog.Format(msgs.locale, "setAutoInstallDetail", nil)
@@ -2780,11 +2780,11 @@ func (msgs Messages) SetFont() string {
 	return Catalog.Format(msgs.locale, "setFont", nil)
 }
 
-// SetFontDetail says "JetBrains Mono with Nerd Fonts’ icons comes with Kero. Any installed monospaced font works; names separated by comm…"
+// SetFontDetail says "JetBrains Mono with Nerd Fonts’ icons comes with Shibu Code. Any installed monospaced font works; names separated b…"
 // in the language the app shows.
 func SetFontDetail() string { return In(i18n.Locale()).SetFontDetail() }
 
-// SetFontDetail says "JetBrains Mono with Nerd Fonts’ icons comes with Kero. Any installed monospaced font works; names separated by comm…"
+// SetFontDetail says "JetBrains Mono with Nerd Fonts’ icons comes with Shibu Code. Any installed monospaced font works; names separated b…"
 // in the language of msgs.
 func (msgs Messages) SetFontDetail() string {
 	return Catalog.Format(msgs.locale, "setFontDetail", nil)
@@ -3252,11 +3252,11 @@ func (msgs Messages) SetEnvironment() string {
 	return Catalog.Format(msgs.locale, "setEnvironment", nil)
 }
 
-// SetEnvironmentDetail says "Added to every pane’s, over what kero sets (TERM, KERO_SESSION…)."
+// SetEnvironmentDetail says "Added to every pane’s, over what shibu sets (TERM, KERO_SESSION…)."
 // in the language the app shows.
 func SetEnvironmentDetail() string { return In(i18n.Locale()).SetEnvironmentDetail() }
 
-// SetEnvironmentDetail says "Added to every pane’s, over what kero sets (TERM, KERO_SESSION…)."
+// SetEnvironmentDetail says "Added to every pane’s, over what shibu sets (TERM, KERO_SESSION…)."
 // in the language of msgs.
 func (msgs Messages) SetEnvironmentDetail() string {
 	return Catalog.Format(msgs.locale, "setEnvironmentDetail", nil)
@@ -3492,11 +3492,11 @@ func (msgs Messages) SetRemoteControlRow() string {
 	return Catalog.Format(msgs.locale, "setRemoteControlRow", nil)
 }
 
-// SetRemoteControlDetail says "kero do and kero focus run the app’s actions, as its menus do: splitting, switching sessions, opening the palette."
+// SetRemoteControlDetail says "shibu do and shibu focus run the app’s actions, as its menus do: splitting, switching sessions, opening the palette."
 // in the language the app shows.
 func SetRemoteControlDetail() string { return In(i18n.Locale()).SetRemoteControlDetail() }
 
-// SetRemoteControlDetail says "kero do and kero focus run the app’s actions, as its menus do: splitting, switching sessions, opening the palette."
+// SetRemoteControlDetail says "shibu do and shibu focus run the app’s actions, as its menus do: splitting, switching sessions, opening the palette."
 // in the language of msgs.
 func (msgs Messages) SetRemoteControlDetail() string {
 	return Catalog.Format(msgs.locale, "setRemoteControlDetail", nil)
@@ -3512,31 +3512,31 @@ func (msgs Messages) SetCli() string {
 	return Catalog.Format(msgs.locale, "setCli", nil)
 }
 
-// SetCliDetail says "Inside Kero, every pane has the kero command on its PATH already."
+// SetCliDetail says "Inside Shibu Code, every pane has the shibu command on its PATH already."
 // in the language the app shows.
 func SetCliDetail() string { return In(i18n.Locale()).SetCliDetail() }
 
-// SetCliDetail says "Inside Kero, every pane has the kero command on its PATH already."
+// SetCliDetail says "Inside Shibu Code, every pane has the shibu command on its PATH already."
 // in the language of msgs.
 func (msgs Messages) SetCliDetail() string {
 	return Catalog.Format(msgs.locale, "setCliDetail", nil)
 }
 
-// SetCliNotInstalled says "Not installed: other terminals don’t know the kero command."
+// SetCliNotInstalled says "Not installed: other terminals don’t know the shibu command."
 // in the language the app shows.
 func SetCliNotInstalled() string { return In(i18n.Locale()).SetCliNotInstalled() }
 
-// SetCliNotInstalled says "Not installed: other terminals don’t know the kero command."
+// SetCliNotInstalled says "Not installed: other terminals don’t know the shibu command."
 // in the language of msgs.
 func (msgs Messages) SetCliNotInstalled() string {
 	return Catalog.Format(msgs.locale, "setCliNotInstalled", nil)
 }
 
-// SetCliRow says "kero in your terminal"
+// SetCliRow says "shibu in your terminal"
 // in the language the app shows.
 func SetCliRow() string { return In(i18n.Locale()).SetCliRow() }
 
-// SetCliRow says "kero in your terminal"
+// SetCliRow says "shibu in your terminal"
 // in the language of msgs.
 func (msgs Messages) SetCliRow() string {
 	return Catalog.Format(msgs.locale, "setCliRow", nil)
@@ -3572,11 +3572,11 @@ func (msgs Messages) SetSkillInstalled() string {
 	return Catalog.Format(msgs.locale, "setSkillInstalled", nil)
 }
 
-// SetSkillOutdated says "Installed, from an older Kero"
+// SetSkillOutdated says "Installed, from an older Shibu Code"
 // in the language the app shows.
 func SetSkillOutdated() string { return In(i18n.Locale()).SetSkillOutdated() }
 
-// SetSkillOutdated says "Installed, from an older Kero"
+// SetSkillOutdated says "Installed, from an older Shibu Code"
 // in the language of msgs.
 func (msgs Messages) SetSkillOutdated() string {
 	return Catalog.Format(msgs.locale, "setSkillOutdated", nil)
@@ -3652,11 +3652,11 @@ func (msgs Messages) SetBackgroundService() string {
 	return Catalog.Format(msgs.locale, "setBackgroundService", nil)
 }
 
-// SetBackgroundServiceDetail says "kerod runs your sessions: quitting kero leaves it running."
+// SetBackgroundServiceDetail says "kerod runs your sessions: quitting shibu leaves it running."
 // in the language the app shows.
 func SetBackgroundServiceDetail() string { return In(i18n.Locale()).SetBackgroundServiceDetail() }
 
-// SetBackgroundServiceDetail says "kerod runs your sessions: quitting kero leaves it running."
+// SetBackgroundServiceDetail says "kerod runs your sessions: quitting shibu leaves it running."
 // in the language of msgs.
 func (msgs Messages) SetBackgroundServiceDetail() string {
 	return Catalog.Format(msgs.locale, "setBackgroundServiceDetail", nil)
@@ -3712,11 +3712,11 @@ func (msgs Messages) SetReset() string {
 	return Catalog.Format(msgs.locale, "setReset", nil)
 }
 
-// SetResetDetail says "Back to how Kero comes, shortcuts included."
+// SetResetDetail says "Back to how Shibu Code comes, shortcuts included."
 // in the language the app shows.
 func SetResetDetail() string { return In(i18n.Locale()).SetResetDetail() }
 
-// SetResetDetail says "Back to how Kero comes, shortcuts included."
+// SetResetDetail says "Back to how Shibu Code comes, shortcuts included."
 // in the language of msgs.
 func (msgs Messages) SetResetDetail() string {
 	return Catalog.Format(msgs.locale, "setResetDetail", nil)
