@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -399,6 +400,14 @@ func TestUpNext(t *testing.T) {
 	eventuallyScript(t, runner, `play track "spotify:track:t4"`)
 	if len(eng.played()) != 0 {
 		t.Fatalf("a queue row played inside a context: %v", eng.played())
+	}
+	// The row starts the track it names now. It does not skip through the
+	// queue a Next at a time: Spotify has no call that skips to a position,
+	// and each Next races the queue the player is on.
+	for _, script := range runner.calls() {
+		if strings.Contains(script, "next track") {
+			t.Fatalf("a queue row skipped through the queue: %q", script)
+		}
 	}
 }
 

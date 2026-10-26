@@ -314,7 +314,13 @@ async function run(c) {
 window.onSpotifyWebPlaybackSDKReady = async () => {
   player = new Spotify.Player({
     name,
-    getOAuthToken: cb => token().then(cb).catch(e => fail('token', e)),
+    // The SDK asks for a token before every connect and waits for this
+    // callback. A rejection here would leave the player waiting for good, so
+    // the failure answers it with an empty token: the SDK then reports its
+    // authentication error like a refused token, which stops the backoff and
+    // has the plugin ask for a sign-in, instead of hanging with no state.
+    getOAuthToken: cb => token().then(t => cb(t))
+      .catch(e => { fail('token', e); cb(''); }),
     volume: 0.5,
   });
   player.addListener('ready', async d => {

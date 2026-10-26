@@ -1352,13 +1352,13 @@ func TestPluginScrollsAsOne(t *testing.T) {
 // SVG when the symbol is not there.
 func TestPluginSymbolIcons(t *testing.T) {
 	var mu sync.Mutex
-	asked := map[string]int{}
+	asked := map[symbolKey]int{}
 	v := newPluginView()
 	v.fetch = stubPluginFetch()
 	v.render = func(name string, size, weight float64, scale int) (*image.RGBA, bool) {
 		mu.Lock()
 		defer mu.Unlock()
-		asked[name]++
+		asked[symbolKey{name, size, weight, scale}]++
 		img := image.NewRGBA(image.Rect(0, 0, 8*scale, 8*scale))
 		for i := 3; i < len(img.Pix); i += 4 {
 			img.Pix[i] = 0xff
@@ -1369,41 +1369,37 @@ func TestPluginSymbolIcons(t *testing.T) {
 		tree: pluginTree(sdk.Column("root", sdk.IconButton("play", "play").Primary().Size(44, 44)))}
 	h.tt = ui.NewTester(func(c *ui.Context) { drawPluginTree(c, h.view, &h.pal, h.tree, nil) }, 900, 700)
 	h.show(h.tree)
+	// The 44 point primary button draws its glyph at 20 points, semibold.
+	key := symbolKey{"play.fill", 20, symbolSemibold, symbolScale}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		h.show(h.tree)
 		mu.Lock()
-		n := asked["play.fill"]
+		n := asked[key]
 		mu.Unlock()
 		v := h.view
 		v.mu.Lock()
-		done := 0
-		for _, s := range v.symbols {
-			if s.bitmap != nil {
-				done++
-			}
-		}
+		done := v.symbols[key] != nil && v.symbols[key].bitmap != nil
 		v.mu.Unlock()
-		if n > 0 && done > 0 {
+		if n > 0 && done {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	mu.Lock()
-	n := asked["play.fill"]
+	n := asked[key]
 	mu.Unlock()
 	if n != 1 {
-		t.Fatalf("play.fill was drawn %d times, want once, cached after", n)
+		t.Fatalf("play.fill was drawn %d times at %v/%v, want once, cached after", n, key.size, key.weight)
 	}
 	h.view.mu.Lock()
 	defer h.view.mu.Unlock()
-	for _, s := range h.view.symbols {
-		if s.bitmap == nil {
-			t.Fatal("the symbol has no bitmap")
-		}
-		if w, hh := s.bitmap.Size(); w != 16 || hh != 16 {
-			t.Fatalf("the symbol is %dx%d pixels, want 16x16 for 8 points at 2x", w, hh)
-		}
+	s := h.view.symbols[key]
+	if s == nil || s.bitmap == nil {
+		t.Fatal("the symbol has no bitmap")
+	}
+	if w, hh := s.bitmap.Size(); w != 16 || hh != 16 {
+		t.Fatalf("the symbol is %dx%d pixels, want 16x16 for 8 points at 2x", w, hh)
 	}
 
 	// A symbol the system lacks is tried once, and the SVG stays.
@@ -1504,6 +1500,98 @@ func TestPluginSliderRunsOnAndYieldsToTheUser(t *testing.T) {
 	h.tt.Advance(pluginSliderHold + time.Second)
 	if st.value < 80 {
 		t.Fatalf("the slider stays at %v after the hold, want it to run on from 80", st.value)
+	}
+}
+
+// TestPluginSymbolsPrewarmThePlayersPause draws the player's play, and the
+// pause that its first press swaps in is drawn already: the swap finds a
+// bitmap of pause and does not fall back to the SVG.
+func TestPluginSymbolsPrewarmThePlayersPause(t *testing.T) {
+	var mu sync.Mutex
+	drawn := map[symbolKey]int{}
+	v := newPluginView()
+	v.fetch = stubPluginFetch()
+	v.render = func(name string, size, weight float64, scale int) (*image.RGBA, bool) {
+		mu.Lock()
+		drawn[symbolKey{name, size, weight, scale}]++
+		mu.Unlock()
+		img := image.NewRGBA(image.Rect(0, 0, 8*scale, 8*scale))
+		for i := 3; i < len(img.Pix); i += 4 {
+			img.Pix[i] = 0xff
+		}
+		return img, true
+	}
+	h := &pluginHarness{view: v, pal: lightPalette,
+		tree: pluginTree(sdk.Column("root", sdk.IconButton("play", "play").Primary().Size(44, 44)))}
+	h.tt = ui.NewTester(func(c *ui.Context) { drawPluginTree(c, h.view, &h.pal, h.tree, nil) }, 900, 700)
+	h.tt.Frame()
+
+	// The prewarm runs after the first draw, off the UI goroutine.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		v.mu.Lock()
+		done := true
+		for _, s := range v.symbols {
+			if s.pending {
+				done = false
+			}
+		}
+		v.mu.Unlock()
+		if done {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the first draw did not prewarm the pane's symbols")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	if drawn[symbolKey{"pause.fill", symbolPrewarmIconSize, symbolMedium, symbolScale}] != 1 {
+		t.Errorf("pause was not drawn at %v points", symbolPrewarmIconSize)
+	}
+	mu.Unlock()
+	v.mu.Lock()
+	kept := len(v.symbols)
+	prewarmed := v.lastSymbol["pause.fill"].bitmap
+	symbols := len(v.lastSymbol)
+	v.mu.Unlock()
+	if prewarmed == nil {
+		t.Fatal("the prewarm kept no bitmap of pause")
+	}
+	names := make(map[string]bool, len(pluginSymbols))
+	for _, name := range pluginSymbols {
+		names[name] = true
+	}
+	if symbols != len(names) {
+		t.Fatalf("the prewarm drew %d of the icon set's %d symbols", symbols, len(names))
+	}
+	if kept > pluginSymbolBudget {
+		t.Fatalf("the pane keeps %d symbols, more than its budget of %d", kept, pluginSymbolBudget)
+	}
+
+	// The first use of pause, at the size and weight of the primary button
+	// whose play it replaces, is served from the prewarm: no SVG. Only the
+	// first frame counts, since the drawing it starts asks for another.
+	var first *ui.Bitmap
+	var stretch float64
+	drawnOnce := false
+	tt := ui.NewTester(func(c *ui.Context) {
+		v.frame++
+		if drawnOnce {
+			return
+		}
+		drawnOnce = true
+		first, stretch = v.symbol(c, "pause", symbolPrewarmIconSize, symbolSemibold)
+	}, 100, 100)
+	tt.Frame()
+	if first == nil {
+		t.Fatal("the first use of pause has no bitmap, so the pane draws the SVG fallback")
+	}
+	if first != prewarmed {
+		t.Fatal("the first use of pause did not use the prewarmed bitmap")
+	}
+	if stretch != 1 {
+		t.Fatalf("the prewarmed pause is stretched %v, want 1 at its own size", stretch)
 	}
 }
 
