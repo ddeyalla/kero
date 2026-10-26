@@ -12,8 +12,48 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
-- A plugin crash now drains its final stderr before the crash view exposes
-  the log. A child that keeps stderr open cannot make that wait unbounded.
+- When a plugin closes its protocol stdout, the host drains its final stderr
+  before the crash view exposes the log. A child that keeps stderr open
+  cannot make that pipe wait unbounded.
+- The empty first-run shell now shows the Shibu Code identity and only the
+  two real actions: New Session and Open Project. The helper paragraph and
+  the agent command card are gone; the same commands remain in the
+  [CLI guide](cli.md#sessions-and-panes).
+- The performance report now judges total daemon RSS per verified terminal
+  against 25 MiB. Incremental daemon footprint remains a separate diagnostic
+  without an RSS verdict. The isolated fixture validates its distinct terminal
+  count before measurement; app retained-terminal acceptance stays unmeasured
+  in the ordinary fixture. Existing byte thresholds are unchanged.
+
+- The performance report no longer judges retained-terminal app RSS by dividing
+  one shown terminal’s process RSS by fixture sessions. It marks that gate as
+  unmeasured, labels binary sizes as MiB, and checks kerod’s individual
+  visible-unfocused wakeup limit even when the combined limit passes.
+
+- A pane closing in a split no longer takes pointer or keyboard input while
+  its exit fades: focus stays with the surviving neighbour, its header
+  controls cannot dispatch from the closing pane, and Next/Previous/Directional
+  Pane skip it. Focus transfers at close and at the fade's removal also skip
+  any other closing pane, so the nearest live pane takes the keyboard.
+- Directional Pane now finds the nearest live pane in the original layout when
+  a closing pane sits closest in that direction. A closing pane no longer
+  dead-ends the move before a live pane beyond it, including in irregular
+  splits.
+- Ambient colour now fades the terminals' cursor and selection with the
+  cards and accent over the same 600 ms, including a colour change, a pause
+  or stop, and turning **Colour from music** off. A terminal attached during
+  the fade starts at the shade on screen, and a settled fade stops setting
+  themes. Reduce Motion still changes them at once, and picked Ghostty themes
+  still opt out; with one picked, only the default appearance follows.
+- The background grain shader now initializes in the GUI role before its
+  first window, rather than during package initialization. The CLI, terminal
+  service and plugin processes no longer compile that backdrop or create
+  its Metal precompiler device. The grain's appearance and setting are unchanged.
+- The GPU builder's idle clip-mask budget now counts the backing capacity a
+  shrunken mask retains, not only its visible length. Idle masks are dropped
+  once their combined retained backing capacity exceeds the 32 MiB budget;
+  masks used by the current frame stay cached. This carries the MyGo fork
+  fix and is not a claimed 25-session footprint result.
 - The shared keyboard focus ring, including sliders and generic controls,
   now follows the selected accent instead of staying system blue. The ring
   keeps its normal opacity, and Increase Contrast still draws a full-opacity
@@ -42,6 +82,38 @@ builds only. What each feature is and where it stands is tracked in the
   failure still reports and an older completion cannot clear a newer pending
   one. An error from a player that was replaced before its callback reached
   the pane no longer changes the new player, its notice or its mode.
+- Plugin, Files, Browser and Attention panes now expose their controls as
+  separate elements to macOS accessibility, instead of folding the whole pane
+  into one button. The focusable body group is named as the pane header is,
+  so assistive technology announces the pane rather than an unnamed group.
+  Pane focus, plugin keyboard gating and terminal focus restoration are
+  unchanged.
+
+- Choosing a session explicitly while its row is out of sight now scrolls
+  the sidebar to that row, in either the left or right placement. This covers
+  the palette, shortcuts, attention and plugin reveals. Ordinary selection,
+  state updates and folding a project still do not scroll or unfold anything.
+
+- A Spotify album or playlist drill restored from a compact pane now loads its
+  tracks when the pane becomes large and the library is ready. It does not
+  reload a list that is already loaded, forbidden or failed, and Back, a
+  replacement drill or closing the pane drops an older result.
+
+### Documentation
+
+- Recorded the production-mode empty app and daemon baseline, distinguishing
+  kernel RSS from physical footprint, the pre-lazy-grain source from its
+  separate headless comparison, and fixture overhead from terminal scrollback.
+  The RSS ranges are absolute empty-process diagnostics, not per-pane budget
+  verdicts; with zero terminals there is no N denominator. Existing per-pane
+  budgets still require actual 1/4/8/12-pane workloads, and BRU-222 remains
+  open. No acceptance, unavoidable-floor or target-waiver claim is made.
+- Recorded the corrected C9 25-session attribution run: 8 retained app
+  clients and 25 daemon VTs, a 60.023 s quiet sample, zero forced GC, and
+  separate RSS, footprint, Go, VT and Metal counters. The stage table and
+  limits are in [Performance](perf.md#c9-25-session-attribution). This does
+  not claim daily/all-workload acceptance, a disjoint footprint sum, or
+  mask-fix savings.
 
 ## [2.0.7-local.5] - 2026-10-24
 

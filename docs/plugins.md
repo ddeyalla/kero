@@ -55,8 +55,11 @@ What the user gave it, its settings and secrets, lives apart, in
 ## Commands
 
 Spotify's failed track and Up next lists offer **Retry** in place. A failed
-read keeps the open album or playlist and any cached tracks. A play that a
-newer press has superseded completes silently, including a late page error
+read keeps the open album or playlist and any cached tracks. An album or
+playlist drill restored from a compact pane loads its tracks when the pane
+becomes large and the library is ready; loaded, forbidden and failed lists are
+kept, and Back, a replacement drill or closing the pane drops an older result.
+A play that a newer press has superseded completes silently, including a late page error
 that names an older play request; only the current command reports a failure.
 A press still waiting for a cold engine is canceled by a newer press before
 the engine takes it, while an accepted command still runs. Two clicks on one
@@ -146,6 +149,12 @@ app's palette, fonts and motion.
 | `menu` | `label`, optional `icon`, `items` (up to 200; an item with `active` is checked, and several may be) | `select` with the item's id |
 | `markdown` | `text`, GitHub-flavoured Markdown up to 64 KB, in the app's own look (headings, lists, code, tables, links; an image shows as its description). A link opens in the browser if the plugin has `openURL`, and otherwise sends `press` with the URL as the value | `press` (links without `openURL`) |
 | `spacer`, `divider` | — | — |
+
+A plugin pane's body is an accessibility group, not a button: its `pressable`
+parts, buttons, fields, sliders and rows remain separate elements that
+VoiceOver and other AX clients can reach individually, while the body still
+owns pane focus and the plugin `keys` gating. The group is named for the pane
+view, as its header is, so it is not an unnamed group.
 
 A `row` or `column` may be `pressable`: it draws hover and pressed states,
 takes the focus, is named for assistive technology by its `label`, and sends

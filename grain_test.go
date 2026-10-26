@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/shader"
+
+	"kero/internal/settings"
 )
 
 // The backdrop grain stays within its requested strength and repeats as
@@ -17,7 +20,7 @@ func TestGrainStrengthAndTile(t *testing.T) {
 				t.Errorf("grain alpha %v, want 2–4%%", a)
 			}
 			ui.Box(c).Fill().Background(ui.RGB(128, 128, 128)).Draw(func(p *ui.Painter, r ui.Rect) {
-				grain.Draw(p, r, shader.Options{Uniforms: map[string]any{"Alpha": a}})
+				grain().Draw(p, r, shader.Options{Uniforms: map[string]any{"Alpha": a}})
 			})
 		}, 600, 320)
 		tt.Frame()
@@ -51,7 +54,7 @@ func TestGrainStrengthAndTile(t *testing.T) {
 	// An ignored Alpha uniform would still draw grain at zero strength.
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Box(c).Fill().Background(ui.RGB(128, 128, 128)).Draw(func(p *ui.Painter, r ui.Rect) {
-			grain.Draw(p, r, shader.Options{Uniforms: map[string]any{"Alpha": float32(0)}})
+			grain().Draw(p, r, shader.Options{Uniforms: map[string]any{"Alpha": float32(0)}})
 		})
 	}, 32, 32)
 	tt.Frame()
@@ -61,6 +64,37 @@ func TestGrainStrengthAndTile(t *testing.T) {
 			if p := img.RGBAAt(x, y); p.R != 128 || p.G != 128 || p.B != 128 {
 				t.Fatalf("zero-strength grain altered gray at %d,%d: %v", x, y, p)
 			}
+		}
+	}
+}
+
+// A tester can draw without running the GUI startup prewarm. Switching
+// grain off and back on must preserve both the wash and the shader's tile.
+func TestBackdropGrainToggle(t *testing.T) {
+	for _, pal := range []*palette{&lightPalette, &darkPalette} {
+		s := settings.Default()
+		s.Grain = false
+		tt := ui.NewTester(func(c *ui.Context) {
+			row := ui.Box(c).Fill()
+			backdrop(c, pal, row, s)
+		}, 320, 320)
+		tt.Frame()
+		off := bytes.Clone(tt.Image().Pix)
+		s.Grain = true
+		tt.Frame()
+		on := bytes.Clone(tt.Image().Pix)
+		if bytes.Equal(off, on) {
+			t.Fatal("enabling grain did not change the backdrop")
+		}
+		s.Grain = false
+		tt.Frame()
+		if !bytes.Equal(off, tt.Image().Pix) {
+			t.Fatal("disabling grain did not restore the wash")
+		}
+		s.Grain = true
+		tt.Frame()
+		if !bytes.Equal(on, tt.Image().Pix) {
+			t.Fatal("reenabling grain changed its tile")
 		}
 	}
 }

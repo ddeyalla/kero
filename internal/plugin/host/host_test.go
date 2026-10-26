@@ -109,6 +109,10 @@ func TestFakePluginHelper(t *testing.T) {
 		Event: func(c *sdk.Conn, e protocol.EventParams) {
 			if mode == "crash-event" {
 				fmt.Fprintln(os.Stderr, "the fake plugin says bye")
+				if err := os.WriteFile(e.Value.(string), []byte("stderr written"), 0o600); err != nil {
+					os.Exit(2)
+				}
+				_ = os.Stdout.Close()
 				os.Exit(1)
 			}
 			if mode == "keys" {
@@ -546,7 +550,14 @@ func TestCrashWaitsForStderr(t *testing.T) {
 			logw.mu.Unlock()
 		}
 	}()
-	h.Event("p1", "crash", "press", nil)
+	ack := filepath.Join(t.TempDir(), "crashing")
+	h.Event("p1", "crash", "press", ack)
+	// The acknowledgement is outside stdout: the host may already be
+	// waiting for stderr and unable to dispatch a render from that pipe.
+	eventually(t, "the child to write stderr", func() bool {
+		_, err := os.Stat(ack)
+		return err == nil
+	})
 	select {
 	case crash := <-f.crashes:
 		t.Fatalf("crash reported before stderr drained: %s", crash.message)

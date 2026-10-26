@@ -923,6 +923,10 @@ func (g *gated) flush() {
 	}
 }
 
+// newTerminal is terminal.New; tests replace it to observe the completed
+// constructor without a window.
+var newTerminal = terminal.New
+
 // ensureTerm attaches a terminal to a session, unless one is.
 func (a *App) ensureTerm(id string) {
 	if a.terms[id] != nil || a.conn != connReady || a.isViewPane(id) {
@@ -931,6 +935,17 @@ func (a *App) ensureTerm(id string) {
 	e := &termEntry{started: time.Now()}
 	a.terms[id] = e
 	a.noteTerm(id)
+	// The attach worker must not read the app's settings or ambient fade
+	// while the main thread changes them. Snapshot the terminal's options
+	// here, on the UI owner; the worker only sets the stream and builds the
+	// terminal.
+	g := &gated{ready: make(chan struct{}), hold: &a.sizeHold}
+	o := a.termOptions(id, g)
+	// The terminal shows kerod's frames: kerod's terminal is the session's,
+	// ours shows what it shows, cell for cell, and lays out nothing of the
+	// program's own. It takes the sizes kerod's does, between the frames of
+	// one size and the next.
+	o.ResizeByConn = true
 	go func() {
 		stream, err := client.Attach(id)
 		if err != nil {
@@ -941,14 +956,8 @@ func (a *App) ensureTerm(id string) {
 			})
 			return
 		}
-		g := &gated{Stream: stream, ready: make(chan struct{}), hold: &a.sizeHold}
-		o := a.termOptions(id, g)
-		// The terminal shows kerod's frames: kerod's terminal is the
-		// session's, ours shows what it shows, cell for cell, and lays out
-		// nothing of the program's own. It takes the sizes kerod's does,
-		// between the frames of one size and the next.
-		o.ResizeByConn = true
-		term, err := terminal.New(o)
+		g.Stream = stream
+		term, err := newTerminal(o)
 		if err != nil {
 			stream.Close()
 			a.update(func() {
@@ -962,18 +971,34 @@ func (a *App) ensureTerm(id string) {
 		term.Resize(stream.Welcome.Cols, stream.Welcome.Rows)
 		stream.OnResized = term.Resize
 		close(g.ready)
-		a.update(func() {
-			if a.terms[id] != e {
-				term.Close()
-				stream.Close()
-				return
-			}
-			e.term, e.stream = term, stream
-			if a.selected == id {
-				a.focusTerminal()
-			}
-		})
+		a.update(func() { a.publishTerm(id, e, term, stream) })
 	}()
+}
+
+// publishTerm installs a finished attach on the UI owner. A replace may have
+// removed the entry while the attach ran, in which case both resources go.
+func (a *App) publishTerm(id string, e *termEntry, term *terminal.Terminal, stream *client.Stream) {
+	if a.terms[id] != e {
+		term.Close()
+		stream.Close()
+		return
+	}
+	e.term, e.stream = term, stream
+	// A fade or a settings change may have finished while this terminal
+	// had no e.term, so the update pass could not reach it. Reconcile the
+	// settings that can change without a new terminal.
+	light, dark := a.termThemes()
+	term.SetTheme(light, dark)
+	term.SetFont(a.termFont())
+	term.SetMinimumContrast(a.set.MinContrast)
+	if a.set.CopyOnSelect {
+		term.SetCopyOnSelect(terminal.CopyOnSelectClipboard)
+	} else {
+		term.SetCopyOnSelect(terminal.CopyOnSelectNone)
+	}
+	if a.selected == id {
+		a.focusTerminal()
+	}
 }
 
 func (a *App) termFont() terminal.Font {
@@ -998,10 +1023,7 @@ func (a *App) termThemes() (light, dark *terminal.Theme) {
 		}
 		return def
 	}
-	l, d := a.accentPal(false), a.accentPal(true)
-	if amb := a.ambientColor(); amb.A > 0 {
-		l, d = l.withAmbient(amb, 1), d.withAmbient(amb, 1)
-	}
+	l, d := a.ambientThemePal(a.accentPal(false)), a.ambientThemePal(a.accentPal(true))
 	s := accentSpecs[a.accentID()]
 	return pick(a.set.LightTheme, termTheme(l, s.lightSel)), pick(a.set.DarkTheme, termTheme(d, s.darkSel))
 }
@@ -1119,9 +1141,17 @@ func (a *App) apply(s settings.Settings, save bool) {
 	themes := old.LightTheme != s.LightTheme || old.DarkTheme != s.DarkTheme || old.Accent != s.Accent || old.AmbientColor != s.AmbientColor
 	anew := old.Cursor != s.Cursor || old.CursorBlink != s.CursorBlink || old.OptionAsAlt != s.OptionAsAlt ||
 		old.Clipboard != s.Clipboard || old.RightClick != s.RightClick
+	// Scrollback is read once, when the terminal is constructed. An attach
+	// still waiting for its handshake therefore carries the old limit.
+	pendingScrollback := old.ScrollbackBytes() != s.ScrollbackBytes()
 	light, dark := a.termThemes()
 	for id, e := range a.terms {
 		if e.term == nil {
+			if anew || pendingScrollback {
+				// This attach is still in flight with the old options;
+				// let it finish, then attach again as it shows.
+				a.dropTerm(id)
+			}
 			continue
 		}
 		if anew {

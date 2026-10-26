@@ -4,6 +4,37 @@ What Shibu Code may cost, how to measure it with one command, and what it
 cost when the measurement was added (BRU-223, the first step of BRU-222).
 Every performance change records its numbers here, before and after.
 
+## Reviewed acceptance, 2026-10-25
+
+BRU-336 and BRU-226 are closed for the scopes below. All sizes here are MiB
+(1,048,576 bytes). The existing per-pane byte thresholds remain
+`25 * (1 << 20)` for kerod and `30 * (1 << 20)` for the app; historical “MB”
+wording means these operational MiB limits. Decimal 25/30 MB would instead be
+25,000,000/30,000,000 bytes and is not the implemented budget.
+
+| Workload | Recorded result | Scope |
+| --- | --- | --- |
+| Four daemon PTYs, one shown terminal, visible-unfocused | 60.020706 s; app/daemon raw interrupts 1,224/300; rates 1,223.578/299.897 per minute, combined 1,523.474; CPU 0.135%; 2 builds; 13 stable native observations | BRU-336 four-session wakeup limits pass; no retained-client memory inference |
+| Eight daemon PTYs, visible-unfocused | App/daemon 1,433.8/414.9 wakeups/min, combined 1,848.7; 13 stable native observations | BRU-336 eight-session limits pass |
+| Eight real retained terminals, 17 fresh painted visits, unforced GC | Sampled peak app/daemon RSS 233.547/119.734; quiet 173.984/62.891; NumForcedGC=0 | BRU-226 RSS limits 240/200 pass; shared 4 MiB scrollback, restore and no-output-save regressions accepted |
+| Four/eight daemon sessions, focused native keys, 100 samples each | Key-dispatch-to-paint p99 29.684/17.366 ms | Shown terminal only; excludes hardware/OS event queue and compositor |
+| Eight daemon PTYs, one shown terminal, unfocused streaming | Configured 10 s plus completion margin, capture 11.169616 s; 622 frames; build/paint/total p99 2.5/2.4/5.4 ms | Build passes 4 ms; paint and total have no build-budget verdict; no busy-key test |
+
+Both retained visit sweeps had eight fresh positive paints and eight startup
+READY markers. Streaming replaced one marker: later seven READY markers are
+not a retention or rendering failure. This does not require hidden panes to
+paint simultaneously. Natural GC is allowed; no forced GC was requested.
+
+Preserve the earlier four-session visible-unfocused miss (app 3,196.7,
+combined 3,525.7 wakeups/min) and eight-session **focused** combined 2,212.9.
+The later pass does not explain their context dependence. Preserve the older
+eight-retained RSS peak 274.3 MiB and later footprint peak 317.079 MiB; the
+latter is not RSS and misses its separate 200 MiB footprint criterion.
+BRU-222's complete 1/4/8/12 and busy-input gates and BRU-333's 25-session
+heap/libghostty/GPU/other ownership remain unresolved. The sampled 49.65 MiB
+Go clip-mask attribution is not total native ownership. The mask-cap fix is
+not pinned or included, and no process-memory saving is claimed.
+
 ## Delivery verification, 2026-10-23
 
 The combined candidate was measured after integrating the UI, Usage, profile,
@@ -13,7 +44,7 @@ Attention and performance changes. These are separate workloads and counters:
 | --- | --- | --- |
 | Final harness smoke, one pane, 100 native key dispatches | Key-to-paint p99 30.4 ms | Passes 50 ms; its two-second idle sample is not idle-budget evidence |
 | Ordinary four-pane fixture, 60 seconds idle | App RSS 146.4 MiB; app/daemon interrupt wakeups 1,530/350 per minute; combined CPU 0.21%; 8 builds/min | Combined wakeups below 2,000, but app wakeups above 1,500 and RSS above 120 MiB. Window focus was not independently recorded in this noninjected run |
-| Ordinary eight-pane fixture, 60 seconds idle | App RSS 143.9 MiB; app/daemon interrupt wakeups 1,340/371 per minute; combined CPU 0.19%; 8 builds/min | Numeric RSS/wakeup targets pass; window focus was not independently recorded |
+| Ordinary eight-pane fixture, 60 seconds idle | App RSS 143.9 MiB; app/daemon interrupt wakeups 1,340/371 per minute; combined CPU 0.19%; 8 builds/min | Numeric wakeup targets pass; retained-app RSS is unmeasured in this one-client fixture and window focus was not independently recorded |
 | Eight visited terminals, all retained, 17 confirmed visits | Peak sampled app RSS 214.6 MiB; settled RSS 214.5 MiB; footprint 318.3 MiB streaming and 174.8 MiB settled | RSS below the 240 MiB eight-pane target; footprint is a separate counter. Forced diagnostic GC makes this a memory workload, not an idle benchmark |
 
 These measurements do not close BRU-222, BRU-333 or the smaller-workload
@@ -21,12 +52,93 @@ acceptance gaps. The historical 1.22 GB daily-app growth has not reproduced;
 native VM categories are recorded without inventing allocator ownership.
 No unsupported GC or memory limit was added to make a measurement pass.
 
+## Empty daemon shader initialization
+
+The application now initializes its background grain shader only in the GUI
+role. `main.go` prewarms the once-owned shader after role and single-instance
+routing, before creating a window. The CLI, daemon and plugin roles do not
+compile it. This removes unnecessary backdrop work from headless processes;
+it does not change the shader, MyGo's compiler or a memory budget.
+
+The C14 production-mode empty-daemon baseline used published MyGo `7fb5c34991fd`,
+no terminals and a 15-second settle. Kernel RSS was 40.266–40.375 MiB and
+physical footprint was 15.813–15.923 MiB. This is an absolute empty-daemon
+diagnostic without a terminal denominator, not a per-pane budget pass/fail;
+the existing 25 MiB kerod budget applies actual 1/4/8/12-pane workloads, and
+BRU-222 remains open. Metal, QuartzCore and CoreGraphics image
+mappings were present, together with graphics-tagged mappings. Region
+resident totals include shared mappings and are not kernel RSS or exclusive
+allocator costs. The baseline alone does not quantify grain's marginal cost.
+
+The production compiler flags were `-s -w`, `production=1`, `-trimpath` and
+`mygo_noinspector`, with a private package identity and app metadata seam.
+The seam is inactive in the headless daemon. This is not byte-identical
+shipping-release evidence, a paired app result or a one-pane acceptance run.
+The earlier development diagnostic build is not a release RSS lower bound.
+
+The C15 lazy-grain candidate repeated that headless protocol with the same
+pin, production flags and private metadata seam. The dependent source base
+differed only in documentation and the already matched MyGo pin, before
+the grain lifecycle change. The empty inventory stayed empty and all
+transient inventory clients exited before samples. Kernel RSS was
+30.469–30.688 MiB and footprint was 10.157–10.376 MiB. That absolute
+empty-daemon range is a diagnostic, not a per-pane budget verdict: it has no
+terminal denominator, and the existing per-pane budgets still require actual
+1/4/8/12-pane workloads, so BRU-222 remains open.
+The observed RSS reduction was 9.688–9.797 MiB, not a complete allocator
+attribution or a guarantee of the same savings in another workload.
+
+The candidate had no `IOAccelerator`, `IOAccelerator (graphics)` or `IOKit`
+region rows. Metal, QuartzCore and CoreGraphics images remained mapped;
+image presence alone does not prove a device was created. Their shared
+resident pages are not a disjoint part of process RSS. The role dispatch
+and lazy constructor remove grain's headless precompile path; these two
+snapshots do not identify every remaining native allocation or establish
+an unavoidable memory floor. Software pixel and setting-toggle regressions
+passed. The C15 GUI candidate was not measured.
+
+## Empty app and daemon baseline
+
+On 2026-10-25, C17 measured the **pre-C15 eager-grain** application source
+`04895fea5f36` with published MyGo `7fb5c34991fd` and the private metadata
+seam. Production compiler flags were verified: Darwin ARM64, `CGO_ENABLED=1`,
+empty `GOFLAGS`, no inspector override, `-s -w`, `production=1`, `-trimpath`
+and `mygo_noinspector`. The private identity and metadata seam mean this is
+not a byte-identical shipping release.
+
+The isolated 1180 × 760 app had zero sessions and terminals. After a
+15-second settle, one `vmmap -summary` and one `vmmap -w` per process were
+each bracketed by kernel `proc_pid_rusage` samples; all four commands
+succeeded. All ten inventory checks stayed empty. Eleven sampled window
+observations were visible, unoccluded and independently native/UI unfocused.
+
+| Empty process | Kernel RSS, MiB | Physical footprint, MiB |
+| --- | --- | --- |
+| App | 139.234375–139.296875 | 94.532532–94.579407 |
+| Daemon | 39.046875–39.281250 | 16.360291–16.454041 |
+
+Both RSS ranges are absolute empty-process diagnostics without a terminal
+denominator; with zero sessions and terminals, they cannot establish the
+per-pane 30 MiB app or 25 MiB daemon budget pass/fail. The existing per-pane
+budgets still apply actual 1/4/8/12-pane workloads, and BRU-222 remains open.
+This establishes empty-process overhead for this fixture, separate from
+terminal scrollback; it does not prove an unavoidable floor or rule out
+further savings. Footprint and shared/COW mapping totals are separate
+counters, not a native ownership pie. No forced GC was requested; no GC
+counter pass was measured.
+
+These were sampled guards around an empty fixture, not continuous 60-second,
+input or retained-terminal acceptance. The C14/C15 matched headless
+comparison above remains separate: C17's daemon must not be compared with
+the C15 candidate as a matched experiment. C15 preserved GUI shader behavior
+in software tests, but its candidate GUI was not measured.
+
 ## Budgets
 
 | Measure | Budget | How it is measured |
 | --- | --- | --- |
-| Footprint per pane, kerod | ≤ 25 MB | `scripts/perf.sh`: kerod's footprint with N panes, less its footprint with none, divided by N |
-| Resident memory per pane, app | ≤ 30 MB | `scripts/perf.sh`: app RSS divided by the number of fixture panes; physical footprint is reported separately. Separate sessions retain up to eight client terminals; `PERF_LAYOUT=split` retains every pane in the selected session (see the limits below). |
+| Resident memory per pane, kerod | ≤ 25 MiB | Total daemon RSS divided by N distinct terminal PTYs, validated from the isolated daemon’s `ls --json` output. Incremental footprint above the empty baseline is diagnostic only. |
+| Resident memory per pane, app | ≤ 30 MiB | The ordinary harness reports total app RSS without a retained-terminal verdict: N fixture sessions instantiate only one client terminal. Use the visited-terminal workload to record actual retention; physical footprint is separate. Separate sessions retain up to eight client terminals; `PERF_LAYOUT=split` retains every pane in the selected session (see the limits below). |
 | Idle wakeups, app + kerod | ≤ 2,000 a minute (kerod ≤ 500, app ≤ 1,500), window shown and unfocused, at 4 and 8 panes | `scripts/perf.sh`: interrupt wakeups over 60 s of idle. Agreed 2026-10-22 in place of 30, which a Go process with a MyGo window cannot reach (BRU-336, below) |
 | Idle CPU, app + kerod | ≤ 1 % | `scripts/perf.sh`: CPU time over 60 s of idle, of one core |
 | Idle frames, app | < 10 a minute that build the window | `scripts/perf.sh`: frames `MYGO_FRAME_STATS=all` logs over 60 s of idle. A frame that only paints the last one again ("painted again"), as a focused terminal's cursor blinks, is counted apart and not judged |
@@ -39,6 +151,13 @@ The budgets are targets at 1, 4, 8 and 12 panes, each with a full scrollback
 (BRU-222); the measurements below distinguish passes, misses and unmeasured
 conditions. The last two rows are tests, which `go test ./...` runs, so a
 regression fails the checks without the app.
+
+MyGo's GPU builder keeps transformed clip masks for the current frame and
+drops idle masks once their combined retained capacity exceeds 32 MiB. The
+pinned fork counts a shrunken mask's retained backing capacity, not only its
+visible length, so stale capacity is dropped. This is accounting and lifetime
+correctness, not a budget row, an app RSS or footprint attribution, or
+evidence of 25-session savings.
 
 ## Measuring
 
@@ -54,9 +173,9 @@ budget, and `ok` or `OVER`. What it does:
    `KERO_CONFIG` and socket, with every `KERO_*` variable of the caller,
    `LINEAR_API_KEY` and `XDG_RUNTIME_DIR` cleared. The daily app, its kerod
    and the Linear workspace are never reached.
-3. It opens N panes and feeds each 16 MB of output (`PERF_FEED_MB`), past
-   the default scrollback of 4 MB, so that every scrollback is full. The
-   scrollback setting counts the emulator's memory, not text, so 4 MB of
+3. It opens N panes and feeds each 16 MiB of output (`PERF_FEED_MB`), past
+   the default scrollback of 4 MiB, so that every scrollback is full. The
+   scrollback setting counts the emulator's memory, not text, so 4 MiB of
    text would not fill it.
 4. It packages the same build in a temporary app bundle with a unique
    `CFBundleIdentifier`, stages the pinned terminal library after SHA-256
@@ -158,19 +277,59 @@ and after each tool. A category from one snapshot must not be subtracted from
 a process total taken at another time. IOSurface region counts are mappings,
 not a count of unique surfaces.
 
-Sizes in this section use MiB (2^20 bytes), called MB by the harness. The
+Sizes in this section use MiB (2^20 bytes). The current ordinary and memory reports label these values MiB; older reports called them MB. The existing byte thresholds are unchanged. Historical ticket budgets written as MB mean the existing operational MiB thresholds, as clarified by the owner; decimal MB is 10^6 bytes. Preserve raw bytes and both interpretations when reading ambiguous older reports. The
 aggregate app target at 25 panes is 750 MiB. The report keeps that total
 separate from the empty-app baseline and `(total - baseline) / distinct panes
 confirmed so far`; the denominator is zero before any visit. These within-run
 deltas can become negative as native graphics allocations change, and do not
-measure a terminal's individual allocation. The ordinary harness's existing
-30 MB row compares the whole app with a per-pane budget without an empty-app
-baseline; it is not the aggregate 25-pane acceptance check.
+measure a terminal's individual allocation. The ordinary harness reports the retained-terminal RSS budget as unmeasured; dividing total app RSS by fixture sessions cannot establish it. The separate memory workload forces diagnostic GC by default, so it also does not prove ordinary unforced-GC acceptance. A private no-forced-GC adapter must record actual terminal counts and all stages for that evidence.
 
 Forced GC, bounded text-tail reads and native profiling perturb these runs.
 Their CPU and frame rates are diagnostic data, not idle or streaming latency
 acceptance. `GOMEMLIMIT`, `GOGC` and `GODEBUG`, when inherited, are recorded; this
 mode sets none of them.
+
+### C9 25-session attribution
+
+The corrected C9 run measured `04895fe` plus the accepted reporting diff
+`892838…`, with MyGo `439448` and the sealed C8 app/daemon binary
+`adca389b…`. It predates the `7fb5c349` capacity fix; it is not a measurement
+of that pinned code, a candidate comparison, or a run of the unchanged public
+`PERF_MEMORY` command, whose memory path forces GC.
+
+The fixture fed 16 MiB plus one byte per session, completed two painted
+25-pane sweeps, then took a 60.023 s quiet sample with 13/13 stable
+1180×760 native and UI-unfocused, visible and unoccluded observations.
+The final state retained 8 app clients and 25 daemon VTs. `NumForcedGC`
+was 0 across all 114 process snapshots.
+
+| Stage | App RSS / footprint MiB | Daemon RSS / footprint MiB |
+| --- | ---: | ---: |
+| empty | 117.922 / 167.251 | 44.469 / 16.876 |
+| visited-2 | 278.250 / 270.673 | 178.484 / 128.783 |
+| streaming | 229.047 / 283.642 | 231.516 / 167.423 |
+| quiet-unfocused | 229.828 / 131.486 | 231.938 / 146.454 |
+| recorded max | app 290.516 / 378.642 | daemon 231.938 / 167.423 |
+
+The recorded maxima are app RSS at first-shown and app footprint at visit-1-8;
+daemon RSS at quiet-before and daemon footprint at streaming. They are stage
+maxima, not terms to add across stages.
+
+At quiet, app HeapAlloc/GoSys was 27.112/156.901 MiB, VT resident page backing
+bytes were 31.25 MiB primary and 3.125 MiB alternate, images and compressed
+bytes 0. Daemon HeapAlloc/GoSys was 9.713/97.272 MiB, VT resident page backing
+bytes were 97.656 MiB primary and 0 alternate, images and compressed bytes 0.
+Unique window Metal owner resources were 256 bytes; the device
+`currentAllocatedSize` cross-check was 15.5625 MiB separately. At first-shown
+the owner total was 38.681 MiB and device 68.406 MiB; neither is added to RSS
+or footprint.
+
+Every sampled app footprint was below the 750 MiB aggregate threshold
+(observed maximum 378.642 MiB); the continuous peak was not measured. Go heap,
+VT, Metal ownership, RSS and footprint are different counters and are not a
+disjoint physical pie. VT bookkeeping, command-buffer-only and retired Metal
+resources, and compositor/driver/pipeline bytes remain unknown. This run makes
+no app-RSS/25 verdict, mask-fix savings claim or daily/all-workload acceptance.
 
 ## Profiling kerod
 
@@ -214,7 +373,7 @@ streaming. The daily app and its agents ran beside it, as they always do.
 | Measure | 1 pane | 4 panes | 8 panes | Budget |
 | --- | --- | --- | --- | --- |
 | kerod footprint | 28.8 MB | 40.2 MB | 57.7 MB | |
-| kerod footprint per pane (over 13.1–13.5 MB with none) | 15.3 MB | 6.8 MB | 5.6 MB | ≤ 25 MB: ok |
+| kerod footprint per pane (over 13.1–13.5 MB with none) | 15.3 MB | 6.8 MB | 5.6 MB | ≤ 25 MB footprint: ok (retired); not the current RSS verdict |
 | kerod RSS | 31.7 MB | 64.3 MB | 74.4 MB | |
 | kerod idle CPU | 0.03 % | 0.05 % | 0.08 % | |
 | kerod idle wakeups (interrupt) | 870/min | 1,005/min | 1,521/min | |

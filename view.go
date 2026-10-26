@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/actions"
@@ -620,6 +621,9 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int) 
 			statusIconP(c, pal, s.Status, s.Unread, s.Progress, s.Since, 15)
 		})
 	})
+	if a.navReveal(s.ID) {
+		row.ScrollIntoView()
+	}
 }
 
 // renameStarted keeps a rename from ending in the frame it began in,
@@ -1114,7 +1118,7 @@ func (a *App) card(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32) 
 					iconButton(c, "new-session-2", plusIcon, a.tip(locales.ActionNewSession(), "session.new"), pal, func() { a.newSession("") })
 				})
 			}
-			ui.Text(c, "Kero").FontSize(14).FontWeight(600).TextColor(pal.text)
+			ui.Text(c, mygo.App.Name()).FontSize(14).FontWeight(600).TextColor(pal.text)
 			ui.Spacer(c)
 			windowControls(c, pal, a.win)
 		})
@@ -1152,20 +1156,13 @@ func (a *App) emptyState(c *ui.Context, pal *palette) {
 			controlIcon(c, terminalIcon, 26, pal.textMuted, pal.dark)
 		})
 		ui.Text(c, locales.EmptyTitle()).FontSize(19).FontWeight(650).TextColor(pal.text)
-		ui.Text(c, locales.EmptyDetail()).
-			FontSize(13.5).TextColor(pal.textMuted).MaxWidth(380).TextAlign(ui.Center).LineHeight(1.45).Margin(8, 0, 22, 0)
-		ui.Row(c).Gap(10).Children(func() {
+		ui.Row(c).Gap(10).Wrap().Justify(ui.Center).AlignContent(ui.Center).Margin(22, 0, 0, 0).Children(func() {
 			if button(c, "empty-new", locales.ActionNewSession(), a.keys("session.new"), true, pal) {
 				a.newSession("")
 			}
 			if button(c, "empty-open", locales.ActionOpenProject(), a.keys("project.open"), false, pal) {
 				a.openProject()
 			}
-		})
-		ui.Column(c).Margin(40, 0, 0, 0).Padding(14, 16).Gap(6).Radius(10).Background(pal.chip).MaxWidth(420).Children(func() {
-			ui.Text(c, locales.EmptyForAgents()).FontSize(11.5).FontWeight(600).TextColor(pal.textMuted)
-			ui.Text(c, "kero new -n review -- claude\nkero prompt review \"run the tests and fix them\"\nkero wait review && kero read review").
-				Font("monospace").FontSize(12).TextColor(pal.text).LineHeight(1.5).Selectable()
 		})
 	})
 }

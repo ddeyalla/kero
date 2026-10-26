@@ -30,6 +30,13 @@ Data lives in `~/Library/Application Support/kero-local` on macOS, or
 `kero-local-dev`. Installing this app does not replace the original CLI;
 use its executable directly, or its menu's CLI installer when ready to switch.
 
+## Empty shell
+
+With no sessions, the empty shell shows the Shibu Code identity and two
+actions: **New Session** and **Open Project**, each with its shortcut. Start an
+agent from a session, then use the [CLI guide](cli.md#sessions-and-panes) when
+you want named sessions, prompts, waits and reads.
+
 ## Usage
 
 Click **Usage** in the sidebar or press **Cmd+Shift+U** for an in-app modal

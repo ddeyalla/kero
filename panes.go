@@ -72,7 +72,11 @@ func (a *App) focusOf(s *proto.Session) string {
 }
 
 // setFocus moves the user into a pane, and tells kerod, which remembers it.
+// A pane already exiting is not a focus target.
 func (a *App) setFocus(s *proto.Session, pane string) {
+	if a.closing[pane] {
+		return
+	}
 	if a.focus == nil {
 		a.focus = map[string]string{}
 	}
@@ -242,6 +246,9 @@ func (a *App) paneCard(c *ui.Context, pal *palette, bar ui.TitleBar, shown float
 	focused := p.ID == a.focusOf(s)
 	bg := pal.card
 	card := ui.Column(c.Key("pane-" + p.ID)).Grow(1).Basis(0).MinWidth(0).MinHeight(0).Radius(14).Clip().Bind(a.paneRef("card-" + p.ID))
+	// A closing pane is only a picture of its exit: focus already moved to
+	// its neighbour, and neither it nor a child may take input back.
+	card.Disabled(a.closing[p.ID])
 	if a.cardSize == nil {
 		a.cardSize = map[string]ui.Rect{}
 	}
@@ -831,7 +838,7 @@ func (a *App) closePane(s *proto.Session, pane string, ask bool) {
 		// The keyboard goes to the neighbor at once: not to what ends.
 		if a.focusOf(s) == pane {
 			for _, dir := range []string{"left", "up", "right", "down"} {
-				if n := s.Layout.Neighbor(pane, dir); n != "" && !a.closing[n] {
+				if n := s.Layout.NeighborExcluding(pane, dir, func(id string) bool { return a.closing[id] }); n != "" {
 					a.setFocus(s, n)
 					a.paneRef(n).Focus()
 					break
@@ -860,10 +867,11 @@ func (a *App) removePane(s *proto.Session, pane string) {
 	if s.PaneByID(pane) == nil {
 		return
 	}
-	// The neighbor taking the room takes the focus, as kerod does.
+	// The neighbor taking the room takes the focus, as kerod does. Closing
+	// panes are not focus targets, so a farther live pane may take it.
 	if a.focusOf(s) == pane && s.Layout != nil {
 		for _, dir := range []string{"left", "up", "right", "down"} {
-			if n := s.Layout.Neighbor(pane, dir); n != "" {
+			if n := s.Layout.NeighborExcluding(pane, dir, func(id string) bool { return a.closing[id] }); n != "" {
 				a.focus[s.ID] = n
 				break
 			}
@@ -913,22 +921,27 @@ func (a *App) zoomPane(s *proto.Session, pane string) {
 	a.paneRef(pane).Focus()
 }
 
-// focusDirection moves into the pane next to the focused one.
+// focusDirection moves into the live pane next to the focused one. A closing
+// pane is skipped as a candidate in the original layout, so it cannot
+// dead-end the search before a live pane farther along.
 func (a *App) focusDirection(dir string) {
 	s := a.session(a.selected)
 	if s == nil || s.Layout == nil || s.Zoomed != "" {
 		return
 	}
-	if n := s.Layout.Neighbor(a.focusOf(s), dir); n != "" {
-		a.setFocus(s, n)
-		a.paneRef(n).Focus()
+	n := s.Layout.NeighborExcluding(a.focusOf(s), dir, func(id string) bool { return a.closing[id] })
+	if n == "" {
+		return
 	}
+	a.setFocus(s, n)
+	a.paneRef(n).Focus()
 }
 
-// cyclePane moves to the next or previous pane, in the layout's order.
+// cyclePane moves to the next or previous pane, in the layout's order,
+// skipping panes that are already exiting.
 func (a *App) cyclePane(d int) {
 	s := a.session(a.selected)
-	if s == nil || len(s.Panes) < 2 {
+	if s == nil || s.Layout == nil || len(s.Panes) < 2 {
 		return
 	}
 	order := s.Layout.Panes()
@@ -936,11 +949,17 @@ func (a *App) cyclePane(d int) {
 	for j, id := range order {
 		if id == a.focusOf(s) {
 			i = j
+			break
 		}
 	}
-	n := order[(i+d+len(order))%len(order)]
-	a.setFocus(s, n)
-	a.paneRef(n).Focus()
+	for step := 1; step <= len(order); step++ {
+		n := order[((i+d*step)%len(order)+len(order))%len(order)]
+		if !a.closing[n] {
+			a.setFocus(s, n)
+			a.paneRef(n).Focus()
+			return
+		}
+	}
 }
 
 func itoa(n int) string {

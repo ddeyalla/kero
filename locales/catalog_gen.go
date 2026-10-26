@@ -1736,26 +1736,6 @@ func (msgs Messages) EmptyTitle() string {
 	return Catalog.Format(msgs.locale, "emptyTitle", nil)
 }
 
-// EmptyDetail says "Sessions keep running in the background — quit Kero and come back to everything just as you left it."
-// in the language the app shows.
-func EmptyDetail() string { return In(i18n.Locale()).EmptyDetail() }
-
-// EmptyDetail says "Sessions keep running in the background — quit Kero and come back to everything just as you left it."
-// in the language of msgs.
-func (msgs Messages) EmptyDetail() string {
-	return Catalog.Format(msgs.locale, "emptyDetail", nil)
-}
-
-// EmptyForAgents says "For agents"
-// in the language the app shows.
-func EmptyForAgents() string { return In(i18n.Locale()).EmptyForAgents() }
-
-// EmptyForAgents says "For agents"
-// in the language of msgs.
-func (msgs Messages) EmptyForAgents() string {
-	return Catalog.Format(msgs.locale, "emptyForAgents", nil)
-}
-
 // PaletteSettingsPage says "Settings: {page}"
 // in the language the app shows.
 func PaletteSettingsPage(page string) string { return In(i18n.Locale()).PaletteSettingsPage(page) }

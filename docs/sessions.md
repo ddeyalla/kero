@@ -96,10 +96,13 @@ only when they do not fit beside those same measured compact-title floors.
 
 Click a project header to fold its sessions away; it shows the session count
 and how many need you, keeps the selected session's panes on screen, and marks
-itself while folded. A session chosen in the overflow, palette, by a shortcut,
-in an attention jump or from a plugin notification opens its project and
-scrolls its tab into view. An attention jump reveals the tab even when that
-session is already selected. A session whose project is unknown or empty is
+itself while folded. A session chosen explicitly in the overflow, palette, by a
+shortcut, in an attention jump or from a plugin notification opens its project
+and scrolls its row or tab into view, in a sidebar on either side or in the
+navigation tabs. Every explicit choice, including an attention jump or a plugin
+notification, reveals the row or tab even when that session is already selected.
+Ordinary selection, such as clicking a visible row, does not request a reveal
+and leaves folding as it is. A session whose project is unknown or empty is
 shown in **Other**, and choosing it opens **Other** too. Folding a project
 changes no selection and stays folded until an explicit selection asks to
 reveal it.
