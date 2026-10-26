@@ -167,7 +167,7 @@ func (a *App) closePeek() {
 // peekView is the flyout's: the picture, with the file's name and the
 // picture's size in pixels under it. The system draws its shadow and edge.
 func (a *App) peekView(c *ui.Context) {
-	pal := a.paletteFor(c)
+	pal := a.paletteForPeek(c)
 	c.Root().Background(ui.Transparent)
 	bm := a.peek.bm
 	if bm == nil {

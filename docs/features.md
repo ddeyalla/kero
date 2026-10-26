@@ -31,6 +31,7 @@ Current release: **2.0.7-local.5** (Kero 2.0.7), 2026-10-24.
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
+| Final plugin stderr is drained on protocol EOF before the crash is reported, with a bounded wait for inherited pipes | Plugin crash log | Unreleased | Blocked-writer regression and host race checks pass; installed-app acceptance not claimed |
 | Spotify cached-list warning, pending retry suppression and retired-player callback isolation | Spotify pane | 2.0.7-local.2 | Fake HTTP/event/race regressions pass |
 
 ## Linear and tasks
@@ -90,6 +91,7 @@ Current release: **2.0.7-local.5** (Kero 2.0.7), 2026-10-24.
 | Spotify browse drill-in loads its track list when a compact pane grows large | Spotify pane, large layout | Unreleased | Fake HTTP/engine tests; real account browse acceptance pending |
 | Sign Out of Spotify (keeps the Client ID, stops the engine) | Settings › Plugins › Spotify; palette › Sign Out of Spotify | 2.0.7-local.2 | Untried |
 | Colour from music: a plugin with the `ambient` permission tints the accent, focus edge, cursor, selection and the cards, capped to 3:1 contrast | Settings › Appearance › Colour from music; `ambient-color = false` off | 2.0.7-local.2 | Untried |
+| Colour from music terminal fade: the terminals' cursor and selection follow the same 600 ms shown ambient shade as the cards, including fade-in, colour change, pause or stop, and turning the setting off; default themes follow the fade, user-picked Ghostty themes opt out (a mixed pair leaves the custom appearance alone), and Reduce Motion changes at once; a terminal attached mid-fade starts at the current shade | Automatic with Colour from music | Unreleased | Tested with the MyGo tester |
 | Plugin panes that scroll as one page (`Tree.Scroll`), plugin icon buttons drawn as SF Symbols, and a smooth pane: unchanged trees skipped, seek bar and clock moved by the host | Automatic; Spotify uses all | 2.0.7-local.2 | Untried |
 | Usage widget: a Cost card (Today, Yesterday, 30 Days; total and provider list, from local Claude Code, Codex and OpenCode logs) and a section per provider with each window's bar, pace tick, "% left", reset and "Limit in …" flame, and Today and Last 30 Days in dollars and tokens; compact in small panes | New Pane chooser › Usage, palette, `kero split --plugin usage` | 2.0.7-local.2 | Untried |
 
@@ -146,6 +148,7 @@ Current release: **2.0.7-local.5** (Kero 2.0.7), 2026-10-24.
 | CPU and RAM meters for the whole Mac | Usage icon popover, `kero resources --json` | 2.0.5-local.2 | Shipped |
 | Hidden terminal output updates its screen without redrawing the window; revealing a pane shows its latest output | Automatic when switching sessions, zooming, or replacing a terminal with another pane view | 2.0.7-local.2 | Automated checks; not yet tried in the installed app |
 | Visited-terminal memory diagnostics: empty-app baseline, two sweeps, all-pane output and settled footprint, Go heaps and native accounting; separate-session and single-session split workloads | `PERF_MEMORY=1 PERF_KEEP=1 sh scripts/perf.sh N`; add `PERF_LAYOUT=split`; see [Performance](perf.md) | 2.0.7-local.2 | Automated probe checks; synthetic measurements recorded separately from the daily app |
+| Idle clip-mask memory: idle masks are dropped once their combined retained backing capacity exceeds the 32 MiB idle budget; masks used by the current frame stay cached | Automatic; MyGo fork pin | Unreleased | Automated MyGo and Shibu checks |
 | Performance budgets and a one-command measurement: footprint, idle CPU, wakeups and frames, and frame times while streaming, for N panes, in an isolated kerod and app; kerod profiles on a loopback address; allocation tests for screen reads and a key's echo | `sh scripts/perf.sh N`, `KERO_PPROF=127.0.0.1:6060`; see [Performance](perf.md) | 2.0.7-local.2 | Measured at 1, 4 and 8 panes; key to paint remains open |
 | Idle window paints less: CPU and RAM meters redraw only when what they show changes; times ago tick once a minute, only while shown | Automatic | 2.0.7-local.2 | Untried |
 | Fewer idle wakeups: kerod checks quiet panes every 10 s instead of every 400 ms and writes histories only after a change; the CPU and RAM meters read every 30 s while the window does not have the focus | Automatic; numbers in [Performance](perf.md) | 2.0.7-local.2 | Measured with 4 and 8 panes, visible and unfocused |
@@ -160,6 +163,7 @@ Current release: **2.0.7-local.5** (Kero 2.0.7), 2026-10-24.
 | Accent presets: Blue, Plum, Rose, Sea, Moss, Graphite — an accent color, the wash that comes with it, the terminals' selection | Settings › Appearance › Accent (with its wash); `accent = <preset>` in the config (the accent alone) | 2.0.7-local.2 | Untried |
 | Shared keyboard focus ring in the chosen accent, including generic controls and sliders; Increase Contrast keeps its full opacity | Settings › Appearance › Accent; Tab to a slider or control | Unreleased | Tested |
 | Grain over the background wash: a repeating 300-point tile at 3.3% light and 4% dark | Settings › Appearance › Grain; `grain = false` off | 2.0.7-local.2 | Pixel strength and tiling regressions pass |
+| Initialize the grain shader only when the GUI needs it | Automatic; the GUI prewarms before its first window | Unreleased | Software pixel, strength, tiling and setting-toggle regressions pass; installed GUI behavior unverified |
 | Spotify list errors retain the open album or playlist and offer Retry; offline libraries and Up next can retry in place | Retry in a failed Spotify list | 2.0.7-local.2 | Fake HTTP recovery and race tests |
 
 ## Terminal

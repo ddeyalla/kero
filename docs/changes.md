@@ -3,6 +3,16 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Plugin crash logs
+
+`internal/plugin/host/host.go` waits for the process's stderr copy after its
+protocol stdout reaches EOF, before exposing and closing the crash log.
+The process is ended if it closed its protocol without exiting. The command's
+`WaitDelay` uses the existing stall timeout so a child that inherited stderr
+cannot keep that pipe open indefinitely. `TestCrashWaitsForStderr` in
+`internal/plugin/host/host_test.go` holds the log writer while the plugin
+exits and verifies that the callback waits for its final message.
+
 ## Navigation placements, tabs and the usage popover
 
 `navigation.go` owns the one saved placement. `prefs.NavPlacement` is
@@ -233,6 +243,36 @@ own isolated window and follow each real PTY echo through painting. The
 endpoint and listener never enter production builds. See `docs/perf.md` for
 measured samples, distinct RSS and physical-footprint counters, native-input
 scope and the remaining BRU-333 native-allocation ownership investigation.
+
+Clip-mask idle memory lives below Shibu, in MyGo's
+`internal/gpu/transform.go`: the builder caches transformed clip masks for the
+current frame, then drops idle masks once their combined retained backing
+capacity exceeds the 32 MiB budget. A mask that shrinks keeps its image's
+backing array through `scene.Image.Resize`, so counting only
+`len(m.image.Pix)` could leave more retained backing capacity than the budget
+allowed. The pinned MyGo fork (`7fb5c349`,
+`v0.5.6-0.20261025114427-7fb5c34991fd`) counts `cap(m.image.Pix)` instead; the
+budget and the lifetime of masks used by the current frame are unchanged. Shibu
+pins the fork commit through the existing `replace` directive, never through a
+local path. This is accounting and lifetime correctness, not a claimed
+25-session or total-footprint improvement.
+
+C9 recorded a corrected 25-session attribution run that predates the
+`7fb5c349` capacity fix; it measured `04895fe` plus the accepted reporting
+diff `892838…`, with MyGo `439448` and the sealed C8 app/daemon binary
+`adca389b…`. The private no-forced-GC run completed two
+painted 25-pane sweeps and a 60.023 s quiet sample with 8 retained app clients
+and 25 daemon VTs. Observed maxima were app RSS 290.516 MiB and footprint
+378.642 MiB, daemon RSS 231.938 MiB and footprint 167.423 MiB; every sampled
+app footprint stayed below the 750 MiB aggregate threshold. `NumForcedGC` was
+0 in all 114 process snapshots. The stage table, separate RSS/footprint,
+Go/VT/Metal counters and the 8-versus-25 retained distinction are in
+[Performance](perf.md#c9-25-session-attribution). The historical 1.2 GB daily
+observation, the earlier C8 partial 413 MiB result and earlier misses are not
+erased; this synthetic run does not reproduce them. It does not claim
+all-workload/daily acceptance, a disjoint footprint sum, mask-cap savings or
+an app-RSS/25 verdict, and no GC or memory-limit policy changed. The unchanged
+public `PERF_MEMORY` path still forces GC and does not reproduce C9.
 
 ## Release validation and CI
 
@@ -1548,6 +1588,20 @@ Code: [`internal/daemon/pprof.go`](../internal/daemon/pprof.go),
 `internal/daemon/pprof_test.go` (loopback only, off when unset or
 refused, served and stopped, free when off).
 
+The [empty app and daemon baseline](perf.md#empty-app-and-daemon-baseline)
+records C17's production-mode, pre-lazy-grain fixture with zero sessions and
+terminals. Four region snapshots were bracketed by kernel RSS/footprint
+samples, with empty inventories and independently observed window state.
+App RSS was 139.234375–139.296875 MiB and daemon RSS was
+39.046875–39.281250 MiB. These absolute empty-process diagnostics have no
+terminal denominator, so they cannot establish the per-pane 30/25 MiB
+budget pass/fail. The existing budgets still apply actual 1/4/8/12-pane
+workloads, and BRU-222 remains open. This separates empty-process overhead
+from scrollback; it is not a claim that the remaining overhead is
+unavoidable, a retained-terminal acceptance result or a measurement of the
+lazy-grain candidate GUI. The private identity/metadata seam also prevents
+byte-identical shipping-release claims.
+
 ## Title bar and traffic lights
 
 The title bar is macOS's compact title bar and toolbar, and the traffic
@@ -1734,8 +1788,20 @@ light and 4% in the dark at a speck's strongest — an average of some
 through,
 which has a texture of its own. `grain = false` turns it off.
 
+The shader is held by `sync.OnceValue` in `grain.go`. `runApp` in `main.go`
+prewarms it after role dispatch and the single-instance check, before the
+first window. The CLI, `__kerod` and `plugin-run` return through their own
+dispatch paths without compiling this UI backdrop or initializing its Metal
+precompiler device. A software tester that draws a backdrop directly obtains
+the same cached shader through `backdrop` in `theme.go`. The shader source,
+strength and setting are unchanged; compilation stays out of an already
+running GUI frame. This does not change MyGo's shader compiler or GPU policy.
+
 The grain pixel regression in `grain_test.go` checks the tile and the
-2–4% maximum strength. `sidebar_motion_test.go` verifies that a project of
+2–4% maximum strength. A light/dark backdrop regression also switches grain
+off, on, off and on across frames, checking that both the wash and repeated
+tile return unchanged. These are software-rendering checks, not an installed
+GUI or native compositor verification. `sidebar_motion_test.go` verifies that a project of
 100 sessions snaps to its collapsed or expanded state with Reduce Motion.
 Its software-tester benchmark measures collapse operations; it is not a
 measurement of the native GPU's frame rate.
@@ -2222,6 +2288,16 @@ Appearance › **Colour from music**. The Spotify pane lends its tint only while
 a track plays, so the colour fades on pause. The tint itself comes from
 `plugin_tint.go`, darkened into a band where white text keeps 4.5 to 1
 (`pluginTintClamp`).
+
+The terminals' cursor and selection follow the same shown shade and strength
+as the cards: `ambientPal` records them, `ambientThemePal` builds the terminal
+theme from them, and `scheduleTermThemes` sets the terminals after the frame,
+once for each changed shade. A fade in, a colour change, a fade out on pause
+or stop, and turning **Colour from music** off all take the same 600 ms; a
+terminal attached during the fade starts at the shade on screen, and the
+updates stop when the fade settles. Reduce Motion keeps its instant change.
+User-picked Ghostty themes opt out; with one picked, only the default
+appearance follows the ambient colour.
 
 Protocol additions are optional (`omitempty`): `Node.Active`, `Item.Active`,
 `Item.Leading`, `Rate` and `At` on sliders and text, the icons `volume-off`,

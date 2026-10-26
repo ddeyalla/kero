@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 
 	"kero/internal/plugin/protocol"
@@ -32,6 +33,16 @@ func tintedView(color ui.Color) *pluginView {
 	v := newPluginView()
 	v.tintColor, v.tintTarget, v.tintShown, v.tinted = color, pluginTintClamp(color), pluginTintClamp(color), true
 	return v
+}
+
+// runAmbientLater runs what the view asks to run after its frame, as
+// view.go does.
+func runAmbientLater(a *App) {
+	later := a.later
+	a.later = nil
+	for _, fn := range later {
+		fn()
+	}
 }
 
 // The winner is the focused pane that lends, else the pane that changed
@@ -220,19 +231,186 @@ func TestPaletteWithAmbient(t *testing.T) {
 	}
 }
 
-// The terminals' themes take the ambient color as the app has it.
-func TestTermThemesTakeTheAmbientColor(t *testing.T) {
+// The terminals' themes follow the shade the frame draws: they wait for the
+// same fade in, color change and fade out as the cards, and no terminal
+// jumps to the final color at the start.
+func TestTermThemesFollowTheAmbientFade(t *testing.T) {
 	a := ambientApp(protocol.PermAmbient)
+	var got *palette
+	tt := ui.NewTester(func(c *ui.Context) {
+		got = a.paletteFor(c)
+		runAmbientLater(a)
+	}, 200, 100)
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
 	plainL, plainD := a.termThemes()
-	a.lendAmbient("p1", "fake", true, tintedView(ui.RGB(200, 40, 40)))
-	l, d := a.termThemes()
-	if l.Cursor == plainL.Cursor || d.Selection == plainD.Selection {
-		t.Error("the terminals' cursor and selection ignore the ambient color")
+	red := ui.RGB(200, 40, 40)
+	a.lendAmbient("p1", "fake", true, tintedView(red))
+	tt.Frame()
+	tt.Advance(ambientFade / 3)
+	tt.Frame()
+
+	// A terminal attached now, mid-fade, takes the shade already on screen.
+	opts := a.termOptions("new", nil)
+	midL, midD := opts.Theme, opts.DarkTheme
+	if midL.Cursor != got.cursor || midL.Selection != got.selection {
+		t.Errorf("mid-fade terminal = %v/%v, want the frame's %v/%v",
+			midL.Cursor, midL.Selection, got.cursor, got.selection)
 	}
+	finalL := a.accentPal(false).withAmbient(red, 1)
+	finalD := a.accentPal(true).withAmbient(red, 1)
+	if midL.Cursor == finalL.cursor || midL.Selection == finalL.selection {
+		t.Error("a terminal attached mid-fade jumped to the final color")
+	}
+	if midD.Cursor == finalD.cursor || midD.Selection == finalD.selection {
+		t.Error("the dark terminal attached mid-fade jumped to the final color")
+	}
+	if got.card == a.accentPal(false).withAmbient(red, 1).card {
+		t.Fatal("the palette had already settled at a third of the fade")
+	}
+
+	tt.Advance(ambientFade * 2)
+	tt.Frame()
+	tt.Frame()
+	if l, d := a.termThemes(); l.Cursor != finalL.cursor || d.Selection != a.accentPal(true).withAmbient(red, 1).selection {
+		t.Errorf("settled terminal = %v/%v, want the final shade", l.Cursor, d.Selection)
+	}
+
+	// One color changes to another through the middle, not at once.
+	blue := ui.RGB(40, 40, 200)
+	a.lendAmbient("p1", "fake", true, tintedView(blue))
+	tt.Frame()
+	tt.Advance(ambientFade / 2)
+	tt.Frame()
+	midL, _ = a.termThemes()
+	finalBlue := a.accentPal(false).withAmbient(blue, 1)
+	if midL.Cursor != got.cursor || midL.Selection != got.selection {
+		t.Errorf("color-change terminal = %v/%v, want the frame's %v/%v",
+			midL.Cursor, midL.Selection, got.cursor, got.selection)
+	}
+	if midL.Cursor == finalBlue.cursor && midL.Selection == finalBlue.selection {
+		t.Error("the terminal changed color at once")
+	}
+
+	// Stopping or pausing clears the tint and fades it out.
+	a.lendAmbient("p1", "fake", true, nil)
+	tt.Frame()
+	tt.Advance(ambientFade / 2)
+	tt.Frame()
+	midL, _ = a.termThemes()
+	if midL.Cursor != got.cursor || midL.Selection != got.selection {
+		t.Errorf("fade-out terminal = %v/%v, want the frame's %v/%v",
+			midL.Cursor, midL.Selection, got.cursor, got.selection)
+	}
+	if midL.Cursor == plainL.Cursor && midL.Selection == plainD.Selection {
+		t.Error("the terminal dropped the ambient color at once")
+	}
+	tt.Advance(ambientFade * 2)
+	tt.Frame()
+	tt.Frame()
+	if l, d := a.termThemes(); l.Cursor != plainL.Cursor || d.Selection != plainD.Selection {
+		t.Errorf("after the fade out terminal = %v/%v, want the plain theme", l.Cursor, d.Selection)
+	}
+}
+
+// Turning the setting off fades the terminal theme back with the cards, and
+// Reduce Motion changes it at once.
+func TestTermThemesSettingOffAndReduceMotion(t *testing.T) {
+	a := ambientApp(protocol.PermAmbient)
+	var got *palette
+	tt := ui.NewTester(func(c *ui.Context) {
+		got = a.paletteFor(c)
+		runAmbientLater(a)
+	}, 200, 100)
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	plainL, _ := a.termThemes()
+	a.lendAmbient("p1", "fake", true, tintedView(ui.RGB(200, 40, 40)))
+	tt.Frame()
+	tt.Advance(ambientFade * 2)
+	tt.Frame()
+	tt.Frame()
+
 	a.set.AmbientColor = false
-	l, _ = a.termThemes()
-	if l.Cursor != plainL.Cursor {
-		t.Error("the setting off should leave the terminals' theme alone")
+	tt.Frame()
+	tt.Advance(ambientFade / 2)
+	tt.Frame()
+	l, _ := a.termThemes()
+	if l.Cursor == plainL.Cursor {
+		t.Error("the setting off dropped the terminal color at once")
+	}
+	if l.Cursor != got.cursor || l.Selection != got.selection {
+		t.Errorf("setting-off terminal = %v/%v, want the frame's %v/%v", l.Cursor, l.Selection, got.cursor, got.selection)
+	}
+	tt.Advance(ambientFade * 2)
+	tt.Frame()
+	tt.Frame()
+	if l, _ = a.termThemes(); l.Cursor != plainL.Cursor {
+		t.Error("the setting off left the terminal color on")
+	}
+
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
+	a.set.AmbientColor = true
+	a.lendAmbient("p1", "fake", true, tintedView(ui.RGB(200, 40, 40)))
+	tt.Frame()
+	tt.Advance(50 * time.Millisecond)
+	tt.Frame()
+	want := a.accentPal(false).withAmbient(ui.RGB(200, 40, 40), 1)
+	if l, _ = a.termThemes(); l.Cursor != want.cursor || l.Selection != want.selection {
+		t.Errorf("Reduce Motion terminal = %v/%v, want the final shade %v/%v", l.Cursor, l.Selection, want.cursor, want.selection)
+	}
+	if got.card != want.card {
+		t.Error("Reduce Motion left the palette behind the terminal")
+	}
+}
+
+// Picked Ghostty themes opt out of the ambient color; with one picked, the
+// other appearance still follows it.
+func TestTermThemesKeepPickedThemes(t *testing.T) {
+	red := ui.RGB(200, 40, 40)
+	nord, err := terminal.GhosttyTheme("Nord")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	both := ambientApp(protocol.PermAmbient)
+	both.set.LightTheme, both.set.DarkTheme = "Nord", "Nord"
+	tt := ui.NewTester(func(c *ui.Context) {
+		both.paletteFor(c)
+		runAmbientLater(both)
+	}, 200, 100)
+	both.lendAmbient("p1", "fake", true, tintedView(red))
+	tt.Frame()
+	tt.Advance(ambientFade * 2)
+	tt.Frame()
+	tt.Frame()
+	if l, d := both.termThemes(); *l != *nord || *d != *nord {
+		t.Error("two picked themes took the ambient color")
+	}
+	if len(both.later) != 0 {
+		t.Error("two picked themes queued a terminal theme update")
+	}
+
+	mixed := ambientApp(protocol.PermAmbient)
+	mixed.set.LightTheme = "Nord"
+	tt = ui.NewTester(func(c *ui.Context) {
+		mixed.paletteFor(c)
+		runAmbientLater(mixed)
+	}, 200, 100)
+	mixed.lendAmbient("p1", "fake", true, tintedView(red))
+	tt.Frame()
+	tt.Advance(ambientFade * 2)
+	tt.Frame()
+	tt.Frame()
+	l, d := mixed.termThemes()
+	if *l != *nord {
+		t.Error("the picked light theme took the ambient color")
+	}
+	wantD := termTheme(mixed.accentPal(true).withAmbient(red, 1), accentSpecs[mixed.accentID()].darkSel)
+	if d.Cursor != wantD.Cursor || d.Selection != wantD.Selection {
+		t.Errorf("the default dark theme = %v/%v, want the ambient shade %v/%v", d.Cursor, d.Selection, wantD.Cursor, wantD.Selection)
 	}
 }
 
@@ -315,12 +493,17 @@ func TestAmbientLendEndsWithThePane(t *testing.T) {
 	}
 }
 
-// A settled frame returns the same palette, and the terminals are set
-// once per color, after the frame.
+// A settled frame returns the same palette, and the terminals are set once
+// per changed shade, after the frame, and never after the fade settles.
 func TestAmbientCachesAndSetsThemesOnce(t *testing.T) {
 	a := ambientApp(protocol.PermAmbient)
 	var got *palette
-	tt := ui.NewTester(func(c *ui.Context) { got = a.paletteFor(c) }, 200, 100)
+	var queued int
+	tt := ui.NewTester(func(c *ui.Context) {
+		got = a.paletteFor(c)
+		queued = len(a.later)
+		runAmbientLater(a)
+	}, 200, 100)
 	a.lendAmbient("p1", "fake", true, tintedView(ui.RGB(200, 40, 40)))
 	tt.Frame()
 	tt.Advance(2 * time.Second)
@@ -331,19 +514,26 @@ func TestAmbientCachesAndSetsThemesOnce(t *testing.T) {
 	if got != first {
 		t.Error("a settled frame made a new palette")
 	}
-	if a.ambient.applied.A == 0 && len(a.later) == 0 {
-		t.Error("the terminals' themes were neither set nor waiting")
+	if queued != 0 {
+		t.Error("a settled frame left a theme update queued")
 	}
-	a.later = nil
-	a.ambient.applied = a.ambientColor()
+	if tt.FramePending() {
+		t.Error("a settled frame still asks for another")
+	}
+
+	tt.Frame()
+	if queued != 0 {
+		t.Error("an unchanged shade queued a theme update")
+	}
 	a.ambientChanged()
 	if len(a.later) != 0 {
 		t.Error("an unchanged color queued a theme update")
 	}
+
 	a.set.LightTheme, a.set.DarkTheme = "Nord", "Nord"
-	a.ambient.applied = ui.Transparent
-	a.ambientChanged()
-	if len(a.later) != 0 {
+	a.lendAmbient("p1", "fake", true, tintedView(ui.RGB(40, 40, 200)))
+	tt.Frame()
+	if queued != 0 {
 		t.Error("user-picked themes queued a theme update")
 	}
 }
