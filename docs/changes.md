@@ -101,12 +101,24 @@ session's displayed group with `knownProjects`, `groupOfProject` and
 ID selects the synthetic Other group and expands Other's `""` collapse key,
 while the session's own `Project` stays as it was. `requestReveal` is the
 shared reveal request: it changes only `nav.reveal`, never the selection or
-the page. An attention jump always calls it, even when the session is already
-selected and its group is open, because the tab may be scrolled out of sight;
-the jump then selects and expands only when the page, session or displayed
-group needs it. Startup reconciliation and `toggleProject` still call
+the page. Every explicit selection calls it, including the palette, overflow,
+shortcuts, attention jumps and plugin notifications, even when the session is
+already selected and its group is open, because the row or tab may be scrolled
+out of sight; the jump then selects and expands only when the page, session or
+displayed group needs it. Startup reconciliation and `toggleProject` still call
 `selectSession` or nothing, so a fold survives a restart and never becomes a
 selection change.
+
+The vertical sidebar consumes the same `nav.reveal` request at
+`sessionRow`, as the horizontal tabs do at `navSession`: an explicit
+`selectRevealing` or `focusAttention` request calls `ScrollIntoView` on the
+requested row in either left or right placement. The request is one-shot, so
+a later frame cannot jump again. Ordinary `selectSession`, `setState` and
+`toggleProject` never set it, keeping their scroll and fold unchanged.
+`sidebar_reveal_test.go` captures the committed `ScrollState.Bounds` and
+checks the revealed row against that real viewport, below the header and above
+the footer, for both sidebars, a folded group and an already-selected offscreen
+row.
 
 `nav_usage.go` hosts the usage popover on the shared plugin host.
 `@nav/usage` is a transient surface id, not a daemon pane: `pluginPane.go`'s
@@ -691,7 +703,12 @@ button, search field and slider controls. It finds the body by that stable
 label, proves each control is a descendant of that group, and keeps an
 unrelated group in the tree so an any-group assertion cannot pass. It then
 checks focus and plugin key gating/restoration. The built-in Attention case
-identifies its own named group the same way. Code:
+identifies its own named group the same way. Earlier native CUA evidence came
+from an isolated Linear plugin's nested controls in
+`codex-native-observations.md` §ui2h at `af942019` (PID 67311), not from every
+built-in pane; Files, Browser and Attention are tester proof only here. The
+shared `pane_views.go` is unchanged in this integration, and no fresh native
+acceptance is claimed. Code:
 [`pane_views.go`](../pane_views.go) (`viewPane`); tests:
 `pane_views_access_test.go`.
 
@@ -1465,6 +1482,25 @@ the release before, `testdata/state-linear-v2.json`, loads whole, moves,
 and reloads), `internal/daemon/idle_test.go` (read counts, focus, the
 debounce under a storm, the HEAD check).
 
+## Performance report acceptance scope
+
+The ordinary `scripts/perf.sh N` fixture creates N daemon sessions but shows
+only one client terminal. `scripts/perf_probe.py` therefore reports total app
+RSS and physical footprint separately and marks retained-terminal app RSS
+acceptance as unmeasured. Dividing that process RSS by fixture sessions could
+previously print a false pass. The report now also judges kerod's individual
+500 interrupt wakeups/min limit during visible-unfocused samples, even when
+app and combined wakeups pass. Focused and unverified samples remain separate.
+Binary byte counts in this report are labeled MiB; byte thresholds are unchanged.
+Total daemon RSS divided by the actual fixture PTYs is judged against 25 MiB;
+incremental footprint above the empty baseline is diagnostic without a verdict.
+`perf.sh` verifies N distinct terminal IDs from the isolated daemon before
+measurement, rejecting view panes and duplicate IDs. No empty-app or empty-daemon
+RSS is subtracted. Historical budget wording MB means the existing operational
+MiB byte thresholds, as clarified by the owner.
+`scripts/test_perf_probe.py` covers each reporting correction. No terminal cache,
+scrollback, image limit, GC setting, daemon protocol or saved state changed.
+
 ## Performance measurement
 
 One command measures what the app and kerod cost with N panes against
@@ -2144,11 +2180,16 @@ Browse. In the large layout a playlist or album tile opens its track list
 (`drill.go`, `web/tracks.go`): back, the name, **Play** and numbered rows, with
 the playing row highlighted (`Item.Active`). A row press plays in context
 (`PlayFrom`; the desktop transport does the same through AppleScript). The
-drill-in is saved in the pane's target. A 403 shows "Spotify doesn't share
-this playlist's tracks", and **Sign In Again** when the token lacks the new
-scope `playlist-read-collaborative` (`web.ScopeCollaborative`), so an older
-sign-in must sign in once more. The **Up next** tab reads `/me/player/queue`.
-The medium and small layouts still play on a tile press.
+drill-in is saved in the pane's target. Its first displayable frame loads
+the tracks: a compact restored drill waits until the pane becomes large and
+the library is ready, then calls the existing `loadTracks`; a loaded,
+forbidden or failed list is kept, a pending load is not duplicated, and Back,
+a replacement drill or close drops an older result by `tracksSeq`. A 403
+shows "Spotify doesn't share this playlist's tracks", and **Sign In Again**
+when the token lacks the new scope `playlist-read-collaborative`
+(`web.ScopeCollaborative`), so an older sign-in must sign in once more. The
+**Up next** tab reads `/me/player/queue`. The medium and small layouts still
+play on a tile press.
 
 Sign Out. The manifest's `sign-out` command and its setting of the new kind
 `action` (`protocol.SettingAction`, whose key must be a declared command)
@@ -2188,8 +2229,12 @@ Protocol additions are optional (`omitempty`): `Node.Active`, `Item.Active`,
 SDK's `(*sdk.Node).Label` and `.Active`. A horizontal slider with a `Width`
 keeps it; one without grows.
 
-The desktop transport below remains in the code. Its library calls (search, playlists, albums) go through the Web API
-client with PKCE sign-in, a loopback redirect at
+Legacy desktop-transport helpers remain in `transport/`, including AppleScript
+commands and distributed-notification monitoring. They do not define the
+current pane UI: `tree()` in Spotify's `view.go` requires `p.engine` and
+otherwise shows the sign-in gate. Playback uses the in-app engine above.
+Library calls (search, playlists, albums) use the Web API client with PKCE
+sign-in and a loopback redirect at
 `http://127.0.0.1:43017/callback` (`web.DefaultRedirectPort`; the widget keeps
 the client's default, the Set Up state names `RedirectURI()`, and the
 manifest's Client ID help names the same URI, which a test checks), the Client
@@ -2200,19 +2245,18 @@ listener needs the main run loop. When the SDK loop ends (the host closed
 stdin, or the app crashed), the plugin closes the monitor and its ticker and
 closes `stop`, so the run loop returns within a turn and the process exits
 instead of polling osascript as an orphan; a test closes the stdin of the real
-`plugin-run spotify` binary and waits for it to end. Playback states (not
-running, not installed, the Automation refusal, playing, idle) and library
-states (no Client ID, signed out, token refused, Premium lapsed, offline, rate
-limited, ready) are typed, not strings, so each draws its own empty state. The
-library state before a call comes from the client's `Current()`, so a refused
+`plugin-run spotify` binary and waits for it to end. Legacy playback and
+current library states remain typed rather than strings; legacy desktop
+failure modes do not each draw their own UI in the current pane. The library
+state before a call comes from the client's `Current()`, so a refused
 refresh keeps **Sign In Again** until the next sign-in, and a tab switch asks
 the client again, so a tab whose load failed loads on the next pick. Offline
 and rate-limited calls keep the last results with a note above them, and a
 search shows kept results only under the query they are for
-(`SearchResult.Query`). **Privacy › Automation** opens
-`x-apple.systempreferences:com.apple.preference.security?Privacy_Automation`,
-the one non-web link the host's `openURL` check allows, and the app opens
-plugin links as URLs (`mygo.Shell.OpenExternal`), not as file paths. A failed
+(`SearchResult.Query`). The host's `openURL` allowlist retains the legacy
+Automation preferences URL,
+but the current pane offers no desktop Open, Get or Automation controls.
+Plugin links open as URLs (`mygo.Shell.OpenExternal`), not as file paths. A failed
 command's notice shows in every layout and clears after the next command that
 works. The compact bar sends the snapshot's fraction at its read time with
 `rate` and `at`, so the host counts the time since the read once. The search
@@ -2450,3 +2494,70 @@ native symbol availability and bounded concurrent glyph reuse. MyGo tester
 shots cover light/dark appearances and reduced transparency. A floating inset
 sidebar, window-radius redesign and glass morphing container are outside this
 pass, following the owner's current-layout decision.
+
+## Empty shell identity (BRU-168)
+
+With no sessions, `view.go`'s `card` and `emptyState` now show the app's
+identity from the existing `mygo.App.Name()` seam, plus only the two actions:
+New Session and Open Project, with their shortcuts. The helper paragraph and
+the “For agents” command card are removed; the same commands stay discoverable
+in [Command Line](cli.md#sessions-and-panes), and no CLI or palette action
+changed. `empty_state_test.go` checks the identity, both labeled action
+buttons and shortcuts, their narrow-window bounds and a tight title/action gap,
+and the absence of the removed copy at 560 and 900 points. MyGo tester shots
+cover light and dark at 560 points. No new identity framework or global screen
+rewrite was added.
+
+## Closing pane input (BRU-168)
+
+Closing a pane in a split moves the keyboard to its neighbour at once, then
+keeps the pane in the layout only for its exit fade. `panes.go`'s `paneCard`
+disables its whole card while `a.closing[p.ID]` is set, so the closing header,
+its nested New Pane/Split/Zoom/Close controls and the terminal/view body cannot
+take the focus back or dispatch an action during the fade; the surviving pane
+keeps its own controls. `setFocus` rejects an exiting pane, and `cyclePane`
+walks past it. `closePane`'s immediate transfer and `removePane`'s fade-end
+fallback both ask the layout for the nearest live pane while excluding every
+closing pane; the fallback no longer writes focus to a closing target when no
+live candidate remains. `focusDirection` asks `Layout.NeighborExcluding` for
+the nearest live pane in the original rectangles, excluding closing panes as
+candidates, so a closing pane in front of a live one cannot dead-end the move.
+The neighbour lookup keeps the existing distance rule and never removes or
+reflows the layout. The exit pose, close scheduling and neighbour focus are
+unchanged. `pane_close_input_test.go` drives the real app view and shared pane
+header control to cover the closing card, a nested button and the live pane;
+its irregular-layout regression covers both sides, no eligible target and a
+zoomed close. Because the tester app has no window, that regression exercises
+the immediate `removePane` fallback; the animated `closePane` transfer branch
+is untested here. `internal/proto/layout_test.go` checks the additive neighbour
+helper and that `Neighbor` keeps its old answer. No new user-visible text was
+added.
+
+## Reviewed performance acceptance, 2026-10-25
+
+BRU-336 and BRU-226 are closed for their written scopes. The standard
+four-session visible-unfocused sample measured 1,223.578 app and 299.897 daemon
+interrupt wakeups/minute (1,523.474 combined), 0.135% combined CPU and two built
+frames in 60.021 seconds, with 13 stable native observations. The eight-session
+visible-unfocused sample measured 1,433.8/414.9 (1,848.7 combined). Both satisfy
+the individual and combined wakeup limits. The earlier four-session miss
+(3,196.7 app, 3,525.7 combined) remains unexplained; the eight-session focused
+2,212.9 combined value is a separate focus mode.
+
+The eight-retained-terminal workload completed 17 fresh painted visits with
+no forced GC. Recorded app/daemon RSS maxima were 233.547/119.734 MiB, within
+240/200 MiB; quiet values were 173.984/62.891 MiB. The visible pane's startup
+READY marker was replaced by streaming output; seven remaining startup
+markers do not negate eight retained terminals or the completed visits.
+The shared 4 MiB scrollback, restore-last-screen and unchanged-history-save
+regressions cover BRU-226's other requirements. Historical 274.3 MiB RSS and
+317.079 MiB footprint peaks remain disclosed; footprint is separate from RSS.
+
+Shown-terminal key p99 was 29.684 ms at four sessions and 17.366 ms at eight.
+The later eight-session unfocused stream built 622 frames with build p99
+2.5 ms (paint 2.4 ms, total 5.4 ms); only build has the 4 ms budget. These
+one-shown-client fixtures do not establish retained-terminal memory, busy-key
+interference or hardware/compositor latency. BRU-222's remaining 1/4/8/12
+aggregate and busy-input gates and BRU-333's full native allocator attribution
+remain open. No MyGo cap fix, dependency change or process-memory saving is
+included here. See [Performance](perf.md) for measurement limits.

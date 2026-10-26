@@ -559,12 +559,18 @@ func (p *plugin) close(_ *sdk.Conn, pane string) {
 }
 
 // resize records a pane's size, so the pane draws the compact or the
-// large layout.
+// large layout. A restored drill is loaded here when its pane first becomes
+// large: syncLibrary skips the hidden drill in the compact layout, and this
+// event is what makes it displayable. A pending, loaded, forbidden or failed
+// list is left alone; the explicit retry owns a failed one.
 func (p *plugin) resize(_ *sdk.Conn, pane string, size protocol.Size) {
 	p.mu.Lock()
 	left := false
+	loadDrill := false
 	if s := p.panes[pane]; s != nil {
 		s.size = size
+		loadDrill = layoutOf(size) == layoutLarge && s.drill != "" &&
+			s.tracksState == tracksLoading && !s.tracksPending
 		was := s.tab
 		s.leaveQueue()
 		left = s.tab != was
@@ -574,6 +580,9 @@ func (p *plugin) resize(_ *sdk.Conn, pane string, size protocol.Size) {
 	}
 	p.mu.Unlock()
 	p.render(pane)
+	if loadDrill && p.libraryState() == libReady {
+		p.loadTracks(pane)
+	}
 	if left && p.libraryState() == libReady {
 		p.loadTab(pane, tabPlaylists)
 	}

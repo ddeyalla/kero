@@ -238,8 +238,6 @@
   "updatedDetail": "The background service that runs your sessions is from another version. Restart it: your sessions start again where they were, with their history.",
   "connCantReach": "Can’t reach kerod",
   "emptyTitle": "Start a session",
-  "emptyDetail": "Sessions keep running in the background — quit Kero and come back to everything just as you left it.",
-  "emptyForAgents": "For agents",
   "paletteSettingsPage": "Settings: {page}",
   "paletteRestartService": "Restart Background Service",
   "paletteRestartServiceDetail": "Sessions start again where they were",

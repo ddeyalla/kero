@@ -55,8 +55,11 @@ What the user gave it, its settings and secrets, lives apart, in
 ## Commands
 
 Spotify's failed track and Up next lists offer **Retry** in place. A failed
-read keeps the open album or playlist and any cached tracks. A play that a
-newer press has superseded completes silently, including a late page error
+read keeps the open album or playlist and any cached tracks. An album or
+playlist drill restored from a compact pane loads its tracks when the pane
+becomes large and the library is ready; loaded, forbidden and failed lists are
+kept, and Back, a replacement drill or closing the pane drops an older result.
+A play that a newer press has superseded completes silently, including a late page error
 that names an older play request; only the current command reports a failure.
 A press still waiting for a cold engine is canceled by a newer press before
 the engine takes it, while an accepted command still runs. Two clicks on one

@@ -93,6 +93,17 @@ func (l *Layout) Remove(pane string) *Layout {
 // Neighbor returns the pane next to pane in a direction (left, right, up,
 // down), as panes' centers on a unit square go, or "".
 func (l *Layout) Neighbor(pane, direction string) string {
+	return l.neighbor(pane, direction, nil)
+}
+
+// NeighborExcluding returns the nearest pane in the given direction,
+// excluding IDs for which skip returns true. It preserves the original
+// rectangles and Neighbor distance rule.
+func (l *Layout) NeighborExcluding(pane, direction string, skip func(string) bool) string {
+	return l.neighbor(pane, direction, skip)
+}
+
+func (l *Layout) neighbor(pane, direction string, skip func(string) bool) string {
 	rects := map[string][4]float64{}
 	l.rects(0, 0, 1, 1, rects)
 	r, ok := rects[pane]
@@ -102,7 +113,7 @@ func (l *Layout) Neighbor(pane, direction string) string {
 	cx, cy := r[0]+r[2]/2, r[1]+r[3]/2
 	best, bestD := "", 9.0
 	for id, o := range rects {
-		if id == pane {
+		if id == pane || (skip != nil && skip(id)) {
 			continue
 		}
 		ox, oy := o[0]+o[2]/2, o[1]+o[3]/2

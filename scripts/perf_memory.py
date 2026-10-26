@@ -527,9 +527,9 @@ class Workload:
                                      len({visit["pane"] for visit in self.evidence}))
         (directory / "sample.json").write_text(json.dumps(sample, indent=2))
         self.samples.append(sample)
-        print(f"memory: {name}: app {sample['cost']['aggregate_bytes']/perf_probe.MB:.1f} MB; "
+        print(f"memory: {name}: app {sample['cost']['aggregate_bytes']/perf_probe.MB:.1f} MiB; "
               f"Go heap before/after GC {sample['go_before_gc']['HeapAlloc']/perf_probe.MB:.1f}/"
-              f"{sample['go_after_gc']['HeapAlloc']/perf_probe.MB:.1f} MB; "
+              f"{sample['go_after_gc']['HeapAlloc']/perf_probe.MB:.1f} MiB; "
               f"retained terminals {len(sample['view']['terms'])}", flush=True)
 
     def run(self):

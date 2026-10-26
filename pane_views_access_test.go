@@ -23,11 +23,15 @@ type testerAccessNode struct {
 	label  string
 }
 
+// testerAccessNode.role is the platform AccessRole MyGo stores, which
+// ui/access.go derives as e.role - ui.RoleGroup. RoleGroup is not zero in
+// ui.Role, so a direct uint8(ui.RoleGroup) would be 2, not the stored 0.
+// Subtract the public group role from each public role here instead.
 const (
-	accessGroup     uint8 = 0
-	accessButton    uint8 = 2
-	accessSlider    uint8 = 7
-	accessTextField uint8 = 9
+	accessGroup     uint8 = uint8(ui.RoleGroup - ui.RoleGroup)
+	accessButton    uint8 = uint8(ui.RoleButton - ui.RoleGroup)
+	accessSlider    uint8 = uint8(ui.RoleSlider - ui.RoleGroup)
+	accessTextField uint8 = uint8(ui.RoleTextField - ui.RoleGroup)
 )
 
 // viewWithUnrelatedGroup draws an unrelated accessible group beside the app,

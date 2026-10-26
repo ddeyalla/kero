@@ -5,6 +5,32 @@ import (
 	"testing"
 )
 
+func TestLayoutNeighborExcluding(t *testing.T) {
+	// a and d are above b and c. a sits over b, so down from a picks b;
+	// excluding b finds the live c in the original layout instead of
+	// dead-ending at b.
+	l := &Layout{
+		Row: false, Ratio: 0.5,
+		A: &Layout{Row: true, Ratio: 0.75, A: &Layout{Pane: "a"}, B: &Layout{Pane: "d"}},
+		B: &Layout{Row: true, Ratio: 0.75, A: &Layout{Pane: "b"}, B: &Layout{Pane: "c"}},
+	}
+	if n := l.Neighbor("a", "down"); n != "b" {
+		t.Fatalf("down from a = %q, want b", n)
+	}
+	if n := l.NeighborExcluding("a", "down", func(id string) bool { return id == "b" }); n != "c" {
+		t.Fatalf("down from a excluding b = %q, want c", n)
+	}
+	if n := l.NeighborExcluding("a", "down", func(id string) bool { return id == "b" || id == "c" }); n != "" {
+		t.Fatalf("down from a excluding b and c = %q, want none", n)
+	}
+	if n := l.Neighbor("d", "down"); n != "c" {
+		t.Fatalf("down from d = %q, want c", n)
+	}
+	if n := l.NeighborExcluding("d", "down", func(id string) bool { return id == "c" }); n != "b" {
+		t.Fatalf("down from d excluding c = %q, want b", n)
+	}
+}
+
 func TestLayoutSplitRemove(t *testing.T) {
 	var l *Layout
 	l = l.Split("a", "b", "right", 0)

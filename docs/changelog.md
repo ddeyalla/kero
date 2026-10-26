@@ -12,6 +12,30 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- The empty first-run shell now shows the Shibu Code identity and only the
+  two real actions: New Session and Open Project. The helper paragraph and
+  the agent command card are gone; the same commands remain in the
+  [CLI guide](cli.md#sessions-and-panes).
+- The performance report now judges total daemon RSS per verified terminal
+  against 25 MiB. Incremental daemon footprint remains a separate diagnostic
+  without an RSS verdict. The isolated fixture validates its distinct terminal
+  count before measurement; app retained-terminal acceptance stays unmeasured
+  in the ordinary fixture. Existing byte thresholds are unchanged.
+
+- The performance report no longer judges retained-terminal app RSS by dividing
+  one shown terminal’s process RSS by fixture sessions. It marks that gate as
+  unmeasured, labels binary sizes as MiB, and checks kerod’s individual
+  visible-unfocused wakeup limit even when the combined limit passes.
+
+- A pane closing in a split no longer takes pointer or keyboard input while
+  its exit fades: focus stays with the surviving neighbour, its header
+  controls cannot dispatch from the closing pane, and Next/Previous/Directional
+  Pane skip it. Focus transfers at close and at the fade's removal also skip
+  any other closing pane, so the nearest live pane takes the keyboard.
+- Directional Pane now finds the nearest live pane in the original layout when
+  a closing pane sits closest in that direction. A closing pane no longer
+  dead-ends the move before a live pane beyond it, including in irregular
+  splits.
 - The shared keyboard focus ring, including sliders and generic controls,
   now follows the selected accent instead of staying system blue. The ring
   keeps its normal opacity, and Increase Contrast still draws a full-opacity
@@ -46,6 +70,16 @@ builds only. What each feature is and where it stands is tracked in the
   so assistive technology announces the pane rather than an unnamed group.
   Pane focus, plugin keyboard gating and terminal focus restoration are
   unchanged.
+
+- Choosing a session explicitly while its row is out of sight now scrolls
+  the sidebar to that row, in either the left or right placement. This covers
+  the palette, shortcuts, attention and plugin reveals. Ordinary selection,
+  state updates and folding a project still do not scroll or unfold anything.
+
+- A Spotify album or playlist drill restored from a compact pane now loads its
+  tracks when the pane becomes large and the library is ready. It does not
+  reload a list that is already loaded, forbidden or failed, and Back, a
+  replacement drill or closing the pane drops an older result.
 
 ## [2.0.7-local.5] - 2026-10-24
 

@@ -52,6 +52,54 @@ class PerfProbeTest(unittest.TestCase):
         self.assertFalse(unknown_rows["app + kerod idle wakeups"].endswith("OVER"))
         self.assertIn("focus unverified", unknown_rows["app + kerod idle wakeups"])
 
+    def test_daemon_wakeup_limit_is_judged_independently_with_app(self):
+        before = sample(0, {7: counters(0, 0, 0, 20, 20), 9: counters(0, 0, 0, 100, 100)})
+        after = sample(60, {7: counters(0, 0, 600, 20, 20), 9: counters(0, 0, 1000, 100, 100)})
+        for phase in ("unfocused", "focused", None):
+            with self.subTest(phase=phase):
+                lines = {line.split("  ")[0]: line for line in probe.report(
+                    8, 16*MB, 7, before, before, after, app=9, idle_window=phase)}
+                self.assertEqual(lines["kerod idle wakeups"].endswith("OVER"), phase == "unfocused")
+                self.assertFalse(lines["app idle wakeups"].endswith("OVER"))
+                self.assertFalse(lines["app + kerod idle wakeups"].endswith("OVER"))
+
+    def test_binary_memory_units_are_explicit(self):
+        self.assertEqual(probe._mb(1 << 20), "1.0 MiB")
+
+    def test_daemon_rss_and_footprint_disagree(self):
+        for footprint, rss, verdict in ((60, 256, "OVER"), (300, 160, "ok")):
+            for app in (None, 9):
+                with self.subTest(footprint=footprint, rss=rss, app=app):
+                    # The large baseline RSS must not be subtracted. App
+                    # presence does not change the daemon's denominator.
+                    before = sample(0, {7: counters(0, 0, 0, 20, 240),
+                                        9: counters(0, 0, 0, 100, 100)})
+                    after = sample(60, {7: counters(0, 0, 0, footprint, rss),
+                                        9: counters(0, 0, 0, 100, 100)})
+                    lines = {line.split("  ")[0]: line for line in probe.report(
+                        8, 0, 7, before, before, after, app=app)}
+                    self.assertTrue(lines["kerod resident (RSS) per pane"].endswith(verdict))
+                    self.assertFalse(lines["kerod footprint per pane"].endswith(("ok", "OVER")))
+                    self.assertIn("diagnostic", lines["kerod footprint per pane"])
+
+    def test_daemon_rss_rejects_invalid_denominators(self):
+        empty = {"pids": {}}
+        for count in (0, -1, 1.5, True):
+            with self.subTest(count=count), self.assertRaises(ValueError):
+                probe.report(count, 0, 7, empty, empty, empty)
+
+    def test_daemon_fixture_requires_distinct_terminal_ptys(self):
+        fixture = [{"panes": [{"id": "a"}, {"id": "b"}]}]
+        self.assertEqual(probe.validate_daemon_fixture(2, fixture), 2)
+        # Split panes and separate sessions both count actual daemon terminals.
+        self.assertEqual(probe.validate_daemon_fixture(
+            2, [{"panes": [{"id": "a"}]}, {"panes": [{"id": "b"}]}]), 2)
+        for invalid in ([{"panes": [{"id": "a"}]}],
+                        [{"panes": [{"id": "a"}, {"id": "a"}]}],
+                        [{"panes": [{"id": "a"}, {"id": "b", "view": "files"}]}]):
+            with self.subTest(fixture=invalid), self.assertRaises(ValueError):
+                probe.validate_daemon_fixture(2, invalid)
+
     def test_parse_frame(self):
         self.assertEqual(probe.parse_frame(PLAIN),
                          {"total": 0.6, "build": 0.1, "layout": 0.0, "paint": 0.2, "present": 0.2, "repaint": False})
@@ -112,10 +160,12 @@ class PerfProbeTest(unittest.TestCase):
         busy = {"count": 300, "total": {"p50": 0.5, "p99": 3.0}, "build": {"p50": 0.1, "p99": 5.0},
                 "paint": {"p50": 0.2, "p99": 1.5}}
         text = "\n".join(probe.report(2, 16 * MB, 7, base, t0, t1, app=9, idle_frames=idle, busy_frames=busy, idle_window="unfocused"))
-        self.assertIn("perf: 2 pane(s), 16 MB fed to each, idle window 60 s", text)
+        self.assertIn("perf: 2 pane(s), 16 MiB fed to each, idle window 60 s", text)
         lines = {l.split("  ")[0]: l for l in text.splitlines()}
-        self.assertIn("14.0 MB", lines["kerod footprint per pane"])
-        self.assertTrue(lines["kerod footprint per pane"].endswith("ok"))
+        self.assertIn("14.0 MiB", lines["kerod footprint per pane"])
+        self.assertIn("diagnostic", lines["kerod footprint per pane"])
+        self.assertFalse(lines["kerod footprint per pane"].endswith(("ok", "OVER")))
+        self.assertTrue(lines["kerod resident (RSS) per pane"].endswith("OVER"))
         self.assertIn("0.60 %", lines["app + kerod idle CPU"])  # 0.1 % and 0.5 %
         self.assertTrue(lines["app + kerod idle CPU"].endswith("ok"))
         self.assertIn("30/min", lines["app + kerod idle wakeups"])  # 10 and 20 interrupt
@@ -128,16 +178,19 @@ class PerfProbeTest(unittest.TestCase):
         self.assertIn("100/min", lines["app idle frames painted again"])
         self.assertTrue(lines["frame build p50 / p99 (streaming)"].endswith("OVER"))
         self.assertFalse(lines["app footprint (1 pane shown)"].endswith("OVER"))
-        self.assertTrue(lines["app resident (RSS) per pane"].endswith("OVER"))
+        self.assertIn("not measured", lines["app retained-terminal RSS budget"])
         self.assertIn("not measured", lines["key -> paint p99"])
 
-    def test_rss_budget_is_not_physical_footprint(self):
+    def test_fixture_count_cannot_establish_retained_terminal_memory(self):
         base = sample(0, {7: counters(0, 0, 0, 12, 20)})
         before = sample(100, {7: counters(1, 0, 0, 80, 100), 9: counters(1, 0, 0, 260, 220)})
         after = sample(160, {7: counters(1, 0, 0, 80, 100), 9: counters(1, 0, 0, 260, 220)})
         text = "\n".join(probe.report(8, 16*MB, 7, base, before, after, app=9))
         lines = {line.split("  ")[0]: line for line in text.splitlines()}
-        self.assertTrue(lines["app resident (RSS) per pane"].endswith("ok"))
+        self.assertNotIn("app resident (RSS) per pane", lines)
+        self.assertIn("220.0 MiB", lines["app resident (RSS)"])
+        self.assertIn("260.0 MiB", lines["app footprint (1 pane shown)"])
+        self.assertIn("not measured", lines["app retained-terminal RSS budget"])
 
     def test_report_hidden_window(self):
         base = sample(0.0, {7: counters(0.1, 0, 0, 12, 20)})
