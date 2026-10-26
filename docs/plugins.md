@@ -147,6 +147,12 @@ app's palette, fonts and motion.
 | `markdown` | `text`, GitHub-flavoured Markdown up to 64 KB, in the app's own look (headings, lists, code, tables, links; an image shows as its description). A link opens in the browser if the plugin has `openURL`, and otherwise sends `press` with the URL as the value | `press` (links without `openURL`) |
 | `spacer`, `divider` | — | — |
 
+A plugin pane's body is an accessibility group, not a button: its `pressable`
+parts, buttons, fields, sliders and rows remain separate elements that
+VoiceOver and other AX clients can reach individually, while the body still
+owns pane focus and the plugin `keys` gating. The group is named for the pane
+view, as its header is, so it is not an unnamed group.
+
 A `row` or `column` may be `pressable`: it draws hover and pressed states,
 takes the focus, is named for assistive technology by its `label`, and sends
 `press` with its `id`. A pressable part may have a `contextMenu` (entries with
