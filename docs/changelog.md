@@ -12,6 +12,8 @@ builds only. What each feature is and where it stands is tracked in the
 
 ### Fixed
 
+- A plugin crash now drains its final stderr before the crash view exposes
+  the log. A child that keeps stderr open cannot make that wait unbounded.
 - The shared keyboard focus ring, including sliders and generic controls,
   now follows the selected accent instead of staying system blue. The ring
   keeps its normal opacity, and Increase Contrast still draws a full-opacity

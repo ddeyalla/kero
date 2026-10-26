@@ -834,6 +834,9 @@ func (p *proc) run() {
 		return
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
+	// A plugin's child may keep stderr open after the plugin exits. The
+	// crash still needs the pending log, without waiting for that child.
+	cmd.WaitDelay = p.h.stallTimeout
 	if p.plugin.Dir != "" && !p.plugin.Builtin {
 		cmd.Dir = p.plugin.Dir
 	}
@@ -948,6 +951,11 @@ func (p *proc) run() {
 				return
 			}
 			if errors.Is(err, io.EOF) {
+				// stdout can end before exec has copied the final stderr.
+				// End a plugin that closed its protocol pipe, then let Wait
+				// drain stderr before the crash exposes and closes the log.
+				_ = cmd.Process.Kill()
+				<-wait
 				p.crash(fmt.Errorf("the %s plugin exited", name))
 				return
 			}

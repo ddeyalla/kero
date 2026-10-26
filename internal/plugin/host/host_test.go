@@ -107,6 +107,10 @@ func TestFakePluginHelper(t *testing.T) {
 			}
 		},
 		Event: func(c *sdk.Conn, e protocol.EventParams) {
+			if mode == "crash-event" {
+				fmt.Fprintln(os.Stderr, "the fake plugin says bye")
+				os.Exit(1)
+			}
 			if mode == "keys" {
 				_ = c.Render(e.Pane, textTree(fmt.Sprintf("event:%s/%s/%v", e.Node, e.Kind, e.Value)))
 			}
@@ -517,6 +521,46 @@ func TestCrashStopsAndOffersNoLoop(t *testing.T) {
 	}
 	if !h.Running("fake") {
 		t.Fatal("restart did not start the plugin")
+	}
+}
+
+func TestCrashWaitsForStderr(t *testing.T) {
+	h, f := newFakeHost(t, fakeManifest(), "crash-event")
+	if err := h.Open("fake", Pane{ID: "p1", Widget: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, f)
+	waitRender(t, f)
+	h.mu.Lock()
+	p := h.procs["fake"]
+	h.mu.Unlock()
+	p.mu.Lock()
+	logw := p.log
+	p.mu.Unlock()
+	// Hold the stderr copy while stdout reaches EOF. The crash must not
+	// expose the log before the process's pending stderr is written.
+	logw.mu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			logw.mu.Unlock()
+		}
+	}()
+	h.Event("p1", "crash", "press", nil)
+	select {
+	case crash := <-f.crashes:
+		t.Fatalf("crash reported before stderr drained: %s", crash.message)
+	case <-time.After(100 * time.Millisecond):
+	}
+	logw.mu.Unlock()
+	locked = false
+	crash := waitCrash(t, f)
+	b, err := os.ReadFile(crash.logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "says bye") {
+		t.Fatalf("log = %q", b)
 	}
 }
 

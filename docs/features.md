@@ -31,6 +31,7 @@ Current release: **2.0.7-local.5** (Kero 2.0.7), 2026-10-24.
 
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
+| A plugin's final stderr is available when its crash is reported, with a bounded wait for inherited pipes | Plugin crash log | Unreleased | Regression covers a blocked stderr writer; installed-app acceptance not claimed |
 | Spotify cached-list warning, pending retry suppression and retired-player callback isolation | Spotify pane | 2.0.7-local.2 | Fake HTTP/event/race regressions pass |
 
 ## Linear and tasks

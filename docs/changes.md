@@ -3,6 +3,16 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Plugin crash logs
+
+`internal/plugin/host/host.go` waits for the process's stderr copy after its
+protocol stdout reaches EOF, before exposing and closing the crash log.
+The process is ended if it closed its protocol without exiting. The command's
+`WaitDelay` uses the existing stall timeout so a child that inherited stderr
+cannot keep that copy open indefinitely. `TestCrashWaitsForStderr` in
+`internal/plugin/host/host_test.go` holds the log writer while the plugin
+exits and verifies that the callback waits for its final message.
+
 ## Navigation placements, tabs and the usage popover
 
 `navigation.go` owns the one saved placement. `prefs.NavPlacement` is
