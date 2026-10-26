@@ -13,7 +13,7 @@ Status:
 - **Tested**: automated checks passed; installed-app manual acceptance is
   not claimed. Rows that say **Measured** give their remaining limits explicitly.
 
-Current release: **2.0.7-local.6** (Kero 2.0.7), 2026-10-26.
+Current release: **2.0.7-local.7** (Kero 2.0.7), 2026-10-26.
 
 > Updating from a build before 2.0.7-local.2 requires one terminal-service
 > restart when agents are idle (protocol 4, saved state 3). Tasks panes become
@@ -223,7 +223,7 @@ Current release: **2.0.7-local.6** (Kero 2.0.7), 2026-10-26.
 | Feature | How to use it | Since | Status |
 | --- | --- | --- | --- |
 | Shibu Code name and icon, separate app and data folders from Kero | `~/Applications/Shibu Code.app`, `kero-local` data | 2.0.5-local.2 | Shipped |
-| Shibu Code name in what the app shows, and a `shibu` command beside `kero`: the same executable under both names, with `kero` kept for existing scripts, hooks and agent settings | `shibu ls`, `kero ls`; the CLI installer, the skill setup and the terminal service install both names | Unreleased | Tested in source: CLI, locale, clilink and hook-context checks; installed-app acceptance not claimed |
+| Shibu Code name in what the app shows, and a `shibu` command beside `kero`: the same executable under both names, with `kero` kept for existing scripts, hooks and agent settings | `shibu ls`, `kero ls`; the CLI installer, the skill setup and the terminal service install both names | 2.0.7-local.7 | Tested in source: CLI, locale, clilink and hook-context checks; installed-app acceptance not claimed |
 | Gitleaks commit and push guards, fork-only push allowlist, secret-scan CI | `.githooks`, GitHub Actions | 2.0.7-local.1 | Shipped |
 | Test daemons refuse to take over a live socket | Automatic | 2.0.7-local.1 | Shipped |
 
