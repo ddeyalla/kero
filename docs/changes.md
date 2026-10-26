@@ -3,6 +3,26 @@
 For release-by-release history see [Changelog](changelog.md). For daily use
 and credential configuration see the [local edition guide](local-fork.md).
 
+## Spotify token failures and symbol pre-warming
+
+`internal/plugin/builtin/spotify/engine/page.html` answers `getOAuthToken`
+with an empty token when the token request fails, after reporting the
+failure. The SDK waits for that callback before every connect, so a
+rejection used to leave the player waiting for good; an empty token makes it
+report its authentication error instead, which stops the reconnect backoff
+and has the plugin ask for a sign-in. `engine/page_test.go` reads the page's
+script and pins that contract.
+
+`plugin_symbol.go` pre-warms the icons a pane's controls can swap to (play
+and pause, volume and volume-off, and the rest of the transport set) at the
+sizes they are drawn, four drawings at a time and off the UI goroutine.
+`plugin_view.go` starts the warm-up on the pane's first draw, and the bitmap
+cache keeps the previous rendering of a name and size until the new one
+arrives, so a state change never falls back to the SVG stand-in for a frame.
+`drill.go` also records why a queue row starts the track it names: Spotify
+has no call that skips to a position in the queue, and one Next at a time
+races the queue the player is on.
+
 ## Plugin crash logs
 
 `internal/plugin/host/host.go` waits for the process's stderr copy after its

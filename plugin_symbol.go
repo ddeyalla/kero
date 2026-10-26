@@ -98,6 +98,29 @@ func symbolSize(size float64) float64 {
 	return best
 }
 
+// symbolPrewarmIcons are the icons whose other state the first press swaps
+// in: a player's play becomes pause, and its volume becomes volume-off.
+// The pane's tree holds one of each pair, so the other has no bitmap when
+// the press arrives.
+var symbolPrewarmIcons = []string{
+	"play", "pause", "previous", "next", "shuffle", "repeat", "volume", "volume-off",
+}
+
+// symbolPrewarmIconSize is the size the player's controls are prewarmed at.
+// A player draws them at 12, 16 and 20 points (28 and 32 point buttons
+// round to 12, 40 to 16, 44 to 20): the largest is prewarmed, so that a
+// smaller control shows it downscaled and sharp. A size outside them
+// stretches a stand-in.
+const symbolPrewarmIconSize = 20
+
+// symbolPrewarmSize is the size the rest of the icon set is prewarmed at,
+// where a pane's small controls and its labels draw it.
+const symbolPrewarmSize = 16
+
+// symbolPrewarmWorkers is how many drawings a pane starts at once when it
+// prewarms its symbols; the UI goroutine does not wait for them.
+const symbolPrewarmWorkers = 4
+
 // symbolKey names one rendering of a symbol. It has no color: a symbol is
 // drawn once as a white template and tinted when it is painted, so that a
 // part that changes color (a toggle, a hover) keeps its bitmap and does
@@ -146,25 +169,89 @@ func (v *pluginView) symbol(c *ui.Context, icon string, size, weight float64) (*
 	}
 	v.symbols[key] = &pluginSymbol{used: v.frame, pending: true}
 	render, invalidate := v.render, c.Invalidate
-	go func() {
-		var bm *ui.Bitmap
-		if mask, ok := render(name, size, weight, key.scale); ok {
-			bm = ui.NewBitmap(tintSymbol(mask, symbolTemplate))
-		}
-		v.mu.Lock()
-		// A pruned key stays pruned: the next draw asks again.
-		if s := v.symbols[key]; s != nil {
-			s.bitmap, s.pending = bm, false
-			if bm != nil {
-				v.lastSymbol[name] = symbolStandIn{bm, size}
-			}
-		}
-		v.mu.Unlock()
-		if bm != nil {
-			invalidate()
-		}
-	}()
+	go v.renderSymbolBitmap(key, render, invalidate)
 	return v.standIn(name, size)
+}
+
+// renderSymbolBitmap draws one symbol's bitmap off the UI goroutine, keeps
+// it in the pane, and asks for a frame when it arrives. The key is already
+// in v.symbols as pending.
+func (v *pluginView) renderSymbolBitmap(key symbolKey, render symbolRenderer, invalidate func()) {
+	var bm *ui.Bitmap
+	if mask, ok := render(key.name, key.size, key.weight, key.scale); ok {
+		bm = ui.NewBitmap(tintSymbol(mask, symbolTemplate))
+	}
+	v.mu.Lock()
+	// A pruned key stays pruned: the next draw asks again.
+	if s := v.symbols[key]; s != nil {
+		s.bitmap, s.pending = bm, false
+		if bm != nil {
+			v.lastSymbol[key.name] = symbolStandIn{bm, key.size}
+		}
+	}
+	v.mu.Unlock()
+	if bm != nil {
+		invalidate()
+	}
+}
+
+// symbolRenderer draws one symbol's shape, off the UI goroutine. It is the
+// pane's render hook, which the app sets to renderSymbol on macOS and a test
+// replaces.
+type symbolRenderer func(name string, size, weight float64, scale int) (*image.RGBA, bool)
+
+// prewarmSymbols draws the pane's icon set once, at the end of its first
+// draw. The draw itself renders only the state its tree holds, so a press
+// that swaps play for pause, or a tree that shows an icon for the first
+// time, would show the SVG fallback until its own bitmap arrived. The
+// player's controls are drawn at symbolPrewarmIconSize, and the rest of the
+// set at symbolPrewarmSize. The drawings run off the UI goroutine in a
+// bounded number of goroutines.
+func (v *pluginView) prewarmSymbols(invalidate func()) {
+	v.mu.Lock()
+	if v.prewarmed || v.render == nil {
+		v.mu.Unlock()
+		return
+	}
+	v.prewarmed = true
+	render := v.render
+	work := make([]symbolKey, 0, len(pluginSymbols)+len(symbolPrewarmIcons))
+	add := func(name string, size float64) {
+		key := symbolKey{name, size, symbolMedium, symbolScale}
+		if v.symbols[key] != nil {
+			// The first draw asked for this one already.
+			return
+		}
+		v.symbols[key] = &pluginSymbol{used: v.frame, pending: true}
+		work = append(work, key)
+	}
+	// The player's controls first, at their largest size, then the rest of
+	// the set. One size for each name, so that the stand-in taken from it
+	// is the same whichever drawing finishes first.
+	player := make(map[string]bool, len(symbolPrewarmIcons))
+	for _, icon := range symbolPrewarmIcons {
+		if name, ok := pluginSymbols[icon]; ok {
+			player[name] = true
+			add(name, symbolPrewarmIconSize)
+		}
+	}
+	for _, name := range pluginSymbols {
+		if !player[name] {
+			add(name, symbolPrewarmSize)
+		}
+	}
+	v.mu.Unlock()
+	workers := symbolPrewarmWorkers
+	if len(work) < workers {
+		workers = len(work)
+	}
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			for j := i; j < len(work); j += workers {
+				v.renderSymbolBitmap(work[j], render, invalidate)
+			}
+		}(i)
+	}
 }
 
 // symbolStandIn is the newest bitmap drawn for a symbol name, and the point

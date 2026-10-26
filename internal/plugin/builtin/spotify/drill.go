@@ -216,7 +216,10 @@ func (p *plugin) loadTracks(pane string) {
 
 // selectTrack plays the pressed row of the tracks, or of the queue. A row
 // of a drill-in starts inside its playlist or album, so that the next track
-// is the next of the list; a row of the queue plays alone.
+// is the next of the list; a row of the queue plays alone. Spotify has no
+// call that skips to a position in the queue, and one Next at a time races
+// the queue the player is on, so the row starts the track it names now, and
+// the pane reads the queue again when that track plays.
 func (p *plugin) selectTrack(e protocol.EventParams, queue bool) {
 	id, _ := e.Value.(string)
 	p.mu.Lock()

@@ -151,6 +151,9 @@ type pluginView struct {
 	// stands in while another size or weight of it is drawn.
 	lastSymbol map[string]symbolStandIn
 	frame      uint64 // the draw this state was last used in
+	// prewarmed says the pane has drawn the player's icons that its first
+	// tree does not show, so that its first press finds their bitmaps.
+	prewarmed bool
 
 	// The tint the pane washes itself with: the tinted picture's color,
 	// which the pane holds while the next picture loads, and the wash's
@@ -167,7 +170,7 @@ type pluginView struct {
 	invalidate func()
 	// render draws an SF Symbol's shape, off the UI goroutine; tests
 	// replace it. It is nil where the system has none.
-	render func(name string, size, weight float64, scale int) (*image.RGBA, bool)
+	render symbolRenderer
 
 	// openLink opens a link of a markdown part in the browser and tells
 	// that it did, which the pane sets when its plugin may (the openURL
@@ -284,6 +287,9 @@ func (v *pluginView) draw(c *ui.Context, pal *palette, tree *protocol.Tree, send
 	v.forget()
 	v.prunePictures()
 	v.pruneSymbols()
+	// The first draw renders only the state its tree holds; the player's
+	// other icons are drawn after it, so that the first press finds them.
+	v.prewarmSymbols(c.Invalidate)
 }
 
 // forget drops the state of the parts that the tree no longer has, while

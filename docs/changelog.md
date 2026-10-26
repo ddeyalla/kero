@@ -10,7 +10,15 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
-No pending changes.
+### Fixed
+
+- The Spotify engine answers the Web Playback SDK's token callback even when
+  fetching a token fails. The SDK then reports its authentication error, so
+  the player asks for a sign-in instead of waiting on a callback that never
+  comes and hanging with no state.
+- A plugin pane pre-warms the SF Symbols its controls can swap to, so the
+  first play/pause or volume toggle no longer shows the SVG stand-in while
+  the symbol bitmap is drawn.
 
 ## [2.0.7-local.6] - 2026-10-26
 
