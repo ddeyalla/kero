@@ -1,15 +1,15 @@
 ---
 title: Configuration
-description: Kero's configuration file, its keys and their defaults.
+description: Shibu Code's configuration file, its keys and their defaults.
 ---
 
 # Configuration
 
-Kero keeps its settings in one plain-text file. Settings (<kbd>⌘</kbd> <kbd>,</kbd>), over the main window, edits it for you, keeping your comments and order, and Kero reloads it when you edit it by hand.
+Shibu Code keeps its settings in one plain-text file. Settings (<kbd>⌘</kbd> <kbd>,</kbd>), over the main window, edits it for you, keeping your comments and order, and Shibu Code reloads it when you edit it by hand.
 
 ## The file
 
-Kero reads, in order of preference:
+Shibu Code reads, in order of preference:
 
 1. `$KERO_CONFIG`
 2. `$XDG_CONFIG_HOME/kero/config`
@@ -32,9 +32,9 @@ keybind = cmd+shift+d=pane.split.down
 The file only needs what you change. Everything else keeps its default.
 
 ```sh
-kero config edit              # open it in $EDITOR
-kero config show              # every key with its current value
-kero config check             # report unknown keys and bad values
+shibu config edit             # open it in $EDITOR
+shibu config show             # every key with its current value
+shibu config check            # report unknown keys and bad values
 ```
 
 ## General
@@ -63,7 +63,7 @@ kero config check             # report unknown keys and bad values
 | Key                   | Default | Description                                                              |
 | --------------------- | ------- | ------------------------------------------------------------------------ |
 | `theme`               | `kero`  | Terminal colors: `kero`, any Ghostty theme, or `light:<theme>,dark:<theme>` |
-| `font-family`         |         | Empty for JetBrains Mono Nerd Font, which Kero includes; `monospace` for the system's |
+| `font-family`         |         | Empty for JetBrains Mono Nerd Font, which Shibu Code includes; `monospace` for the system's |
 | `font-size`           | `13`    | In points                                                                |
 | `font-weight`         | `400`   | `100` to `900`                                                           |
 | `line-height`         | `1.22`  | A multiple of the font's                                                 |
@@ -102,7 +102,7 @@ kero config check             # report unknown keys and bad values
 
 | Key              | Default | Description                                         |
 | ---------------- | ------- | --------------------------------------------------- |
-| `remote-control` | `true`  | Let `kero do` and `kero focus` drive the app        |
+| `remote-control` | `true`  | Let `shibu do` and `shibu focus` drive the app        |
 | `agent-hooks`    | `true`  | Let Claude Code's and Codex's hooks tell a pane's status as a turn starts, asks for permission and ends; `false` leaves it to their screens ([Status](./status.md#agents-that-report-their-turns)) |
 
 ## Keyboard
@@ -115,4 +115,4 @@ keybind = cmd+k=palette.open
 keybind = cmd+b=unbind
 ```
 
-Run `kero actions` for every action id, and see [Keyboard Shortcuts](./shortcuts.md) for the defaults.
+Run `shibu actions` for every action id, and see [Keyboard Shortcuts](./shortcuts.md) for the defaults.

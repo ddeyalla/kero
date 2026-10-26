@@ -23,7 +23,7 @@ Install the built app in `~/Applications/Shibu Code.app` if desired.
 Shibu Code is the personal edition previously named Kero Local. Its bundle
 identifier and data directory stay the same, preserving local sessions,
 settings and provider keys. The supplied `Desktop/Shibu Code.png` golden retriever terminal artwork
-is stored in `resources/shibu-icon.png` for the app icon. The CLI remains `kero`.
+is stored in `resources/shibu-icon.png` for the app icon. The CLI is `shibu`, also installed as `kero`.
 
 Data lives in `~/Library/Application Support/kero-local` on macOS, or
 `$KERO_HOME` when explicitly configured. Development builds use
@@ -43,12 +43,12 @@ Click **Usage** in the sidebar or press **Cmd+Shift+U** for an in-app modal
 with allowance windows, reset times, and manual refresh. **Cmd+R** refreshes
 while the modal is open; **Esc** or **Cmd+W** closes it and returns to the
 terminal. On Linux/Windows the open shortcut is **Ctrl+Alt+U**. The action is
-also available in View, the command palette and `kero do usage.open`.
+also available in View, the command palette and `shibu do usage.open`.
 Reads run in the background every two minutes. The last successful
 observation remains visible, marked stale, after a failed request. A 429
 backs off before trying again; refresh does not bypass it.
 
-The same readout is available without a window using `kero usage --json`.
+The same readout is available without a window using `shibu usage --json`.
 Each CLI invocation performs a fresh read; automatic polling and backoff
 retention belong to the running app.
 
@@ -58,7 +58,7 @@ for details in the same modal. They measure the whole Mac, across all apps.
 Native Mach calls sample every two seconds on a background goroutine, without
 spawning `top` or shell processes. CPU is the busy share of all cores. RAM is
 active, wired and compressed physical memory, with reclaimable cache excluded.
-`kero resources --json` exposes the same measurements without a window.
+`shibu resources --json` exposes the same measurements without a window.
 
 - **Claude:** reads the active Claude Code Keychain login on macOS, or its
   `.credentials.json`. Supports `CLAUDE_CONFIG_DIR`. It never renews tokens.
@@ -82,7 +82,7 @@ can change; unsupported responses show unavailable, not zero.
 ## Attachments and performance
 
 Copy Finder files and paste them into a pane, or drag files onto its terminal.
-Kero inserts quoted absolute paths without submitting. Clipboard screenshots
+Shibu Code inserts quoted absolute paths without submitting. Clipboard screenshots
 and dropped PNGs are saved with private permissions under `attachments/`, then
 their paths are inserted. The program in that pane must support reading local
 files and images. Remote shells need their own upload workflow.
@@ -90,7 +90,7 @@ files and images. Remote shells need their own upload workflow.
 Screenshots remain on disk for agents to read. Delete them from `attachments/`
 when no longer needed. Text paste keeps the terminal's normal behavior.
 
-Status indicators retain Kero's status colors but do not animate continuously.
+Status indicators retain Shibu Code's status colors but do not animate continuously.
 The local ARM64 build avoids the Rosetta overhead observed in the installed
 Intel app. This does not establish that every source of terminal lag is fixed.
 

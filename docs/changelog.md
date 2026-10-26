@@ -10,6 +10,19 @@ builds only. What each feature is and where it stands is tracked in the
 
 ## Unreleased
 
+### Added
+
+- The `shibu` command, installed beside `kero`. The CLI installer, the terminal
+  service and `shibu skill setup` link both names to the app's executable, so
+  `shibu ls` and `kero ls` run the same thing. The help, the usage errors and
+  the skill teach `shibu`; `kero` stays for the scripts, hooks and agent
+  settings that already run it.
+- The app reads as Shibu Code where it names itself: the locale strings, the
+  context a new agent starts with, the skill, the CLI help and the user guides.
+  Internal names stay as they were: the Go module, the bundle identifier
+  `dev.ddeyalla.kero`, the `kero-local` data folder, the `KERO_*` variables,
+  `kerod`, the hook command lines and the skill's install path.
+
 ### Fixed
 
 - The Spotify engine answers the Web Playback SDK's token callback even when

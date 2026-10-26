@@ -1,5 +1,5 @@
-// Package cli is the kero command: sessions driven from a shell or by an
-// agent, through the daemon the app shows.
+// Package cli is the shibu command, and its kero alias: sessions driven
+// from a shell or by an agent, through the daemon the app shows.
 package cli
 
 import (
@@ -24,18 +24,18 @@ import (
 	"kero/internal/settings"
 )
 
-const usage = `kero — terminal sessions that keep running, for you and your agents
+const usage = `shibu — terminal sessions that keep running, for you and your agents
 
 Usage:
-  kero                          open the app
-  kero ls [--json]              list sessions and their panes
-  kero new [options] [-- cmd…]  start a session, printing its id
+  shibu                         open the app
+  shibu ls [--json]             list sessions and their panes
+  shibu new [options] [-- cmd…] start a session, printing its id
       -p, --project <name|id>     project to put it in (default: by directory)
       -n, --name <name>           name it
       -d, --dir <dir>             start it there (default: here)
       -f, --focus                 show it in the app
       -w, --wait                  wait for cmd to end, exit with its status
-  kero split [target] [options] [-- cmd…]
+  shibu split [target] [options] [-- cmd…]
                                 start a pane beside a pane, printing its id
       --right (default), --down, --left, --up
       -r, --ratio <0..1>          the new pane's share (default 0.5)
@@ -47,59 +47,64 @@ Usage:
       --plugin <id> [--widget <name>]
                                   a widget of a plugin, such as Spotify
       --attention                 every session that needs you
-  kero send <target> <text…>    type text into a pane
+  shibu send <target> <text…>   type text into a pane
       -e                          interpret \n \r \t \e \xHH escapes
       --enter                     press Enter after it
-  kero key <target> <key…>      press keys: enter, tab, escape, up, down,
+  shibu key <target> <key…>     press keys: enter, tab, escape, up, down,
                                 left, right, backspace, ctrl+c, ctrl+d, …
-  kero prompt <target> <text…>  send text and Enter, wait until the pane
+  shibu prompt <target> <text…> send text and Enter, wait until the pane
                                 stops working, then print its screen
-  kero read [target] [-a] [-n lines]
+  shibu read [target] [-a] [-n lines]
                                 print the screen (-a with the scrollback)
-  kero wait [target] [--for idle,waiting,error,exited] [--timeout 10m]
+  shibu wait [target] [--for idle,waiting,error,exited] [--timeout 10m]
                                 wait until the pane stops working (or
                                 reaches one of the statuses), print it
       -x, --exit                  instead wait for the command it started
                                   with to end, exit with its status
-  kero status [target] [--json]
-  kero usage [--json]           read account allowances and API balances
-  kero resources [--json]       read this machine's CPU and memory usage
-  kero rename <session> <name>
-  kero focus <target>           show a session (and pane) in the app
-  kero close <target>           end a session (or, given a pane, the pane)
-  kero restart <target>         start an exited pane's shell again
-  kero notify [target] <message>
+  shibu status [target] [--json]
+  shibu usage [--json]          read account allowances and API balances
+  shibu resources [--json]      read this machine's CPU and memory usage
+  shibu rename <session> <name>
+  shibu focus <target>          show a session (and pane) in the app
+  shibu close <target>          end a session (or, given a pane, the pane)
+  shibu restart <target>        start an exited pane's shell again
+  shibu notify [target] <message>
                                 flag the pane as needing you
-  kero report <state> [message] [--kind k] [--progress n] [--app a] [--id i]
+  shibu report <state> [message] [--kind k] [--progress n] [--app a] [--id i]
                                 report this program's status (OSC 7501):
                                 idle, working, done, blocked, error, clear
-  kero do <action> [key=value…]  run an action of the app, as its menus do
+  shibu do <action> [key=value…]
+                                run an action of the app, as its menus do
                                 (needs Remote Control, in Settings › Agents)
-  kero actions                  list the actions kero do runs
-  kero config path|show|edit|check
+  shibu actions                 list the actions shibu do runs
+  shibu config path|show|edit|check
                                 the configuration file: where it is, every
-                                key with its value (--defaults: as kero
+                                key with its value (--defaults: as shibu
                                 comes), open it in $EDITOR, check it
-  kero projects [--json]
-  kero linear status|board|issue|set-state|comment|auth
+  shibu projects [--json]
+  shibu linear status|board|issue|set-state|comment|auth
                                 the Linear workspace: its issues, and the
                                 session working on one
-      --project <name>          the board of one project
-      --milestone <name>        of one milestone
-      --state <name>            in one state
-  kero link <session> [issue-id] link a session to a Linear issue
-  kero task start <issue-id>    start on an issue: link this session to
+      --project <name>            the board of one project
+      --milestone <name>          of one milestone
+      --state <name>              in one state
+  shibu link <session> [issue-id]
+                                link a session to a Linear issue
+  shibu task start <issue-id>   start on an issue: link this session to
                                 it, and move it to In Progress
-  kero task list [--all]        the open issues of this project's Linear
+  shibu task list [--all]       the open issues of this project's Linear
                                 project
-  kero skill setup|status|show|remove
-                                teach coding agents to use kero
-  kero daemon status|stop|restart
+  shibu skill setup|status|show|remove
+                                teach coding agents to use shibu
+  shibu daemon status|stop|restart
 
 A target is a session or a pane: an id, a prefix of it, or a session's
-name; a session stands for its focused pane. Inside kero, $KERO_PANE and
-$KERO_SESSION name the pane and session a command runs in, the default
+name; a session stands for its focused pane. Inside Shibu Code, $KERO_PANE
+and $KERO_SESSION name the pane and session a command runs in, the default
 target.
+
+The commands run under both names, shibu and kero: an agent or a script
+that already runs kero keeps working.
 
 Exit status: 0 ok, 1 failed, 2 bad usage, 3 no such target (or an
 ambiguous one), 4 kerod unreachable.
@@ -117,7 +122,7 @@ var (
 	errUnreachable = errors.New("unreachable")
 )
 
-// exitStatus is a waited-for program's exit status, which kero exits
+// exitStatus is a waited-for program's exit status, which shibu exits
 // with.
 type exitStatus int
 
@@ -133,7 +138,7 @@ func Run(args []string) int {
 	if errors.As(err, &es) {
 		return int(es)
 	}
-	fmt.Fprintln(os.Stderr, "kero:", err)
+	fmt.Fprintln(os.Stderr, "shibu:", err)
 	switch {
 	case errors.Is(err, errUsage):
 		return 2
@@ -198,7 +203,7 @@ func run(args []string) error {
 		fmt.Print(usage)
 		return nil
 	case "version", "--version":
-		fmt.Printf("kero (protocol %d)\n", proto.Version)
+		fmt.Printf("shibu (protocol %d)\n", proto.Version)
 		return nil
 	case "daemon":
 		return daemonCmd(args)
@@ -240,7 +245,7 @@ func run(args []string) error {
 	c, err := client.Connect(false)
 	if err != nil {
 		if errors.Is(err, client.ErrVersion) {
-			return fmt.Errorf("%w: the running kerod is of another version: run `kero daemon restart` (it restarts sessions)", errUnreachable)
+			return fmt.Errorf("%w: the running kerod is of another version: run `shibu daemon restart` (it restarts sessions)", errUnreachable)
 		}
 		return fmt.Errorf("%w: %v", errUnreachable, err)
 	}
@@ -292,7 +297,7 @@ func run(args []string) error {
 		}
 		command := append(f.pos, f.rest...)
 		if f.set["wait"] && len(command) == 0 {
-			return usageErr("kero new --wait needs a command: kero new --wait -- cmd…")
+			return usageErr("shibu new --wait needs a command: shibu new --wait -- cmd…")
 		}
 		dir := f.vals["dir"]
 		if dir == "" && f.vals["project"] == "" {
@@ -341,7 +346,7 @@ func run(args []string) error {
 		ratio, _ := strconv.ParseFloat(f.vals["ratio"], 64)
 		command := append(f.pos[min(1, len(f.pos)):], f.rest...)
 		if f.set["wait"] && len(command) == 0 {
-			return usageErr("kero split --wait needs a command: kero split --wait -- cmd…")
+			return usageErr("shibu split --wait needs a command: shibu split --wait -- cmd…")
 		}
 		// A view in place of a terminal: the project's tasks, its files
 		// (one open with --open), a page, or what needs the user.
@@ -376,7 +381,7 @@ func run(args []string) error {
 			}
 			target = t
 		case f.vals["widget"] != "":
-			return usageErr("kero split --widget needs --plugin <id>")
+			return usageErr("shibu split --widget needs --plugin <id>")
 		case f.set["attention"]:
 			view = proto.PaneAttention
 		}
@@ -413,7 +418,7 @@ func run(args []string) error {
 			return err
 		}
 		if len(f.pos) < 1 {
-			return usageErr("kero %s <target> <text…>", cmd)
+			return usageErr("shibu %s <target> <text…>", cmd)
 		}
 		t, err := find(st, f.pos[0])
 		if err != nil {
@@ -463,7 +468,7 @@ func run(args []string) error {
 
 	case "key":
 		if len(args) < 2 {
-			return usageErr("kero key <target> <key…>")
+			return usageErr("shibu key <target> <key…>")
 		}
 		t, err := find(st, args[0])
 		if err != nil {
@@ -507,7 +512,7 @@ func run(args []string) error {
 		}
 		if f.set["exit"] {
 			if f.vals["for"] != "" {
-				return usageErr("kero wait: --exit or --for, not both")
+				return usageErr("shibu wait: --exit or --for, not both")
 			}
 			return waitExit(c, t.ref(), f.vals["timeout"])
 		}
@@ -563,7 +568,7 @@ func run(args []string) error {
 
 	case "rename":
 		if len(args) < 2 {
-			return usageErr("kero rename <session> <name>")
+			return usageErr("shibu rename <session> <name>")
 		}
 		t, err := find(st, args[0])
 		if err != nil {
@@ -573,7 +578,7 @@ func run(args []string) error {
 
 	case "focus":
 		if len(args) < 1 {
-			return usageErr("kero focus <target>")
+			return usageErr("shibu focus <target>")
 		}
 		t, err := find(st, args[0])
 		if err != nil {
@@ -590,7 +595,7 @@ func run(args []string) error {
 
 	case "close", "kill", "restart":
 		if len(args) < 1 {
-			return usageErr("kero %s <target>", cmd)
+			return usageErr("shibu %s <target>", cmd)
 		}
 		t, err := find(st, args[0])
 		if err != nil {
@@ -606,12 +611,12 @@ func run(args []string) error {
 
 	case "do":
 		if len(args) < 1 {
-			return usageErr("kero do <action> [key=value…] (see kero actions)")
+			return usageErr("shibu do <action> [key=value…] (see shibu actions)")
 		}
 		id := args[0]
 		if a, ok := actions.Find(id); !ok || !a.Remote {
 			if !pluginCommand(id) {
-				return fmt.Errorf("%w: no action %q (see kero actions)", errNotFound, id)
+				return fmt.Errorf("%w: no action %q (see shibu actions)", errNotFound, id)
 			}
 		}
 		kv := map[string]string{}
@@ -641,7 +646,7 @@ func run(args []string) error {
 			ref = current()
 		}
 		if ref == "" {
-			return usageErr("which pane? run it in Kero, or give --session")
+			return usageErr("which pane? run it in Shibu Code, or give --session")
 		}
 		t, err := find(st, ref)
 		if err != nil {
@@ -649,7 +654,7 @@ func run(args []string) error {
 		}
 		return c.Call("notify", proto.NotifyParams{ID: t.ref(), Title: f.vals["title"], Body: strings.Join(append(f.pos, f.rest...), " ")}, nil)
 	}
-	return usageErr("unknown command %q (see kero help)", cmd)
+	return usageErr("unknown command %q (see shibu help)", cmd)
 }
 
 // target is what a command acts on: a session, or one of its panes.
@@ -702,7 +707,7 @@ func find(st proto.State, ref string) (target, error) {
 	return target{}, fmt.Errorf("%w: %q names several: %s", errNotFound, ref, strings.Join(ids, ", "))
 }
 
-// current is the pane a command runs in, inside kero.
+// current is the pane a command runs in, inside shibu.
 func current() string {
 	if p := os.Getenv("KERO_PANE"); p != "" {
 		return p
@@ -717,7 +722,7 @@ func findOrCurrent(st proto.State, pos []string) (target, error) {
 	if ref := current(); ref != "" {
 		return find(st, ref)
 	}
-	return target{}, usageErr("which session? (outside kero, name one)")
+	return target{}, usageErr("which session? (outside shibu, name one)")
 }
 
 func daemonCmd(args []string) error {
@@ -785,7 +790,7 @@ func StopDaemon() error {
 
 func listSessions(st proto.State) {
 	if len(st.Sessions) == 0 {
-		fmt.Println("no sessions (start one with kero new)")
+		fmt.Println("no sessions (start one with shibu new)")
 		return
 	}
 	names := map[string]string{}
@@ -850,7 +855,7 @@ func printJSON(v any) error {
 	return enc.Encode(v)
 }
 
-// keys are the names kero key takes, as the bytes a terminal sends.
+// keys are the names shibu key takes, as the bytes a terminal sends.
 var keys = map[string]string{
 	"enter": "\r", "return": "\r", "tab": "\t", "escape": "\x1b", "esc": "\x1b", "space": " ",
 	"backspace": "\x7f", "delete": "\x1b[3~", "up": "\x1b[A", "down": "\x1b[B", "right": "\x1b[C",
@@ -907,7 +912,7 @@ func waitExit(c *client.Client, pane, timeout string) error {
 }
 
 // report writes an OSC 7501 report of the program's status to the
-// terminal, as a script reports what it does: kero shows it, and so do
+// terminal, as a script reports what it does: shibu shows it, and so do
 // other terminals that read the protocol.
 func report(args []string) error {
 	f, err := parse(args, map[string]string{"kind": "kind", "progress": "progress", "app": "app", "id": "id", "title": "title"}, nil)
@@ -915,7 +920,7 @@ func report(args []string) error {
 		return err
 	}
 	if len(f.pos) < 1 {
-		return usageErr("kero report <idle|working|done|blocked|error|clear> [message]")
+		return usageErr("shibu report <idle|working|done|blocked|error|clear> [message]")
 	}
 	state := f.pos[0]
 	if !slices.Contains([]string{"idle", "working", "done", "blocked", "error", "clear"}, state) {
@@ -992,7 +997,7 @@ func knownPlugins() []registry.Plugin {
 }
 
 // pluginCommand tells whether id is the action of a command of a plugin
-// the app knows: plugin.<plugin>.<command>, as kero actions lists them.
+// the app knows: plugin.<plugin>.<command>, as shibu actions lists them.
 func pluginCommand(id string) bool {
 	plugin, command, ok := actions.ParsePluginCommand(id)
 	if !ok {

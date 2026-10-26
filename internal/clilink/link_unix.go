@@ -8,16 +8,25 @@ import (
 )
 
 func target(bin string) string {
-	t, _ := os.Readlink(filepath.Join(bin, "kero"))
-	return t
+	for _, name := range names {
+		if t, err := os.Readlink(filepath.Join(bin, name)); err == nil {
+			return t
+		}
+	}
+	return ""
 }
 
 func link(exe, bin string) error {
 	os.MkdirAll(bin, 0o755)
-	link := filepath.Join(bin, "kero")
-	if cur, err := os.Readlink(link); err == nil && cur == exe {
-		return nil
+	for _, name := range names {
+		link := filepath.Join(bin, name)
+		if cur, err := os.Readlink(link); err == nil && cur == exe {
+			continue
+		}
+		os.Remove(link)
+		if err := os.Symlink(exe, link); err != nil {
+			return err
+		}
 	}
-	os.Remove(link)
-	return os.Symlink(exe, link)
+	return nil
 }

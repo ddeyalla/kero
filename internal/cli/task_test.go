@@ -34,7 +34,7 @@ func taskState() *proto.State {
 func TestTaskContext(t *testing.T) {
 	st := taskState()
 	got := taskContext(st, st.Sessions[0])
-	for _, want := range []string{`the Linear project "Shibu Code"`, "kero task start <issue-id> --session s1", "BRU-<number>", "ask the user", "don't create one"} {
+	for _, want := range []string{`the Linear project "Shibu Code"`, "shibu task start <issue-id> --session s1", "BRU-<number>", "ask the user", "don't create one"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("no %q in %q", want, got)
 		}

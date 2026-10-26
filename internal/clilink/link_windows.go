@@ -10,19 +10,37 @@ import (
 	"strings"
 )
 
-// On Windows the command is a copy of the app's executable that runs in
+// On Windows the commands are copies of the app's executable that run in
 // the console: the app's runs without one (the GUI subsystem), so shells
 // would neither wait for it nor show what it prints. kero.target names the
-// executable it is a copy of, as it was then.
+// executable they are copies of, as it was then: its name stays, so that
+// an installed kero keeps updating.
+
+// targetFile is where the executable's stamp stays, as kero installed it.
+const targetFile = "kero.target"
 
 func target(bin string) string {
-	b, err := os.ReadFile(filepath.Join(bin, "kero.target"))
+	b, err := os.ReadFile(filepath.Join(bin, targetFile))
 	if err != nil {
 		return ""
 	}
 	exe, _, _ := strings.Cut(string(b), "\n")
 	return exe
 }
+
+// commands returns the commands' paths, in the order of their names.
+func commands(bin string) []string {
+	out := make([]string, len(names))
+	for i, name := range names {
+		out[i] = filepath.Join(bin, name+".exe")
+	}
+	return out
+}
+
+// installed is the command whose executable copy link keeps: kero's, the
+// one kerod has kept since before shibu, so that an installed command
+// updates in place.
+const installed = "kero"
 
 // stamp tells an executable's version: its path, size and time.
 func stamp(exe string) (string, error) {
@@ -41,9 +59,9 @@ func link(exe, bin string) error {
 	if err != nil {
 		return err
 	}
-	cmd := filepath.Join(bin, "kero.exe")
-	if have, err := os.ReadFile(filepath.Join(bin, "kero.target")); err == nil && string(have) == want {
-		if _, err := os.Stat(cmd); err == nil {
+	cmd := filepath.Join(bin, installed+".exe")
+	if have, err := os.ReadFile(filepath.Join(bin, targetFile)); err == nil && string(have) == want {
+		if all(commands(bin)) {
 			return nil
 		}
 	}
@@ -63,7 +81,7 @@ func link(exe, bin string) error {
 	}
 	// A running executable can't be replaced, but it can be moved: the
 	// last one goes aside, to be removed once nothing runs it.
-	olds, _ := filepath.Glob(filepath.Join(bin, "kero.exe.old*"))
+	olds, _ := filepath.Glob(filepath.Join(bin, "*.exe.old*"))
 	for _, o := range olds {
 		os.Remove(o)
 	}
@@ -76,7 +94,46 @@ func link(exe, bin string) error {
 	if err := os.Rename(tmp, cmd); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(bin, "kero.target"), []byte(want), 0o644)
+	if err := alias(bin); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(bin, targetFile), []byte(want), 0o644)
+}
+
+// all tells whether every command is there.
+func all(paths []string) bool {
+	for _, p := range paths {
+		if _, err := os.Stat(p); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// alias links each of the other commands to the installed one: a hard link,
+// which is one file on disk, or a copy where the file system has no links.
+// It runs after the installed command is replaced, so that a link never
+// holds the one it replaced.
+func alias(bin string) error {
+	cmd := filepath.Join(bin, installed+".exe")
+	for _, name := range names {
+		if name == installed {
+			continue
+		}
+		link := filepath.Join(bin, name+".exe")
+		os.Remove(link)
+		if os.Link(cmd, link) == nil {
+			continue
+		}
+		b, err := os.ReadFile(cmd)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(link, b, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // consoleExecutable turns a GUI executable into a console one: its

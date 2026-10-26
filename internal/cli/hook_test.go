@@ -178,3 +178,26 @@ func TestAgentPlugins(t *testing.T) {
 		t.Fatal("Pi's extensions directory went with Kero's extension")
 	}
 }
+
+// The context an agent reads names Shibu Code and the command it drives,
+// and keeps kero for what already runs it.
+func TestHookContextNamesTheApp(t *testing.T) {
+	got := hookContext(nil, "p1", "s1", false)
+	for _, want := range []string{"running in Shibu Code", "`shibu`", "`kero`", "$KERO_SESSION", "$KERO_PANE"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "running in Kero") {
+		t.Errorf("the old name in %q", got)
+	}
+	// An agent whose commands run away from its pane gets its pane as the
+	// target, in the command it is taught.
+	away := hookContext(nil, "p1", "s1", true)
+	if !strings.Contains(away, "`shibu split p1 --down -- npm run dev`") {
+		t.Errorf("no example of the pane as the target in %q", away)
+	}
+	if !strings.Contains(away, "give shibu your pane as the target") {
+		t.Errorf("no target instruction in %q", away)
+	}
+}

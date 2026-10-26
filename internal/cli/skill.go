@@ -10,63 +10,65 @@ import (
 	"kero/internal/proto"
 )
 
-// skillGuide teaches a coding agent kero: the skill `kero skill setup`
-// installs, from this binary, so that it follows kero's updates.
+// skillGuide teaches a coding agent the shibu command: the skill `shibu
+// skill setup` installs, from this binary, so that it follows Shibu Code's
+// updates. The skill keeps its name, kero, at the path agents already read.
 const skillGuide = `---
 name: kero
-description: Drive terminal sessions in Kero — start agents and commands in their own sessions or panes, type into them, wait for them, read their screens, and report your own status. Use when running inside Kero ($KERO_PANE is set) and the task needs another terminal, a long-running process, a parallel agent, or the user's attention.
+description: Drive terminal sessions in Shibu Code — start agents and commands in their own sessions or panes, type into them, wait for them, read their screens, and report your own status. Use when running inside Shibu Code ($KERO_PANE is set) and the task needs another terminal, a long-running process, a parallel agent, or the user's attention.
 ---
 
-# Kero
+# Shibu Code
 
-You run inside Kero, a terminal whose sessions keep running in the
+You run inside Shibu Code, a terminal whose sessions keep running in the
 background. $KERO_SESSION is your session and $KERO_PANE your pane; the
-` + "`kero`" + ` command drives them. A target is a session or a pane id (a
+` + "`shibu`" + ` command drives them. The same command is installed as ` + "`kero`" + ` too:
+both names take what follows. A target is a session or a pane id (a
 prefix works), or a session's name; a session stands for its focused pane.
 
 ## Run something beside you
 
-    kero split --down -- npm run dev          # a pane under yours; prints its id
-    kero new -n review -- claude              # a session of its own
-    kero new -n tests -d ~/code/app -- go test ./...
+    shibu split --down -- npm run dev          # a pane under yours; prints its id
+    shibu new -n review -- claude              # a session of its own
+    shibu new -n tests -d ~/code/app -- go test ./...
 
 Show the user something beside you, in a pane of its own:
 
-    kero split --browser 5173                 # the dev server's page
-    kero split --files --open docs/plan.md    # a file, Markdown as it reads
-    kero split --tasks                        # the project's Linear tasks
-    kero split --plugin spotify --widget now-playing   # a plugin's widget
+    shibu split --browser 5173                 # the dev server's page
+    shibu split --files --open docs/plan.md    # a file, Markdown as it reads
+    shibu split --tasks                        # the project's Linear tasks
+    shibu split --plugin spotify --widget now-playing   # a plugin's widget
 
-Name a session after its task (` + "`kero rename $KERO_SESSION fix-login-redirect`" + `)
+Name a session after its task (` + "`shibu rename $KERO_SESSION fix-login-redirect`" + `)
 so the user finds it in the sidebar.
 
 ## Drive it
 
-    kero send <target> "some text" --enter    # type, then press Enter
-    kero key <target> ctrl+c                  # enter, escape, up, tab, ctrl+d…
-    kero prompt <target> "run the tests"      # send + Enter, wait, print screen
-    kero wait <target> [--for idle,waiting,error,exited] [--timeout 10m]
-    kero wait <target> --exit                 # until its command ends; exits with its status
-    kero read <target> [-n 40] [-a]           # the screen, or with scrollback
-    kero status <target> --json               # status, program, directory
-    kero ls                                   # every session and pane
+    shibu send <target> "some text" --enter    # type, then press Enter
+    shibu key <target> ctrl+c                  # enter, escape, up, tab, ctrl+d…
+    shibu prompt <target> "run the tests"      # send + Enter, wait, print screen
+    shibu wait <target> [--for idle,waiting,error,exited] [--timeout 10m]
+    shibu wait <target> --exit                 # until its command ends; exits with its status
+    shibu read <target> [-n 40] [-a]           # the screen, or with scrollback
+    shibu status <target> --json               # status, program, directory
+    shibu ls                                   # every session and pane
 
 A pane's status is working, waiting (it needs the user), idle, error or
-exited. ` + "`kero wait`" + ` with no --for waits until it stops working. A
+exited. ` + "`shibu wait`" + ` with no --for waits until it stops working. A
 command such as a test run doesn't show as working: wait for it with --exit,
 or start it with --wait, which exits with the command's status:
 
-    pane=$(kero split --down -- go test ./...)
-    kero wait "$pane" --exit || kero read "$pane" -n 80
-    kero split --down --wait -- make build    # the same, in one step
+    pane=$(shibu split --down -- go test ./...)
+    shibu wait "$pane" --exit || shibu read "$pane" -n 80
+    shibu split --down --wait -- make build    # the same, in one step
 
 ## Find what needs the user
 
-    kero split --attention                     # the approval and attention queue
-    kero ls --json                             # sessions with their attention state
-    kero do attention.next-blocked              # focus the next session waiting on the user
-    kero do session.attention session=<target>  # reveal the pane that needs attention
-    kero do session.silence session=<target> state=on   # silence this session; off resumes
+    shibu split --attention                     # the approval and attention queue
+    shibu ls --json                             # sessions with their attention state
+    shibu do attention.next-blocked              # focus the next session waiting on the user
+    shibu do session.attention session=<target>  # reveal the pane that needs attention
+    shibu do session.silence session=<target> state=on   # silence this session; off resumes
 
 Attention is a normal pane. Its filter, search and scroll return after a
 restart. Use the existing pane and action commands; do not answer an agent's
@@ -74,12 +76,12 @@ approval prompt for the user without their instruction.
 
 ## Tell the user
 
-    kero report working "Migrating the database" --progress 40
-    kero report blocked "Approve the production deploy?" --kind permission
-    kero report done "Deployed to staging"
-    kero notify "Need your API key to continue"
+    shibu report working "Migrating the database" --progress 40
+    shibu report blocked "Approve the production deploy?" --kind permission
+    shibu report done "Deployed to staging"
+    shibu notify "Need your API key to continue"
 
-Reports are OSC 7501 sequences: Kero shows them in its sidebar, and
+Reports are OSC 7501 sequences: Shibu Code shows them in its sidebar, and
 notifies the user when you are blocked or done while they look elsewhere.
 Report blocked only when you truly cannot go on without them.
 
@@ -89,26 +91,26 @@ When the user tracks work in Linear, a task starts as an issue there.
 As soon as you know your task, find its issue (named in the prompt, or
 in the list) and start on it before anything else:
 
-    kero task list                            # this project's open issues
-    kero task start <issue-id>                # link this session, move it to In Progress
-    kero task                                 # the issue this session works on
+    shibu task list                            # this project's open issues
+    shibu task start <issue-id>                # link this session, move it to In Progress
+    shibu task                                 # the issue this session works on
 
-` + "`kero task start`" + ` links your session to the issue, so the app shows the
+` + "`shibu task start`" + ` links your session to the issue, so the app shows the
 work beside the task and can resume your conversation later; it prints
 the branch to work on. If no issue matches the task, ask the user which
 one it is; don't create one. Move the issue on as the work does:
 
-    kero linear set-state <issue-id> "In Review"
+    shibu linear set-state <issue-id> "In Review"
 
 Report your progress on it, so the app shows it on the issue's card:
 
-    kero report working "Fixing the login redirect" --id <issue-id> --app linear --progress 40
+    shibu report working "Fixing the login redirect" --id <issue-id> --app linear --progress 40
 
 ## Etiquette
 
-- Close what you started when it is done: ` + "`kero close <target>`" + `.
+- Close what you started when it is done: ` + "`shibu close <target>`" + `.
 - Never type into a pane you did not start unless the user asked.
-- Exit status 3 means no such target, 4 that Kero is not running.
+- Exit status 3 means no such target, 4 that Shibu Code is not running.
 `
 
 func skillCmd(args []string) error {
@@ -169,7 +171,7 @@ func skillCmd(args []string) error {
 			}
 		}
 		if sub == "setup" && !f.set["dry"] && len(hooks) > 0 {
-			fmt.Println("\nAgents started from now on in Kero learn which session they're in.")
+			fmt.Println("\nAgents started from now on in Shibu Code learn which session they're in.")
 			for _, h := range hooks {
 				if note := map[string]string{
 					"claude":   "Claude Code runs hooks only in folders you trust.",
@@ -182,7 +184,7 @@ func skillCmd(args []string) error {
 		}
 		return nil
 	}
-	return usageErr("kero skill setup|show|status|remove [--agent claude|codex|pi|opencode|agents] [--dry-run]")
+	return usageErr("shibu skill setup|show|status|remove [--agent claude|codex|pi|opencode|agents] [--dry-run]")
 }
 
 func sortedKeys(m map[string]string) []string {
@@ -253,8 +255,8 @@ type SkillState struct {
 	State string // "current", "outdated" (or partly installed) or "missing"
 }
 
-// SkillStates returns the state of kero's skill and hooks for each kind
-// of agent.
+// SkillStates returns the state of Shibu Code's skill and hooks for each
+// kind of agent.
 func SkillStates() []SkillState {
 	var out []SkillState
 	for _, agent := range []string{"claude", "agents"} {
@@ -275,8 +277,8 @@ func SkillStates() []SkillState {
 	return out
 }
 
-// InstallSkill installs, or updates, kero's skill and hooks for a kind of
-// agent.
+// InstallSkill installs, or updates, Shibu Code's skill and hooks for a
+// kind of agent.
 func InstallSkill(agent string) error {
 	dir := skillDirs(agent)[agent]
 	if dir == "" {
@@ -293,7 +295,7 @@ func InstallSkill(agent string) error {
 	return nil
 }
 
-// RemoveSkill removes kero's skill and hooks for a kind of agent.
+// RemoveSkill removes Shibu Code's skill and hooks for a kind of agent.
 func RemoveSkill(agent string) error {
 	dir := skillDirs(agent)[agent]
 	if dir == "" {
